@@ -72,9 +72,10 @@ class Film:
         assets = latest.get("assets", [])
         no_digest = sum(1 for a in assets if not a.get("digest"))
         pin = ""
-        arch = Path.home() / "src" / "tollgate-installer" / "arch.go"
-        if arch.exists():
-            m = re.search(r'feedReleaseTagDefault = "([^"]+)"', arch.read_text())
+        rc, o = sh(["git", "-C", str(Path.home() / "src" / "tollgate-installer"),
+                    "show", "origin/main:arch.go"])
+        if rc == 0:
+            m = re.search(r'feedReleaseTagDefault = "([^"]+)"', o)
             pin = m.group(1) if m else "?"
         rc, o = sh(["gh", "api", f"repos/{FEED_REPO}/contents/.github/workflows/release-publish.yml",
                     "--jq", ".content"])

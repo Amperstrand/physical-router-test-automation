@@ -14,12 +14,23 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import subprocess
 from pathlib import Path
 
-from nostr_publish.blossom import compute_sha256, guess_content_type, upload_to_blossom
+from nostr_publish.blossom import compute_sha256
 from nostr_publish.publisher import publish_nip94_event, publish_test_run_event
 
-TESTNUT = "https://testnut.cashu.exchange"
+
+def nak_upload(path: Path, server: str, nsec_hex: str) -> str:
+    """Upload via nak (strict BUD-11) — works on both psbt.me and primal,
+    and the server records the content type from the extension."""
+    r = subprocess.run(
+        ["nak", "blossom", "upload", "--server", server, "--sec", nsec_hex, str(path)],
+        capture_output=True, text=True, timeout=180,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"nak upload failed: {r.stderr.strip()[:200]}")
+    return json.loads(r.stdout.strip().splitlines()[-1])["url"]
 
 ARTIFACTS = [
     ("webm", "raw/act3/tollgate-installer-demo.webm"),
@@ -105,9 +116,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
     ap.add_argument("--nsec", default=str(Path.home() / ".config" / "prta" / "nsec"))
+    ap.add_argument("--blossom", default="https://blossom.primal.net",
+                    help="blossom server for uploads (primal serves content types)")
     args = ap.parse_args()
     run = Path(args.run).resolve()
     facts = json.loads((run / "facts.json").read_text())
+    nsec_hex = Path(args.nsec).read_text().strip()
 
     urls: dict[str, str] = {}
     for key, rel in ARTIFACTS:
@@ -115,12 +129,9 @@ def main() -> int:
         if not path.exists():
             print(f"[skip] {rel} (missing)")
             continue
-        ct = "video/webm" if path.suffix == ".webm" else guess_content_type(path)
         try:
-            r = upload_to_blossom(str(path), args.nsec, content_type=ct,
-                                  auto_pay_mint=TESTNUT)
-            urls[key] = r["url"]
-            print(f"[ok] {key}: {r['url']}{' (paid)' if r.get('paid') else ''}")
+            urls[key] = nak_upload(path, args.blossom, nsec_hex)
+            print(f"[ok] {key}: {urls[key]}")
         except Exception as e:  # noqa: BLE001 — one artifact failing is a finding
             print(f"[FAIL] {key}: {e}")
     if "webm" not in urls:
@@ -129,9 +140,8 @@ def main() -> int:
 
     viewer_path = run / "film-online.html"
     viewer_path.write_bytes(build_viewer(run, urls, facts))
-    r = upload_to_blossom(str(viewer_path), args.nsec, content_type="text/html")
-    urls["viewer"] = r["url"]
-    print(f"[ok] viewer: {r['url']}")
+    urls["viewer"] = nak_upload(viewer_path, args.blossom, nsec_hex)
+    print(f"[ok] viewer: {urls['viewer']}")
 
     webm_path = run / "raw" / "act3" / "tollgate-installer-demo.webm"
     sha = compute_sha256(str(webm_path))

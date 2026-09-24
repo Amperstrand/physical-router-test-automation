@@ -61,9 +61,8 @@ try {
   console.log('waiting for scan to finish (ARP sweep ~45s)...');
   await page.goto(url);
   await page.waitForSelector('#select-view:not(.hidden)', { timeout: 180000 });
-  await page.screenshot({ path: OUT + '/01-scan-results.png' });
-
   await page.selectOption('#router-select', ROUTER_IP);
+  await page.screenshot({ path: OUT + '/01-scan-results.png' });
   await page.fill('#password', PASSWORD);
   await page.click('#mode-wan');
   await page.fill('#lnurl', LN);

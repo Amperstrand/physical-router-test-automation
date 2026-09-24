@@ -36,11 +36,21 @@ class InstallerService:
         src = Path(os.environ.get("TOLLGATE_INSTALLER_SRC", str(DEFAULT_SRC)))
         if not src.exists():
             raise InstallerServiceError(f"installer source not found: {src}")
+        ref = os.environ.get("TOLLGATE_INSTALLER_REF", "main")
+        remote = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
+                                capture_output=True, text=True)
+        upstream = remote.stdout.strip() if remote.returncode == 0 else ""
         self._tmp = tempfile.TemporaryDirectory(prefix="prta-installer-")
         clone = Path(self._tmp.name) / "src"
-        subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True, timeout=120)
+        if upstream:
+            subprocess.run(["git", "clone", "-q", "--branch", ref, upstream, str(clone)],
+                           check=True, timeout=180)
+        else:
+            subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True, timeout=120)
         # A clone contains committed state only: uncommitted WIP in the
-        # source checkout is deliberately never the test target.
+        # source checkout is deliberately never the test target. The
+        # default ref is upstream main — a stale local checkout must not
+        # decide what gets tested.
         r = subprocess.run(["go", "build", "-o", "tollgate-installer", "."], cwd=clone,
                            capture_output=True, text=True, timeout=600)
         if r.returncode != 0:

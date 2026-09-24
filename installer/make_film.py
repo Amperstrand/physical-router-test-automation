@@ -199,7 +199,7 @@ class Film:
             works.append(f"Feed publishes {feed['assets']} assets across {feed['arches']} arches "
                          f"(ipk for OpenWrt ≤24.x + apk for 25+), latest {feed['latest_tag']} "
                          f"({feed['published'][:10]})")
-        if suite.get("passed"):
+        if suite.get("passed") and not suite.get("failed"):
             works.append(f"PRTA installer E2E suite: {suite['passed']} passed in {suite['duration_s']}s "
                          "(scan → deploy → branded-healthy router, fresh VM)")
         if wiz.get("status") == "ok":

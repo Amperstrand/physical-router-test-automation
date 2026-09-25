@@ -117,6 +117,12 @@ class Film:
         lab.cleanup_prior()
         lab.ensure_network()
         lab.boot_fresh_vm()
+        import subprocess
+        ks = subprocess.run(["ssh-keyscan", "-t", "rsa", "10.99.95.1"],
+                            capture_output=True, text=True, timeout=30).stdout
+        fp = subprocess.run(["ssh-keygen", "-lf", "-"], input=ks,
+                            capture_output=True, text=True).stdout.split()[1]
+        __import__("os").environ["TOLLGATE_TRUST_HOST_KEY"] = fp
         ev = []
         for label, cmd in [
             ("OpenWrt release", ". /etc/openwrt_release; echo $DISTRIB_RELEASE $DISTRIB_ARCH"),

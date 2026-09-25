@@ -48,7 +48,19 @@ def installer_lab():
     lab.cleanup_prior()
     lab.ensure_network()
     lab.boot_fresh_vm()
+
+    # The installer (post #41) refuses SSH to untrusted hosts before auth.
+    # The lab base has no host keys: each fresh VM generates new ones at
+    # first boot, and the Go client negotiates dropbear's RSA key — so the
+    # pin must be computed per boot, from this exact VM.
+    import subprocess
+    ks = subprocess.run(["ssh-keyscan", "-t", "rsa", "10.99.95.1"],
+                        capture_output=True, text=True, timeout=30).stdout
+    fp = subprocess.run(["ssh-keygen", "-lf", "-"], input=ks,
+                        capture_output=True, text=True).stdout.split()[1]
+    os.environ["TOLLGATE_TRUST_HOST_KEY"] = fp
     yield lab
+    os.environ.pop("TOLLGATE_TRUST_HOST_KEY", None)
     lab.stop_vm()
     lab.teardown_network()
 

@@ -40,8 +40,10 @@ def test_deploy_completes_all_steps(installer_service, installer_lab):
     assert status.get("status") == "done", f"deploy not done: {json.dumps(status)[:800]}"
     steps = status.get("steps", [])
     assert len(steps) == 12, f"expected 12 deploy steps, got {len(steps)}"
-    bad = [s.get("name") for s in steps if s.get("status") != "done"]
-    assert not bad, f"steps not done: {bad}; full: {json.dumps(steps)[:800]}"
+    # "warn" is a completed step with a warning (e.g. install when the feed
+    # offers no independently-anchored digest); only "failed" fails the run.
+    bad = [s.get("name") for s in steps if s.get("status") not in ("done", "warn")]
+    assert not bad, f"steps not done/warn: {bad}; full: {json.dumps(steps)[:800]}"
     install = next(s for s in steps if s.get("name") == "install")
     assert "tollgate-wrt" in install.get("detail", ""), (
         f"install step detail missing tollgate-wrt: {install}"

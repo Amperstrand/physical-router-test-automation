@@ -1859,3 +1859,35 @@ router's dnsmasq is unreliable during provisioning — see the fast-start
 notes above). Natural follow-up: fold the NDS mark workaround into the
 lab runner / `lib/router.py` as a `fix_nodogsplash_auth_marks()` helper
 in the spirit of `fix_nodogsplash_dhcp()`.
+
+## Installer E2E Suite + Film Pipeline (installer/)
+
+`pytest installer/ -v --timeout-method=signal` — self-provisioning suite
+(3/3, ~140s): isolated bridge `tg-inst-br` (10.99.95.0/24), fresh VM per
+session from the baked base, wizard built from **upstream main** (never a
+stale local checkout — that trap deployed a 20-release-old pin once).
+`installer/make_film.py --new-run` / `--acts all` films the whole path
+(feed state → boot → wizard → verify → 0.6.0 state); `publish_film.py`
+pushes to blossom+nostr.
+
+Operational lessons (earned 2026-09):
+
+- **Host keys are per-boot**: the base image ships none; each fresh VM
+  generates new ones. The installer (post #41) fail-closed refuses
+  untrusted hosts pre-auth — pin per boot via `TOLLGATE_TRUST_HOST_KEY`,
+  and pin the **RSA** fingerprint (the Go client negotiates dropbear's
+  RSA key; an ed25519 pin mismatches). See conftest.py.
+- **The lab's serial re-IP sets `network.lan.gateway`; stock routers
+  don't have one.** Chains like `uci … && uci -q delete network.lan.gateway`
+  exit 1 on stock and silently stage deltas — the lab masked exactly this
+  bug in an upstream PR review. Rig gap is structural (the VM needs the
+  gateway for internet); a second-NIC wan would simulate stock properly.
+- **`install` step may end `warn`** (feed lacks an independently-anchored
+  digest) — that's completed-with-warning, not failure.
+- **PR-head testing**: fetch `refs/pull/N/head` (heads live on forks);
+  pass `TOLLGATE_INSTALLER_BIN` and *prove it reached the wizard* — an
+  env var read but never applied silently tested the wrong binary twice.
+- **Orchestrator process-tree kills**: long-lived lab QEMU must be
+  started by a short-lived driver that exits (orphaned = survives);
+  per-take services die with their take. `git stash` in a worktree
+  operates on the SHARED stash list — never stash from a worktree.

@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for apk (apk-tools 3.x — the OpenWrt 25.x lane).
+#
+# It models exactly what the offline installer depends on, and nothing else:
+#
+#   * flag handling, including the REAL failure mode documented in the
+#     tollgate-development skill reference offline-apk-dep-closure-and-keepalive.md:
+#     `apk add --no-network` ABORTS on a configured feed whose index cache is
+#     missing unless --force-missing-repositories is given.  A WAN-less router has
+#     never run `apk update`, so every feed index is missing — which is why that
+#     flag is load-bearing rather than cosmetic.
+#   * `add <file>...`   installs a fixture package into the router root
+#   * `extract --allow-untrusted --destination D <file>`  (used for the payload
+#     identity gate: the hash of usr/bin/tollgate-wrt inside the artifact)
+#   * `info -v`, `info -R <name>`, `update`
+#
+# Fixture package format (built by make-bundle.sh): a tar.gz with
+#   PKGINFO    name=… version=… arch=… depends=… provides=… description=…
+#   postinst   optional; if it contains `fw4 reload`, the double models the postinst
+#              loading /etc/nftables.d/*.nft into fw4 — that is what makes the
+#              admin-board guard appear WITHOUT a manual reload
+#   <payload>  installed as-is into the router root
+#
+# A package whose PKGINFO declares no payload (an "empty stub") installs nothing and
+# still exits 0 — which is precisely the case the installer's runtime-payload gate
+# must catch, because nodogsplash execs `iptables --version` at start-up.
+set -uo pipefail
+
+ROOT="${TGOFFLINE_HARNESS_ROOT:?the harness must export TGOFFLINE_HARNESS_ROOT}"
+LOG="$ROOT/var/log/apk.log"
+POSTINST_LOG="$ROOT/var/log/postinst.log"
+DB="$ROOT/var/lib/apk"
+HSTATE="$ROOT/var/lib/tgoffline-harness"
+mkdir -p "$DB/depends" "$HSTATE"
+
+log() { printf '%s\n' "$*" >> "$LOG"; }
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    --version|-V|--print-arch)
+        echo "apk-tools 3.0.7-r0, compiled for aarch64."
+        exit 0
+        ;;
+    version)
+        echo "apk-tools 3.0.7-r0"
+        exit 0
+        ;;
+    update)
+        if [ -f "$HSTATE/no-uplink" ]; then
+            echo "ERROR: unable to fetch https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/packages.adb: network unreachable" >&2
+            echo "ERROR: unable to update repositories" >&2
+            exit 1
+        fi
+        echo "OK: 11129 distinct packages available"
+        exit 0
+        ;;
+    info)
+        flag=""; name=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -v|-R|-L|-a) flag="$1" ;;
+                *) name="$1" ;;
+            esac
+            shift
+        done
+        case "$flag" in
+            -v)
+                [ -f "$DB/installed" ] || exit 0
+                awk '{print $1"-"$2}' "$DB/installed"
+                ;;
+            -R)
+                cat "$DB/depends/$name" 2>/dev/null
+                ;;
+            *) exit 0 ;;
+        esac
+        exit 0
+        ;;
+    extract)
+        dest=""; file=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --allow-untrusted|--no-network) ;;
+                --destination) dest="$2"; shift ;;
+                --destination=*) dest="${1#--destination=}" ;;
+                -*) ;;
+                *) file="$1" ;;
+            esac
+            shift
+        done
+        [ -n "$file" ] && [ -n "$dest" ] || { echo "apk(double): extract needs --destination and a file" >&2; exit 2; }
+        [ -f "$file" ] || { echo "ERROR: $file: No such file or directory" >&2; exit 1; }
+        echo "Extracting $file..."
+        mkdir -p "$dest"
+        tar xzf "$file" -C "$dest" || { echo "ERROR: $file: not a valid package" >&2; exit 1; }
+        exit 0
+        ;;
+    add)
+        no_network=0; allow_untrusted=0; force_missing=0
+        files=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --no-network) no_network=1 ;;
+                --allow-untrusted) allow_untrusted=1 ;;
+                --force-missing-repositories) force_missing=1 ;;
+                --*) ;;
+                *) files="$files $1" ;;
+            esac
+            shift
+        done
+        # ---- the missing-index abort (the flag's whole reason to exist) -------------
+        # NOTE the ordering: the invocation lines are logged only AFTER this gate.
+        # An aborted `apk add` must not look like a completed invocation in the log —
+        # that is exactly what T16's negative control asserts (the aborted call
+        # installs nothing and leaves no "Running .apk add" line behind).
+        if [ "$force_missing" = 0 ] && [ -d "$ROOT/etc/apk/repositories.d" ]; then
+            for repo in "$ROOT"/etc/apk/repositories.d/*.list; do
+                [ -f "$repo" ] || continue
+                index="$ROOT/var/lib/apk/repositories/$(basename "$repo" .list).adb"
+                if [ ! -f "$index" ]; then
+                    echo "ERROR: $index: No such file or directory" >&2
+                    echo "ERROR: unable to select packages:" >&2
+                    echo "  nodogsplash (no such package):" >&2
+                    echo "    required by: world[nodogsplash]" >&2
+                    echo "ERROR: a repository index is missing; pass --force-missing-repositories for an offline install" >&2
+                    exit 1
+                fi
+            done
+        fi
+        log "apk add: no-network=$no_network allow-untrusted=$allow_untrusted force-missing-repositories=$force_missing files:$files"
+        log "Running .apk add$files"
+        # ---- install each named file ----------------------------------------------
+        for file in $files; do
+            if [ ! -f "$file" ]; then
+                echo "ERROR: $file: No such file or directory" >&2
+                exit 1
+            fi
+            tmp="$(mktemp -d)"
+            if ! tar xzf "$file" -C "$tmp" 2>/dev/null; then
+                echo "ERROR: $file: not a valid apk (bad magic or corrupt archive)" >&2
+                rm -rf "$tmp"
+                exit 1
+            fi
+            if [ ! -f "$tmp/PKGINFO" ]; then
+                echo "ERROR: $file: no PKGINFO — not a package" >&2
+                rm -rf "$tmp"
+                exit 1
+            fi
+            name="$(sed -n 's/^name=//p' "$tmp/PKGINFO" | head -1)"
+            version="$(sed -n 's/^version=//p' "$tmp/PKGINFO" | head -1)"
+            depends="$(sed -n 's/^depends=//p' "$tmp/PKGINFO" | head -1)"
+            # payload = everything except the control members
+            ( cd "$tmp" && tar cf - --exclude=./PKGINFO --exclude=./postinst . ) | ( cd "$ROOT" && tar xf - )
+            printf '%s %s\n' "$name" "$version" >> "$DB/installed"
+            printf '%s\n' "$depends" > "$DB/depends/$name"
+            log "Installed $name-$version (depends: ${depends:-none})"
+            # ---- postinst modelling --------------------------------------------------
+            if [ -f "$tmp/postinst" ]; then
+                if grep -qE 'fw4 reload|firewall reload' "$tmp/postinst"; then
+                    guard="$ROOT/etc/nftables.d/31-admin-board-not-guest-reachable.nft"
+                    if [ -f "$guard" ] && grep -q 'br-lan' "$guard"; then
+                        {
+                            echo "table inet fw4 {"
+                            echo "	chain admin_board_input_guard {"
+                            echo "		type filter hook input priority filter - 1; policy accept;"
+                            echo "		meta nfproto ipv4 iifname \"br-lan\" tcp dport { 8090, 8443 } counter packets 0 bytes 0 drop"
+                            echo "		meta nfproto ipv6 iifname \"br-lan\" tcp dport { 8090, 8443 } counter packets 0 bytes 0 drop"
+                            echo "	}"
+                            echo "}"
+                        } > "$HSTATE/nft_admin_board_input_guard"
+                        printf 'postinst: fw4 reload -> %s loaded into inet fw4\n' \
+                            "$(basename "$guard")" >> "$POSTINST_LOG"
+                    else
+                        printf 'postinst: fw4 reload, but no admin-board fragment in the payload\n' >> "$POSTINST_LOG"
+                    fi
+                else
+                    printf 'postinst: no firewall reload (the guard fragment stays unloaded until something reloads fw4)\n' >> "$POSTINST_LOG"
+                fi
+            fi
+            rm -rf "$tmp"
+        done
+        exit 0
+        ;;
+    *)
+        echo "apk(double): unsupported command '${cmd}'" >&2
+        exit 2
+        ;;
+esac

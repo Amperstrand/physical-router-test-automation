@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for scp.  The offline installer must NEVER use scp: `scp -O` fails on a
+# fresh dropbear (no sftp-server), which is why staging goes through an ssh stdin
+# redirect.  This double fails loudly and records every attempt, so the suite can prove
+# the installer never reaches for it.
+set -uo pipefail
+SCP_LOG="${TGOFFLINE_HARNESS_SCP_LOG:-}"
+[ -n "$SCP_LOG" ] && printf 'scp %s\n' "$*" >> "$SCP_LOG"
+echo "scp(double): Connection closed — scp -O is broken on a fresh dropbear (no sftp-server); use an ssh stdin redirect" >&2
+exit 1

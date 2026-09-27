@@ -32,6 +32,8 @@ class FakeDevice:
         self._state = state
 
     def screenshot(self, path):
+        if self._image_factory is None:
+            return False
         self._image_factory(path)
         return True
 
@@ -118,3 +120,17 @@ def test_size_fallback_without_pil(tmp_path, monkeypatch):
     rec = _recorder(tmp_path, FakeDevice(_black_frame))
     rec.shot("01", "claim")
     assert rec.steps[0]["visual"] == "degraded:blank"
+
+
+def test_failed_capture_recorded_loudly_with_state_sidecar(tmp_path):
+    dev = FakeDevice(None, state="validation: VALIDATED\nwifi: fake\n")
+    rec = _recorder(tmp_path, dev)
+    path = rec.shot("01-portal", "portal visible")
+    assert path is None
+    entry = rec.steps[0]
+    assert entry["visual"] == "capture-failed"
+    assert entry["evidence_ok"] is False
+    assert Path(entry["state"]).exists()
+    rec.write_manifest()
+    data = json.loads((Path(rec.art_dir) / "evidence-steps.json").read_text())
+    assert data["steps"][0]["visual"] == "capture-failed"

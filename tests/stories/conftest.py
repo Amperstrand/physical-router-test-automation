@@ -85,13 +85,17 @@ class ADBClientDevice:
         return "1 received" in self._shell(f"ping -c1 -W3 {host}")
 
     def screenshot(self, path: str) -> bool:
-        subprocess.run(
-            self._base + ["shell", "screencap", "-p", "/sdcard/tg-ss.png"],
-            capture_output=True, timeout=15)
+        # exec-out streaming: on-device /sdcard can be unwritable after a
+        # wedged reboot (FUSE storage lock) — this path needs no device
+        # storage at all.
         r = subprocess.run(
-            self._base + ["pull", "/sdcard/tg-ss.png", path],
+            self._base + ["exec-out", "screencap", "-p"],
             capture_output=True, timeout=15)
-        return r.returncode == 0
+        if r.returncode != 0 or not r.stdout.startswith(b"\x89PNG"):
+            return False
+        with open(path, "wb") as f:
+            f.write(r.stdout)
+        return True
 
     def submit_token(self, token: str) -> bool:
         gateway = self._shell(
@@ -405,7 +409,7 @@ class StoryRecorder:
         if not callable(state):
             return None
         text = state()
-        if not text:
+        if not isinstance(text, str) or not text:
             return None
         path = os.path.join(self.art_dir, f"{step}.state.txt")
         with open(path, "w") as f:
@@ -414,27 +418,35 @@ class StoryRecorder:
 
     def shot(self, step: str, claim: str):
         path = os.path.join(self.art_dir, f"{step}.png")
-        if self.device and self.device.screenshot(path):
-            entry = {
-                "step": step, "file": path, "claim": claim,
-                "timestamp": time.strftime("%H:%M:%S"),
-            }
-            visual = self._assess_visual(path)
-            entry["visual"] = visual
-            entry["evidence_ok"] = visual == "ok"
-            if visual != "ok":
-                log.warning(
-                    "EVIDENCE DEGRADED [%s]: %s — screenshot cannot "
-                    "substantiate '%s' (see %s.state.txt)",
-                    step, visual, claim, step)
-            state_path = self._write_state(step)
-            if state_path:
-                entry["state"] = state_path
+        entry: dict = {
+            "step": step, "file": path, "claim": claim,
+            "timestamp": time.strftime("%H:%M:%S"),
+        }
+        state_path = self._write_state(step)
+        if state_path:
+            entry["state"] = state_path
+        captured = bool(self.device) and self.device.screenshot(path)
+        if not captured:
+            log.warning(
+                "EVIDENCE CAPTURE FAILED [%s]: no screenshot for '%s' "
+                "(state sidecar: %s)",
+                step, claim, state_path or "none")
+            entry["visual"] = "capture-failed"
+            entry["evidence_ok"] = False
             self.steps.append(entry)
-            log.info("evidence: %s (%s, visual=%s)",
-                     step, claim, visual)
-            return path
-        return None
+            return None
+        visual = self._assess_visual(path)
+        entry["visual"] = visual
+        entry["evidence_ok"] = visual == "ok"
+        if visual != "ok":
+            log.warning(
+                "EVIDENCE DEGRADED [%s]: %s — screenshot cannot "
+                "substantiate '%s' (see %s.state.txt)",
+                step, visual, claim, step)
+        self.steps.append(entry)
+        log.info("evidence: %s (%s, visual=%s)",
+                 step, claim, visual)
+        return path
 
     def write_manifest(self):
         import json
@@ -496,7 +508,9 @@ class AndroidScreenRecorder:
         n = 0
         while not self._stop.is_set():
             n += 1
-            remote = f"/sdcard/tg-story-seg{n:02d}.mp4"
+            # /data/local/tmp stays writable when emulated /sdcard is
+            # locked after a wedged reboot
+            remote = f"/data/local/tmp/tg-story-seg{n:02d}.mp4"
             p = subprocess.Popen(
                 ["adb", "-s", self.serial, "shell", "screenrecord",
                  "--time-limit", str(self.SEGMENT_SECONDS), remote])

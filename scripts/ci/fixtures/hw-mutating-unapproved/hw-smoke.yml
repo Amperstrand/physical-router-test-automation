@@ -1,0 +1,18 @@
+# FIXTURE (self-test only) — regression: the mutating lane runs mutating,
+# paid-traffic specs with no environment approval gate in front of it.
+name: HW Smoke
+on:
+  workflow_dispatch:
+jobs:
+  readonly-surface:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: bash scripts/hw-readonly-check.sh
+  mutating-e2e:
+    needs: [readonly-surface]
+    runs-on: [self-hosted, tollgate-router]
+    env:
+      TOLLGATE_ENABLE_WIFI_CLIENT_TESTS: 'true'
+      TOLLGATE_ENABLE_DATA_ALLOTMENT_TESTS: 'true'
+    steps:
+      - run: npx playwright test

@@ -289,6 +289,11 @@ def _sanitize_vm_name(run_id: str) -> str:
 
 
 def _suite_ref() -> str:
+    # Explicit override beats the local-HEAD default: a shared working tree on
+    # a stale branch silently pins the worker to old suite code (seen twice).
+    env_ref = os.environ.get("TOLLGATE_SUITE_REF", "").strip()
+    if env_ref:
+        return env_ref
     repo_dir = Path(__file__).resolve().parents[2]
     r = subprocess.run(
         ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],

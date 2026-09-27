@@ -1,0 +1,14 @@
+# Fixture: a PR-reachable workflow whose runner target is an EXPRESSION. It
+# cannot be verified by reading the file, so the guard must fail closed.
+name: expression runner
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  sneaky:
+    runs-on: ${{ vars.RUNNER_LABEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "who knows where this lands"

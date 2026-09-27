@@ -67,6 +67,12 @@ def test_embedded_cli_version(rust_basic_server):
 )
 def test_embedded_nftables_table_installed():
     """Verify nftables tollgate table is installed when binary runs as root."""
+    # Only meaningful where the tollgate binary runs on THIS host (local dry
+    # venue). On cloud/hardware venues the backend lives on the router/VM and
+    # `nft list` here inspects the wrong machine entirely.
+    provider = os.environ.get("TOLLGATE_VM_PROVIDER", "physical")
+    if provider not in ("local", "local-kvm"):
+        pytest.skip(f"nftables table check is local-venue only (provider={provider})")
     resp = subprocess.run(
         ["nft", "list", "table", "inet", "tollgate"],
         capture_output=True, text=True, timeout=5,

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for curl — the HTTP surface model for both sides of the verification:
+#   * the router-side surface probe (http://127.0.0.1:PORT/) and the BOLT11 quote
+#     (POST http://127.0.0.1:2121/ln-invoice), and
+#   * the br-lan client probes the laptop driver runs (http://192.168.1.1:PORT/).
+#
+# Codes come from <root>/var/lib/tgoffline-harness/http_codes (port → code).  Ports
+# 8090/8443 are DERIVED from the guard state on purpose: with the admin-board guard
+# loaded into fw4 they are refused (000), and without it they answer 200 — which is the
+# actual failure mode the guard exists to prevent.
+set -uo pipefail
+
+ROOT="${TGOFFLINE_HARNESS_ROOT:?the harness must export TGOFFLINE_HARNESS_ROOT}"
+HSTATE="$ROOT/var/lib/tgoffline-harness"
+
+url=""; write_out=""; fmt=""; method="GET"; data=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o) write_out="$2"; shift 2 ;;
+        -w) fmt="$2"; shift 2 ;;
+        -X) method="$2"; shift 2 ;;
+        -d|--data|--data-raw) data="$2"; shift 2 ;;
+        -H|-m|--max-time|-A|-u) shift 2 ;;
+        http://*|https://*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+
+scheme="${url%%://*}"
+rest="${url#*://}"
+hostport="${rest%%/*}"
+path="/${rest#*/}"
+[ "$path" = "/$rest" ] && path="/"
+port="${hostport##*:}"
+case "$hostport" in
+    *:*) : ;;
+    *) [ "$scheme" = https ] && port=443 || port=80 ;;
+esac
+[ -n "$port" ] || port=80
+
+guard_loaded() { [ -f "$HSTATE/nft_admin_board_input_guard" ]; }
+
+code_for() { # $1=port
+    explicit="$(awk -v p="$1" '$1 == p { print $2 }' "$HSTATE/http_codes" 2>/dev/null | head -1)"
+    if [ -n "$explicit" ]; then printf '%s' "$explicit"; return; fi
+    case "$1" in
+        8090|8443) if guard_loaded; then printf '000'; else printf '200'; fi ;;
+        *) printf '000' ;;
+    esac
+}
+
+body=""
+code="$(code_for "$port")"
+
+# the BOLT11 quote endpoint (the module's real route: POST /ln-invoice {"amount":21})
+case "$path" in
+    /ln-invoice)
+        if [ "$method" = POST ]; then
+            if [ -f "$HSTATE/no-bolt11" ]; then
+                code=500
+                body='{"error":"no wallet configured"}'
+            else
+                code=200
+                body='{"quote":"harness-quote-1","payment_hash":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","payment_request":"lnbc21n1p3harness20bolt11invoice20stand20in20for20tests20only20qqqqqqqqqqqqqqqqqqqqqqq"}'
+            fi
+        else
+            code=200
+            body='{"status":"unpaid"}'
+        fi
+        ;;
+esac
+
+if [ -n "$write_out" ] && [ "$write_out" != "/dev/null" ]; then
+    printf '%s' "$body" > "$write_out"
+fi
+
+if [ -n "$fmt" ]; then
+    case "$fmt" in
+        *'{http_code}'*) printf '%s' "$code" ;;
+        *) printf '%s' "$fmt" ;;
+    esac
+else
+    printf '%s' "$body"
+fi
+exit 0

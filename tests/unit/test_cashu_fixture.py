@@ -19,6 +19,7 @@ from lib.cashu_fixture import (
     _resolve_mint_url,
     cleanup_token,
 )
+from lib.cashu import _encode_c
 
 
 # --------------------------------------------------------------------------- #
@@ -286,3 +287,22 @@ class TestCleanupToken:
         mt.mark_consumed()
         # Should not raise even though dir doesn't exist
         cleanup_token(mt)
+
+
+class TestEncodeC:
+    """_encode_c dialect knob: hex (backend) default, base64 (portal) opt-in."""
+
+    POINT = bytes([2]) + bytes(range(1, 33))  # 33-byte compressed point
+
+    def test_default_is_hex(self, monkeypatch):
+        monkeypatch.delenv("TOLLGATE_TOKEN_C_BASE64", raising=False)
+        assert _encode_c(self.POINT) == self.POINT.hex()
+
+    def test_base64_opt_in(self, monkeypatch):
+        monkeypatch.setenv("TOLLGATE_TOKEN_C_BASE64", "1")
+        import base64 as _b64
+        assert _encode_c(self.POINT) == _b64.b64encode(self.POINT).decode()
+
+    def test_hex_form_round_trips_to_33_bytes(self, monkeypatch):
+        monkeypatch.delenv("TOLLGATE_TOKEN_C_BASE64", raising=False)
+        assert len(bytes.fromhex(_encode_c(self.POINT))) == 33

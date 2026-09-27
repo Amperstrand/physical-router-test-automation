@@ -498,6 +498,7 @@ All 26 scripts in `scripts/`:
 | `publish-report.sh` | Publish test report to gh-pages with dashboard index. Purges old runs beyond `TOLLGATE_GH_PAGES_KEEP` |
 | `collect-results.py` | Canonical result parser — reads JUnit XML + Playwright JSON, writes `run.json` + `summary.json` into run directory |
 | `render-report.py` | Self-contained HTML report generator from canonical `run.json`/`summary.json`. No external dependencies |
+| `record-demo.py` | Synchronized demo recorder — runs a clientd session with router logs + status bar on one clock, renders a scrubbable `player.html` and optional `.webm` (make target: record-demo-clientd). See [docs/demo-recording.md](docs/demo-recording.md) |
 
 ### Setup
 

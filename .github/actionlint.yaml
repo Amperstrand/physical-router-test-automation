@@ -1,0 +1,14 @@
+# actionlint configuration.
+#
+# Documents every self-hosted runner label this repo uses, so actionlint stays
+# clean on custom labels instead of every editor ignoring the warning.
+#   - tollgate-router : the bench runner. Used ONLY by
+#     .github/workflows/hw-smoke.yml — the single workflow allowed to run bench
+#     work. scripts/ci/check-workflow-hw-isolation.sh fails any PR that puts
+#     this label on a pull_request-reachable workflow.
+#   - cloud-lab       : the ephemeral GCP runner, registered by the VM that
+#     cloud-lab.yml provisions.
+self-hosted-runner:
+  labels:
+    - tollgate-router
+    - cloud-lab

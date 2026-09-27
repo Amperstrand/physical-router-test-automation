@@ -1,0 +1,12 @@
+# FIXTURE (self-test only) — regression: a trigger outside the whitelist. Even
+# a `push` trigger lets main-branch code choose what runs on the bench runner.
+name: HW Smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  readonly-surface:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: bash scripts/hw-readonly-check.sh

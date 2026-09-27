@@ -201,14 +201,48 @@ def extract_proofs(decoded: Any) -> list[dict]:
     return []
 
 
+def _entry_mint(entry: Any) -> str:
+    """Mint URL of one token entry, in either spelling (`mint` / V4 short `m`)."""
+    if not isinstance(entry, dict):
+        return ""
+    for key in ("mint", "m"):
+        value = entry.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
 def extract_mint_url(decoded: Any) -> str:
-    """Extract mint URL from decoded token if present."""
-    if isinstance(decoded, dict):
-        token_obj = decoded.get("token", decoded)
-        if isinstance(token_obj, dict):
-            return token_obj.get("mint", "")
-        elif isinstance(token_obj, list) and token_obj:
-            return token_obj[0].get("mint", "")
+    """Extract mint URL from decoded token if present.
+
+    Handles every layout the kit actually sees:
+
+    * NUT-00 **V4 CBOR** (`cashuB`): the mint is a **top-level** ``m`` next to
+      ``t``/``u``/``d`` — this is what the Python ``cashu`` wallet emits, and
+      what the bench tokens in ``~/.tg-e2e`` are. It was missed before, so a
+      real V4 token reported "no mint" and could not be checkstate-verified.
+    * the simplified V4 fixture shape with ``m`` on each ``t`` entry;
+    * V3 JSON (``cashuA``): ``{"token": [{"mint": ..., "proofs": [...]}]}``.
+    """
+    if not isinstance(decoded, dict):
+        return ""
+    top = decoded.get("m")
+    if isinstance(top, str) and top and "t" in decoded:
+        return top
+    token_obj = decoded.get("token", decoded)
+    url = _entry_mint(token_obj)
+    if url:
+        return url
+    if isinstance(token_obj, dict):
+        for entry in token_obj.get("t") or []:
+            url = _entry_mint(entry)
+            if url:
+                return url
+    elif isinstance(token_obj, list):
+        for entry in token_obj:
+            url = _entry_mint(entry)
+            if url:
+                return url
     return ""
 
 

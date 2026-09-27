@@ -1,0 +1,22 @@
+# Fixture (RED): the hardware workflow's JOB structure indented away from the
+# two-space form the R4/R5 scanner expects.
+# -----------------------------------------------------------------------------
+# The `on:` block here is fine, so R2 passes — but every job key sits at four
+# spaces, which the R4/R5 awk does not match. Without a fail-closed check the
+# file would report ZERO jobs, silently skipping "`secrets.` without an
+# `environment:` approval gate" on the read-only lane. The guard must say it
+# cannot parse the job structure instead of reporting nothing.
+name: HW Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+    readonly-surface:
+        runs-on: [self-hosted, tollgate-router]
+        steps:
+            - uses: actions/checkout@v4
+            - run: echo "${{ secrets.TOLLGATE_LUCI_PASSWORD }}"

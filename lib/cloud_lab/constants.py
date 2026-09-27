@@ -10,7 +10,7 @@ DEFAULT_DISK_SIZE_GB = 50
 VM_NAME = "tollgate-test-runner"
 # DEPRECATED: GCP cloud lab — SHC is the default provider (~10x cheaper) and
 # no runner snapshot is currently baked. Guarded by ensure_runner_snapshot().
-SNAPSHOT_NAME = os.environ.get("TOLLGATE_GCP_SNAPSHOT", "tollgate-runner-v17")
+SNAPSHOT_NAME = os.environ.get("TOLLGATE_GCP_SNAPSHOT", "tollgate-runner-v20")
 FIREWALL_RULE_SSH = "tollgate-allow-ssh"
 VIRT_LAB_PASSWORD = "tollgate"
 OPENWRT_IP = "10.99.99.1"

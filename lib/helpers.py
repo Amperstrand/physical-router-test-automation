@@ -442,3 +442,47 @@ def skip_if_no_degraded_support(router):
     files import this name directly.
     """
     skip_if_no_mint_health_tracker(router)
+
+
+def nodogsplash_allow_entries(cfg_text):
+    """Entries of nodogsplash's ``users_to_router`` allow-list, in file order.
+
+    UCI serialises a list as one ``list users_to_router '<entry>'`` line per
+    element, which is what ``cat /etc/config/nodogsplash`` (or ``uci export``)
+    returns. Entries come back without their quotes, e.g.::
+
+        ['allow tcp port 22', 'allow tcp port 8443', 'allow tcp port 2051']
+
+    Only ``list users_to_router`` lines are permissions for an unauthenticated
+    client; every other line in the file (including
+    ``authenticated_users_to_router``) is ignored.
+    """
+    entries = []
+    prefix = "list users_to_router"
+    for raw in cfg_text.splitlines():
+        line = raw.strip()
+        if not line.startswith(prefix):
+            continue
+        rest = line[len(prefix):].strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in ("'", '"'):
+            rest = rest[1:-1]
+        entries.append(rest)
+    return entries
+
+
+def nodogsplash_allows_port(cfg_text, port):
+    """True when the ``users_to_router`` allow-list names exactly ``port``.
+
+    Parsed, never substring-searched: ``"443" in cfg_text`` is satisfied by the
+    ``list users_to_router 'allow tcp port 8443'`` entry that every router with
+    the admin board carries. That is how the 0.6.0-alpha3 pre14 regression
+    (LuCI's :443 refused for an unauthenticated captive-LAN client, so the
+    ``:8080 -> https://<router>/`` redirect dead-ended) stayed hidden behind a
+    test named "Verify nodogsplash allows port 443".
+    """
+    want = ["port", str(port)]
+    for entry in nodogsplash_allow_entries(cfg_text):
+        fields = entry.split()
+        if fields[:1] == ["allow"] and fields[-2:] == want:
+            return True
+    return False

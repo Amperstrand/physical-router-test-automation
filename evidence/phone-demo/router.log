@@ -1,0 +1,30 @@
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: [36mINFO[0m[2026-09-20T10:41:04Z] Received handleRootPost request               [36mmethod[0m=POST [36mmodule[0m=main [36mremote_addr[0m="192.168.99.138:53028"
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: [36mINFO[0m[2026-09-20T10:41:04Z] Parsed nostr event (signature not validated)  [36mcreated_at[0m=1789900864 [36mevent_id[0m=d7e66043ad72bd183211bab2183b71d8c6ae27bede79f1b31c1f88b117317c4c [36mkind[0m=21000 [36mmodule[0m=main [36mpubkey[0m=b3c338026649a5af5bc098a45bc5352c3b28b6f65e9977fca6fb96c6c64c7a43
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:04 PurchaseSession: calling Receive for mint=http://192.168.13.221:8085 token_amount=1 mac=ea:2c:21:f5:fd:b1
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:04 PurchaseSession: Receive completed, amount=1, err=<nil>
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:04 Amount after swap: 1
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:04 Converting 1 steps to 22020096 bytes using step size 22020096
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: [36mINFO[0m[2026-09-20T10:41:04Z] Authorization successful for MAC              [36mattempts[0m=1 [36mmac_address[0m="ea:2c:21:f5:fd:b1" [36mmodule[0m=valve [36moutput[0m="Client ea:2c:21:f5:fd:b1 authenticated.\n"
+Sun Sep 20 10:41:04 2026 daemon.err tollgate-wrt[25455]: [36mINFO[0m[2026-09-20T10:41:04Z] Set data baseline for customer tracking       [36mbaseline_downloaded[0m=0 [36mbaseline_total[0m=0 [36mbaseline_uploaded[0m=0 [36mmac_address[0m="ea:2c:21:f5:fd:b1" [36mmodule[0m=valve
+Sun Sep 20 10:41:06 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:06 Data usage for ea:2c:21:f5:fd:b1: 34.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:07 2026 authpriv.info dropbear[25538]: Child connection from 192.168.94.1:49462
+Sun Sep 20 10:41:07 2026 authpriv.notice dropbear[25538]: Auth succeeded with blank password for 'root' from 192.168.94.1:49462
+Sun Sep 20 10:41:07 2026 authpriv.info dropbear[25538]: Exit (root) from <192.168.94.1:49462>: Disconnect received
+Sun Sep 20 10:41:08 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:08 Data usage for ea:2c:21:f5:fd:b1: 34.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:10 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:10 Data usage for ea:2c:21:f5:fd:b1: 34.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:11 2026 authpriv.info dropbear[25548]: Child connection from 192.168.94.1:49464
+Sun Sep 20 10:41:12 2026 authpriv.notice dropbear[25548]: Auth succeeded with blank password for 'root' from 192.168.94.1:49464
+Sun Sep 20 10:41:12 2026 authpriv.info dropbear[25548]: Exit (root) from <192.168.94.1:49464>: Disconnect received
+Sun Sep 20 10:41:12 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:12 Data usage for ea:2c:21:f5:fd:b1: 34.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:14 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:14 Data usage for ea:2c:21:f5:fd:b1: 34.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:16 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:16 Data usage for ea:2c:21:f5:fd:b1: 35.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:18 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:18 Data usage for ea:2c:21:f5:fd:b1: 35.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 fetchInvoiceWithRetry(tollgate@minibits.cash, 8) attempt 1/5 failed: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:40983->[::1]:53: read: connection refused
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 fetchInvoiceWithRetry(tollgate@minibits.cash, 8) attempt 2/5 failed: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:38163->[::1]:53: read: connection refused
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 fetchInvoiceWithRetry(tollgate@minibits.cash, 8) attempt 3/5 failed: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:39122->[::1]:53: read: connection refused
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 fetchInvoiceWithRetry(tollgate@minibits.cash, 8) attempt 4/5 failed: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:45646->[::1]:53: read: connection refused
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 fetchInvoiceWithRetry(tollgate@minibits.cash, 8) attempt 5/5 failed: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:42498->[::1]:53: read: connection refused
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 Payout http://192.168.13.221:8085: owner unreachable (no invoice after 5 attempts: failed to make request to Lightning Address service: Get "https://minibits.cash/.well-known/lnurlp/tollgate": lookup minibits.cash on [::1]:53: read udp [::1]:42498->[::1]:53: read: connection refused) — skipping, share stays in wallet
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 Payout http://192.168.13.221:8085: owner is unreachable — aborting all payouts this cycle
+Sun Sep 20 10:41:20 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:20 Data usage for ea:2c:21:f5:fd:b1: 35.0 KB / 21.0 MB (0.2%)
+Sun Sep 20 10:41:22 2026 daemon.err tollgate-wrt[25455]: 2026/09/20 10:41:22 Data usage for ea:2c:21:f5:fd:b1: 35.0 KB / 21.0 MB (0.2%)

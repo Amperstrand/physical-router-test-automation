@@ -2,7 +2,12 @@
 
 How to bring the single-router local virtual lab back up from scratch or from
 a snapshot, and the pitfalls that cost real debugging time. Topology and
-commands assume the lab built by `scripts/virtual-lab.py`:
+commands assume the lab built by `scripts/virtual-lab.py`.
+
+Companion doc: [`docs/virtual-lab.md`](virtual-lab.md) covers the lab's
+design and provisioning internals (NoCloud seed flow, netplan persistence,
+ephemeral-client mode, mint health probing). This runbook is the operational
+lifecycle on top of that machinery.
 
 | Role | Address | Notes |
 |---|---|---|
@@ -16,6 +21,13 @@ The lab password lives in `credentials/virtual-lab-credentials.json` and
 `.env` (`TOLLGATE_SSH_PASSWORD`); both VMs use it for `root`.
 
 ## Fast path — snapshot restore (minutes)
+
+If only the **client** state drifted (typical after a debugging session) and
+you just want a pristine client for the next run, the cheapest reset is
+`start-poc --ephemeral-client` — the client runs on a write-discarding QEMU
+`-snapshot` overlay, so every cycle starts from the same provisioned state
+(see `docs/virtual-lab.md`; `provision-debian` extras do not persist in this
+mode, so it requires a provisioned overlay).
 
 If a verified-good internal snapshot exists on **both** overlays:
 
@@ -126,3 +138,6 @@ Each of these cost real time at least once:
   just passed. A snapshot of a half-broken lab reproduces that lab forever.
 - Use **internal snapshots** (`qemu-img snapshot -c`) — they are delta-sized
   and need no extra files. Both VMs must be stopped (`stop-poc`) first.
+- For routine between-runs client drift (not disasters), prefer
+  `--ephemeral-client` over snapshot churn — snapshots are the rollback for
+  *both* VMs at once, ephemeral mode is the daily-driver client reset.

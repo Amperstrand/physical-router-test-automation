@@ -1,0 +1,63 @@
+# Gitignored physical-lab inventory — REAL device identifiers.
+#
+# Copy to inventory.local.yaml (gitignored) and fill in real values.
+# Policy (owner directive 2026-09-22): MAC addresses, serial numbers,
+# passwords and per-unit IPs are NEVER committed. The committed example
+# carries placeholders only. Logical names are safe to reference in code,
+# docs, and labgrid environments.
+#
+# HOW TO UPDATE (sources of truth, in order):
+#   1. conwrt session closeouts: conwrt/data/sessions/*CLOSEOUT*.md
+#      (port map, unit lineage, hazards — read the newest first)
+#   2. Live switch: ssh root@<switch> "ubus call poe info"
+#      (which ports Deliver; validates the map, never mutates)
+#   3. DHCP/ARP discovery for a device's address after power-on
+#   4. Edit this file; validate with:
+#      python3 -c "import sys; sys.path.insert(0,'.'); from lib.lab_inventory import load_inventory; i=load_inventory(); print(sorted(i.routers), 'protected:', sorted(i.protected_ports))"
+# NEVER power-toggle a port to "discover" it while another session works.
+
+switch:
+  # GS1900-8HP A1, OpenWrt 25.12.1 + realtek-poe fork (bench rig,
+  # redeployed 2026-09-22 — see conwrt docs/BENCH-SWITCH-PATTERN.md)
+  host: "<switch-ip>"
+  username: "root"
+  keyfile: ""            # empty = ssh-agent (verified); else explicit key path
+  # port: 22
+
+# Ports tests must NEVER power-manage (refused by PoePowerController
+# before any ubus call is issued). Reasons belong here, too.
+protected_ports:
+  - "<one-way-trip-port>"   # e.g. TFTP-fallback-dependent unit: power-off
+                            # is unrecoverable until a TFTP lifeline is re-armed
+
+# Shared labgrid coordinator (Phase 2): conwrt runs the exporter; PRTA
+# connects as a client via RemotePlace. Real address is local-only.
+coordinator:
+  address: "<coordinator-host:port>"
+
+routers:
+  ap-lan2:
+    model: "ws-ap3915i"
+    poe_port: "lan2"
+    vlan: 1002
+    address: "<router-ip>"
+    password: ""          # per-device; NEVER commit real values
+    mac: "<router-mac>"
+    serial: ""
+    protected: false
+    place: "<labgrid-place>"  # labgrid venue: place name on the shared coordinator
+                              # (empty = direct-PoE path only, no place acquire)
+    keyfile: ""               # ed25519 key for key auth — 25.x dropbear refuses RSA
+    jump_host: ""             # ProxyJump hop for pytest hosts off the DUT VLAN
+    note: "placeholder unit — self-booting"
+
+  fragile-unit:
+    model: "ws-ap3915i"
+    poe_port: "<port>"
+    vlan: 1000
+    address: ""
+    password: ""
+    mac: ""
+    serial: ""
+    protected: true       # cycle only with recovery lifeline armed
+    note: "placeholder — protected units MUST carry protected: true"

@@ -1,0 +1,70 @@
+ Container tg-mint Running 
+ Container tg-upstream Running 
+ Container tg-mint Waiting 
+ Container tg-mint Healthy 
+ Container tg-upstream Waiting 
+ Container tg-mint Waiting 
+ Container tg-mint Healthy 
+ Container tg-upstream Healthy 
+ Container cloud-lab-client-run-d9d9f04503e2 Creating 
+ Container cloud-lab-client-run-d9d9f04503e2 Created 
+=== tollgate-clientd — Debian-lane demo against real TollGate backend ===
+
+--- wallet: fund 100 sats from the lab mint (FakeWallet, no real money)
+0: http://mint:8085 100 sat
+
+Total balance across all wallets: 100 sat
+
+--- discovery: --list-offers
+gateway upstream  metric=milliseconds  step_size=60000
+  1 sats/step  mint=http://mint:8085  min_steps=0
+
+--- one-shot status before paying: --status --json
+{"gateway": "upstream", "interface": "", "mac": "02:00:00:00:00:20", "metric": "milliseconds", "step_size": 60000, "mint": "http://mint:8085", "price_per_step": 1, "wallet": "cdk-cli", "session_active": false, "usage": null, "allotment": null, "remaining": null}
+
+--- waybar module JSON: --waybar
+{"text": "TG no session", "tooltip": "TollGate upstream (milliseconds)\nusage None/None\nmint http://mint:8085\nwallet cdk-cli", "class": "critical", "percentage": 0}
+
+--- daemon: buys 1 minute, auto-tops-up when 45s remain (35s capture)
+TollGate upstream | milliseconds | 1 step(s) = 1 sats via cdk-cli @ http://mint:8085
+[TollGate upstream] no session — needs payment  [topping up...]
+  -> paid 1 sats (allotment now 60000)
+[TollGate upstream] 0:59 left (1000/60000)
+[TollGate upstream] 0:58 left (2000/60000)
+[TollGate upstream] 0:57 left (3000/60000)
+[TollGate upstream] 0:56 left (4000/60000)
+[TollGate upstream] 0:55 left (5000/60000)
+[TollGate upstream] 0:54 left (6000/60000)
+[TollGate upstream] 0:53 left (7000/60000)
+[TollGate upstream] 0:52 left (8000/60000)
+[TollGate upstream] 0:51 left (9000/60000)
+[TollGate upstream] 0:50 left (10000/60000)
+[TollGate upstream] 0:49 left (11000/60000)
+[TollGate upstream] 0:48 left (12000/60000)
+[TollGate upstream] 0:47 left (13000/60000)
+[TollGate upstream] 0:46 left (14000/60000)
+[TollGate upstream] 0:45 left (15000/60000)  [topping up...]
+  -> paid 1 sats (allotment now 120000)
+[TollGate upstream] 1:59 left (1000/120000)
+[TollGate upstream] 1:58 left (2000/120000)
+[TollGate upstream] 1:57 left (3000/120000)
+[TollGate upstream] 1:56 left (4000/120000)
+[TollGate upstream] 1:55 left (5000/120000)
+[TollGate upstream] 1:54 left (6000/120000)
+[TollGate upstream] 1:53 left (7000/120000)
+[TollGate upstream] 1:52 left (8000/120000)
+[TollGate upstream] 1:51 left (9000/120000)
+[TollGate upstream] 1:50 left (10000/120000)
+[TollGate upstream] 1:49 left (11000/120000)
+[TollGate upstream] 1:48 left (12000/120000)
+[TollGate upstream] 1:47 left (13000/120000)
+[TollGate upstream] 1:46 left (14000/120000)
+[TollGate upstream] 1:45 left (15000/120000)
+[TollGate upstream] 1:44 left (16000/120000)
+[TollGate upstream] 1:43 left (17000/120000)
+[TollGate upstream] 1:42 left (18000/120000)
+[TollGate upstream] 1:41 left (19000/120000)
+
+
+TollGate upstream: 1:22 left (usage 38000/120000)
+{"text": "TG 1:22", "tooltip": "TollGate upstream (milliseconds)\nusage 38000/120000\nmint http://mint:8085\nwallet cdk-cli", "class": "good", "percentage": 68}

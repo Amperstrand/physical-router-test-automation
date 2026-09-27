@@ -74,3 +74,16 @@ HANDOVER.md
 tests/browser/happy-path-report/
 tests/browser/kanbanstr-test-results/
 tests/report/
+
+# Machine-local test env files (identifiers/hosts — keep out of git)
+.env.local
+.env.rust-*
+.env.rust-basic-local.bak
+.env.lab-routers-backup
+.env.tunnel
+demo/
+
+# PoE physical-lab inventory — real IPs/MACs/serials never committed
+# (configs/labgrid/inventory.local.yaml.example is the committed schema)
+configs/labgrid/inventory.local.yaml
+configs/labgrid/physical-poe-lab.yaml

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for nft.  It serves `list chain inet fw4 <chain>` from the harness state
+# that the apk double writes when a package's postinst reloads fw4, and it LOGS every
+# invocation — that log is how the suite proves the installer itself never reloads the
+# firewall (the guard has to be loaded by the package, with no manual reload).
+set -uo pipefail
+
+ROOT="${TGOFFLINE_HARNESS_ROOT:?the harness must export TGOFFLINE_HARNESS_ROOT}"
+LOG="$ROOT/var/log/nft.log"
+HSTATE="$ROOT/var/lib/tgoffline-harness"
+mkdir -p "$(dirname "$LOG")"
+
+printf '%s\n' "$*" >> "$LOG"
+case " $* " in
+    *" reload "*|*" reload"*) printf '%s\n' "RELOAD-ISSUED: $*" >> "$LOG" ;;
+esac
+
+if [ "${1:-}" = "list" ]; then
+    chain="$(printf '%s' "$*" | awk '{print $NF}')"
+    state="$HSTATE/nft_$chain"
+    if [ -f "$state" ]; then
+        cat "$state"
+        exit 0
+    fi
+    echo "Error: No such file or directory" >&2
+    echo "list chain inet fw4 $chain" >&2
+    exit 1
+fi
+
+echo "nft(double): unsupported invocation: $*" >&2
+exit 1

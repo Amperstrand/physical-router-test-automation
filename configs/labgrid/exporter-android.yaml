@@ -1,0 +1,25 @@
+## Rig exporter (bench host, second exporter — unique name; the bolty exporter
+## under name 'ai-legion-small' is untouched). Run from the rig venv so
+## tollgate-lab's resource/driver classes are importable:
+##   ~/venvs/rig-labgrid/bin/labgrid-exporter -c 192.168.13.208:20408 \
+##     --hostname ai-legion-small-rig configs/labgrid/exporter-android.yaml
+##
+## Why AndroidADDDevice and NOT AndroidUSBDevice (the udev-matched class):
+## labgrid 25.0.1's exporter has no export class for AndroidUSBDevice, so it
+## would ride the ResourceEntry fallback — and a udev match DICT cannot cross
+## the coordinator wire (flat MapValue protobuf; the ACR1252 lesson in
+## bolty-rs tools/hil/labgrid-exporter.yaml + docs/labgrid-rig-exporter-adoption.md).
+## AndroidADDDevice is scalar-only (wire-safe fallback) and is exactly what
+## tollgate-lab's AndroidADBDriver binds. Presence detection is CLIENT-side
+## (adb devices / driver get_status) — this resource is the acquisition token.
+## serial pins THIS phone (adb -s); "" would mean "the one phone on this host".
+## real serial here once known, then restart the exporter.
+android-phone:
+  AndroidADDDevice:
+    serial: "ZY326DPC7R"
+  NetworkService:
+    address: 192.168.105.150
+    username: root
+  ## NetworkService is required by AndroidADBDriver's bindings; the address
+  ## is the phone's RESERVED static once it joins router-alpha's SSID
+  ## (192.168.105.0/24, the DUT LAN). Unused by adb-shell traffic.

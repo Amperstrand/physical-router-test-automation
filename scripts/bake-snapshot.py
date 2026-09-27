@@ -126,20 +126,33 @@ def cmd_bake(args: argparse.Namespace) -> int:
     print(f"  Machine type:   {machine_type}")
     print(f"  Temp VM name:   {vm_name}")
 
-    # Step 1: Create temp VM from base snapshot
-    _step(1, total_steps, "Creating temporary VM from base snapshot")
+    # Step 1: Create temp VM (from base snapshot, or from a stock Debian image
+    # with --from-scratch when no base snapshot exists — the v17-loss case).
+    from_scratch = bool(getattr(args, "from_scratch", False))
+    debian_overlay = str(getattr(args, "debian_overlay", "") or "")
+    if from_scratch:
+        _step(1, total_steps, "Creating temporary VM from stock Debian 12 image")
+    else:
+        _step(1, total_steps, "Creating temporary VM from base snapshot")
     t0 = time.monotonic()
     ensure_firewall_rules(project)
-    r = _run_gcloud([
+    create_args = [
         "compute", "instances", "create", vm_name,
         f"--project={project}", f"--zone={zone}",
         f"--machine-type={machine_type}",
-        f"--source-snapshot={base_snapshot}",
         f"--boot-disk-size={disk_size_gb}GB",
         "--enable-nested-virtualization",
         "--min-cpu-platform=Intel Cascade Lake",
         "--tags=tollgate-runner",
-    ], timeout=300)
+    ]
+    if from_scratch:
+        create_args += [
+            "--image-family=debian-12",
+            "--image-project=debian-cloud",
+        ]
+    else:
+        create_args.append(f"--source-snapshot={base_snapshot}")
+    r = _run_gcloud(create_args, timeout=300)
     if r.returncode != 0:
         print(f"ERROR: Failed to create VM: {r.stderr}", file=sys.stderr)
         return 1
@@ -154,6 +167,76 @@ def cmd_bake(args: argparse.Namespace) -> int:
             return 1
         print(f"  SSH ready in {time.monotonic() - t0:.1f}s")
 
+        if from_scratch and debian_overlay:
+            # A stock image has no pre-provisioned Debian client overlay; upload a
+            # known-good one (static 10.99.99.100 — matches the cloud topology) so
+            # the Playwright pre-bake step reuses it like a base snapshot would.
+            import os as _os
+            if not _os.path.isfile(debian_overlay):
+                print(f"ERROR: --debian-overlay not found: {debian_overlay}", file=sys.stderr)
+                return 1
+            _step(2, total_steps, f"Uploading Debian client overlay ({debian_overlay})")
+            # gcloud scp writes as the login user; the lab tree lives under /root
+            # (the worker exports HOME=/root). Land in /tmp, then sudo-move.
+            overlay_tmp = "/tmp/tollgate-debian-overlay.qcow2"
+            r = _run_gcloud([
+                "compute", "scp", debian_overlay,
+                f"{vm_name}:{overlay_tmp}",
+                f"--project={project}", f"--zone={zone}",
+                "--quiet", "--compress",
+            ], timeout=1800)
+            if r.returncode != 0:
+                print(f"ERROR: overlay upload failed: {r.stderr}", file=sys.stderr)
+                return 1
+            mv = _gcloud_ssh(
+                vm_name,
+                f"mkdir -p /root/tollgate-virtual-lab/overlays && "
+                f"mv {overlay_tmp} /root/tollgate-virtual-lab/overlays/debian-client.qcow2 && "
+                "echo OVERLAY_MOVED",
+                zone, project,
+            )
+            if "OVERLAY_MOVED" not in (mv.stdout or ""):
+                print(f"ERROR: overlay move failed: {mv.stderr or mv.stdout}", file=sys.stderr)
+                return 1
+
+        openwrt_archive = str(getattr(args, "openwrt_archive", "") or "")
+        if from_scratch and openwrt_archive:
+            owrt_gz = f"openwrt-{_OPENWRT_VERSION}-x86-64-generic-ext4-combined.img.gz"
+            r = _run_gcloud([
+                "compute", "scp", openwrt_archive,
+                f"{vm_name}:/tmp/{owrt_gz}",
+                f"--project={project}", f"--zone={zone}",
+                "--quiet", "--compress",
+            ], timeout=600)
+            if r.returncode != 0:
+                print(f"ERROR: openwrt archive upload failed: {r.stderr}", file=sys.stderr)
+                return 1
+            mv2 = _gcloud_ssh(
+                vm_name,
+                f"mkdir -p {VIRT_LAB_WORKDIR}/images && "
+                f"mv /tmp/{owrt_gz} {VIRT_LAB_WORKDIR}/images/{owrt_gz} && "
+                "echo OWRT_MOVED",
+                zone, project,
+            )
+            if "OWRT_MOVED" not in (mv2.stdout or ""):
+                print(f"ERROR: openwrt archive move failed: {mv2.stderr or mv2.stdout}", file=sys.stderr)
+                return 1
+
+        if from_scratch:
+            # The old base snapshot carried these; a stock Debian image does not.
+            _step(2, total_steps, "Installing qemu/genisoimage (stock-image bootstrap)")
+            r = _gcloud_ssh(
+                vm_name,
+                "apt-get update -qq && "
+                "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
+                "qemu-utils qemu-system-x86 genisoimage >/dev/null && "
+                "echo QEMU_BOOTSTRAP_OK",
+                zone, project, timeout=600,
+            )
+            if "QEMU_BOOTSTRAP_OK" not in (r.stdout or ""):
+                print(f"ERROR: qemu bootstrap failed: {r.stderr or r.stdout}", file=sys.stderr)
+                return 1
+
         # Step 3: Download base images (OpenWrt + Debian)
         _step(3, total_steps, "Downloading OpenWrt and Debian base images")
         t0 = time.monotonic()
@@ -164,18 +247,19 @@ def cmd_bake(args: argparse.Namespace) -> int:
         images_cmd = (
             f"mkdir -p {workdir}/images && cd {workdir}/images && "
             f"rm -f openwrt-base.qcow2 && "
-            f"[ -f {owrt_gz} ] || curl -fL -o {owrt_gz} {owrt_url} && "
+            f"[ -f {owrt_gz} ] || curl -fL --retry 4 --retry-delay 3 -o {owrt_gz} {owrt_url} && "
             f"[ -f {owrt_img} ] || (gzip -d < {owrt_gz} > {owrt_img} || [ -f {owrt_img} ]) && "
             f"qemu-img convert -f raw -O qcow2 {owrt_img} openwrt-base.qcow2 && "
             f"qemu-img resize openwrt-base.qcow2 2G && "
             f"if [ ! -f {_DEBIAN_IMAGE} ]; then "
-            f"  curl -fL -o {_DEBIAN_IMAGE} {_DEBIAN_IMAGE_URL}; "
+            f"  curl -fL --retry 4 --retry-delay 3 -o {_DEBIAN_IMAGE} {_DEBIAN_IMAGE_URL} || "
+            "  echo 'NOTE: debian base download failed (ok when a client overlay was uploaded)'; "
             f"fi && "
             "echo IMAGES_OK"
         )
         r = _gcloud_ssh(vm_name, images_cmd, zone, project, timeout=600)
         if r.returncode != 0 or "IMAGES_OK" not in (r.stdout or ""):
-            print(f"ERROR: Image download failed: {r.stderr[:500]}", file=sys.stderr)
+            print(f"ERROR: Image step failed rc={r.returncode} stderr: {(r.stderr or '')[:500]} stdout: {(r.stdout or '')[-800:]}", file=sys.stderr)
             return 1
         print(f"  Images ready in {time.monotonic() - t0:.1f}s")
 
@@ -548,6 +632,7 @@ def cmd_bake(args: argparse.Namespace) -> int:
             "ip link set mgmt-tap2 up 2>/dev/null || true; "
             "nohup qemu-system-x86_64 "
             "-enable-kvm -m 1536 -smp 2 -display none "
+            "-smbios type=1,serial=ds=nocloud "
             f"-drive file=overlays/debian-client.qcow2,format=qcow2,if=virtio "
             "-netdev tap,id=net0,ifname=tg-poc-tap2,script=no,downscript=no "
             f"-device virtio-net-pci,netdev=net0,mac=de:54:4e:91:49:da "
@@ -559,13 +644,13 @@ def cmd_bake(args: argparse.Namespace) -> int:
 
         print("  Waiting for Debian VM SSH...")
         deb_ssh_wait = (
-            f"for i in $(seq 1 30); do "
+            f"for i in $(seq 1 90); do "
             f"sshpass -p {shlex.quote(VIRT_LAB_PASSWORD)} ssh "
             "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
             f"-o ConnectTimeout=3 root@10.99.99.100 'echo DEB_SSH_OK' 2>/dev/null && break; "
             "sleep 2; done"
         )
-        r = _gcloud_ssh(vm_name, deb_ssh_wait, zone, project, timeout=120)
+        r = _gcloud_ssh(vm_name, deb_ssh_wait, zone, project, timeout=300)
 
         if "DEB_SSH_OK" in (r.stdout or ""):
             print("  Debian VM SSH ready, installing Playwright...")
@@ -713,7 +798,7 @@ def cmd_bake(args: argparse.Namespace) -> int:
             f"--project={project}", f"--zone={zone}",
             f"--snapshot-names={snapshot_name}",
             "--storage-location=europe-west1",
-        ], timeout=120)
+        ], timeout=900)
         if r.returncode != 0:
             print(f"ERROR: Snapshot creation failed: {r.stderr}", file=sys.stderr)
             return 1
@@ -743,6 +828,9 @@ def build_parser() -> argparse.ArgumentParser:
     bake = sub.add_parser("bake", help="Bake a new snapshot from the current base snapshot")
     bake.add_argument("--snapshot-name", default="", help=f"Name for the new snapshot (default: auto-increment from {SNAPSHOT_NAME})")
     bake.add_argument("--base-snapshot", default=SNAPSHOT_NAME, help=f"Base snapshot to create VM from (default: {SNAPSHOT_NAME})")
+    bake.add_argument("--from-scratch", action="store_true", help="Create the bake VM from a stock Debian 12 image (no base snapshot needed)")
+    bake.add_argument("--debian-overlay", default="", help="Local debian-client.qcow2 to upload when --from-scratch (pre-provisioned, 10.99.99.100)")
+    bake.add_argument("--openwrt-archive", default="", help="Local openwrt .img.gz to upload when --from-scratch (skips the flaky downloads.openwrt.org transfer from GCP)")
     bake.add_argument("--zone", default=DEFAULT_ZONE)
     bake.add_argument("--machine-type", default=DEFAULT_MACHINE_TYPE)
     bake.add_argument("--disk-size", type=int, default=DEFAULT_DISK_SIZE_GB)

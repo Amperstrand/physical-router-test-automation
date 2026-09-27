@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const ADMIN_URL = process.env.ADMIN_URL || 'http://192.168.1.1:8090/net4sats/';
 const ADMIN_USER = process.env.ADMIN_USER || 'root';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'c03rad0r123';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'test123';
 
 test.use({
   video: 'on',

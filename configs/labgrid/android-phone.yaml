@@ -1,0 +1,19 @@
+# Android phone via the coordinator (RemotePlace) — client env.
+#
+# The resources come from the ai-legion-small-rig exporter on the bench
+# host (AndroidADDDevice + NetworkService). adb runs CLIENT-side: this env
+# must be used from a host with adb on PATH and the phone's RSA key
+# authorized (see docs/android-phone-bringup.md).
+#
+# Run:
+#   TOLLGATE_SSH_HOST= ROUTER_IP= TOLLGATE_VIRTUAL_LAB= \
+#   ~/venvs/rig-labgrid/bin/python -m pytest \
+#     --lg-env=configs/labgrid/android-phone.yaml --no-deploy \
+#     tests/test_android_labgrid.py -v
+targets:
+  main:
+    resources:
+      RemotePlace:
+        name: android-phone
+    drivers:
+      AndroidADBDriver: {}

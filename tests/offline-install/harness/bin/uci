@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for uci (OpenWrt's config CLI).  It implements the four operations the
+# offline installer uses — get / add_list / set / commit / show — over one file per
+# package under <root>/etc/config, with the flattened key names uci uses
+# (@nodogsplash[0].trustedmac).  List members are stored |-separated and printed the
+# way real uci prints them: pkg.section.key='item one' 'item two'.
+#
+# TGOFFLINE_HARNESS_UCI_IGNORE=1 makes `commit` DISCARD the staged writes, which models
+# "the keepalive seed applied but the trust did not take" — the negative control for the
+# lockout gate.
+set -uo pipefail
+
+ROOT="${TGOFFLINE_HARNESS_ROOT:?the harness must export TGOFFLINE_HARNESS_ROOT}"
+CONF="$ROOT/etc/config"
+mkdir -p "$CONF"
+
+quiet=0
+while [ "${1:-}" = "-q" ] || [ "${1:-}" = "-c" ] || [ "${1:-}" = "-d" ]; do
+    case "$1" in
+        -q) quiet=1; shift ;;
+        -c|-d) shift 2 ;;
+    esac
+done
+op="${1:-}"; shift || true
+arg="${1:-}"
+
+pkg_of() { printf '%s' "$1" | cut -d. -f1; }
+key_of() { printf '%s' "$1" | cut -d. -f2-; }
+committed() { printf '%s/%s' "$CONF" "$(pkg_of "$1")"; }
+staged() { printf '%s/.%s.staged' "$CONF" "$(pkg_of "$1")"; }
+
+lookup() { # lookup <pkg.key> -> raw value (staged wins), rc=1 when absent
+    staged_file="$(staged "$1")"; committed_file="$(committed "$1")"
+    key="$(key_of "$1")"
+    value=""
+    for f in "$staged_file" "$committed_file"; do
+        [ -f "$f" ] || continue
+        v="$(awk -F'\t' -v k="$key" '$1 == k { print $2 }' "$f" | head -1)"
+        [ -n "$v" ] && value="$v"
+    done
+    [ -n "$value" ] || return 1
+    printf '%s' "$value"
+}
+
+case "$op" in
+    get)
+        if value="$(lookup "$arg")"; then
+            printf '%s\n' "$(printf '%s' "$value" | tr '|' ' ')"
+            exit 0
+        fi
+        [ "$quiet" = 1 ] || echo "uci: Entry not found" >&2
+        exit 1
+        ;;
+    add_list)
+        key="${arg%%=*}"; value="${arg#*=}"
+        staged_file="$(staged "$arg")"; committed_file="$(committed "$arg")"
+        [ -f "$staged_file" ] || { [ -f "$committed_file" ] && cp "$committed_file" "$staged_file" || : > "$staged_file"; }
+        key_only="$(key_of "$key")"
+        cur="$(awk -F'\t' -v k="$key_only" '$1 == k { print $2 }' "$staged_file" | head -1)"
+        # real uci is a set: adding an existing member is a no-op
+        case "|$cur|" in
+            *"|$value|"*) ;;
+            *) new="$value"; [ -n "$cur" ] && new="$cur|$value"
+               awk -F'	' -v k="$key_only" '$1 != k' "$staged_file" > "$staged_file.new"
+               printf '%s	%s\n' "$key_only" "$new" >> "$staged_file.new"
+               mv "$staged_file.new" "$staged_file" ;;
+        esac
+        exit 0
+        ;;
+    set)
+        key="${arg%%=*}"; value="${arg#*=}"
+        staged_file="$(staged "$arg")"; committed_file="$(committed "$arg")"
+        [ -f "$staged_file" ] || { [ -f "$committed_file" ] && cp "$committed_file" "$staged_file" || : > "$staged_file"; }
+        key_only="$(key_of "$key")"
+        awk -F'	' -v k="$key_only" '$1 != k' "$staged_file" > "$staged_file.new"
+        printf '%s	%s\n' "$key_only" "$value" >> "$staged_file.new"
+        mv "$staged_file.new" "$staged_file"
+        exit 0
+        ;;
+    commit)
+        n="${arg:-}"
+        if [ -n "$n" ]; then
+            staged_file="$(staged "$n")"; committed_file="$(committed "$n")"
+            if [ -f "$staged_file" ]; then
+                if [ "${TGOFFLINE_HARNESS_UCI_IGNORE:-0}" = 1 ]; then
+                    rm -f "$staged_file"        # the writes did not take effect
+                else
+                    mv "$staged_file" "$committed_file"
+                fi
+            fi
+        fi
+        exit 0
+        ;;
+    show)
+        n="${arg:-}"
+        for f in "$(committed "$n.1")" "$(staged "$n.1")"; do
+            [ -f "$f" ] || continue
+            while IFS="$(printf '\t')" read -r key value; do
+                [ -n "$key" ] || continue
+                items=""
+                old_ifs="$IFS"; IFS='|'
+                for item in $value; do items="$items '$item'"; done
+                IFS="$old_ifs"
+                printf '%s.%s=%s\n' "$(pkg_of "$n")" "$key" "$items"
+            done < "$f"
+        done
+        exit 0
+        ;;
+    *)
+        echo "uci(double): unsupported command '${op}'" >&2
+        exit 2
+        ;;
+esac

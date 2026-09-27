@@ -215,7 +215,11 @@ def run_tests(config: WorkerConfig, results_dir: str) -> int:
     log.info("%s MODE: running %d runner(s): %s", mode.upper(), len(runners), ", ".join(r.name for r in runners))
 
     exit_codes: dict[str, int] = {}
-    total_timeout = 600 if config.quick else (1200 if config.smoke else 3000)
+    # Full mode measured ~100 min for the api runner alone on snapshot v19/v20
+    # (49% at the old 3000s cap): the cap killed pytest mid-suite, so junit.xml
+    # was never written and the published evidence truncated. 7200s matches the
+    # worker's MAX_WALL; submit with --lease >= 150 for full runs.
+    total_timeout = 600 if config.quick else (1200 if config.smoke else 7200)
 
     # vl-scenarios is destructive (blocks mints via /etc/hosts, restarts services).
     # Must run AFTER parallel api to avoid poisoning concurrent sessions.
@@ -248,22 +252,29 @@ def run_tests(config: WorkerConfig, results_dir: str) -> int:
 
         with ThreadPoolExecutor(max_workers=len(parallel_runners)) as pool:
             futures = {pool.submit(_execute_runner, spec): spec.name for spec in parallel_runners}
-            for future in as_completed(futures, timeout=total_timeout):
-                try:
-                    name, code = future.result(timeout=30)
-                except TimeoutError:
+            pending = set(futures)
+            try:
+                for future in as_completed(futures, timeout=total_timeout):
+                    pending.discard(future)
+                    try:
+                        name, code = future.result(timeout=30)
+                    except Exception as exc:
+                        name = futures[future]
+                        log.error("Runner [%s] crashed: %s", name, exc)
+                        code = 1
+                    exit_codes[name] = code
+                    if code != 0:
+                        log.warning("Runner [%s] exit=%d", name, code)
+                    else:
+                        log.info("Runner [%s] passed", name)
+            except TimeoutError:
+                # as_completed timed out: futures still in `pending` were lost by
+                # the old code (their results discarded silently). Mark them failed
+                # and let pool shutdown join the processes _run already killed.
+                for future in pending:
                     name = futures[future]
-                    log.error("Runner [%s] timed out waiting for result", name)
-                    code = 1
-                except Exception as exc:
-                    name = futures[future]
-                    log.error("Runner [%s] crashed: %s", name, exc)
-                    code = 1
-                exit_codes[name] = code
-                if code != 0:
-                    log.warning("Runner [%s] exit=%d", name, code)
-                else:
-                    log.info("Runner [%s] passed", name)
+                    log.error("Runner [%s] exceeded the %ds pool budget — marked failed", name, total_timeout)
+                    exit_codes[name] = 1
 
     # Phase 3: destructive runners (sequential, after parallel phase completes)
     if sequential_runners:

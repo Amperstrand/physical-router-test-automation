@@ -1,24 +1,34 @@
 # =============================================================================
 # GitHub Actions CI Workflow for Physical Router Test Automation
 # =============================================================================
-# This workflow provides automated testing for the physical router test automation
-# project. It supports two types of tests:
+# HOSTED-ONLY. This workflow is reachable from `pull_request`, so every job in
+# it must be safe to run against a contributor's PR code: GitHub-hosted
+# runners, read-only, no secrets, no bench access.
 #
-# 1. Lint/Collect Tests (always runs on ubuntu-latest):
-#    - Validates code quality
-#    - Verifies test collection
-#    - Checks imports
-#    - No hardware required
+# Bench / hardware work lives in `.github/workflows/hw-smoke.yml`, which has NO
+# pull_request trigger (workflow_dispatch plus a dormant schedule) and keeps its
+# mutating lane behind the `bench-hardware` environment.
 #
-# 2. Physical Router Tests (self-hosted runner):
-#    - UI tests against LuCI interface
-#    - Physical router tests (network config, payment protocol, data allotment)
-#    - Requires a self-hosted runner with access to test routers
+# Why the split is not optional: a `pull_request` trigger plus a
+# `[self-hosted, tollgate-router]` runner means any contributor's PR executes on
+# the machine that flashes routers, holds the repo secrets and sits in the
+# bench's L1/L2 neighbourhood — arbitrary code execution next to real hardware.
+# The old `test-ui` / `test-physical` jobs here were exactly that, parked behind
+# `if: false`; the benches' WiFi-client and data-allotment specs also forced
+# themselves on, mutating router state and burning paid traffic.
 #
-# To enable self-hosted runner jobs:
-#   1. Configure a self-hosted runner in GitHub Actions
-#   2. Uncomment the `runs-on` line in test-ui and test-physical jobs
-#   3. Add required secrets to repository settings
+# The separation is enforced mechanically on every PR by the
+# "Workflow hardware-lane isolation guard" step below
+# (scripts/ci/check-workflow-hw-isolation.sh, self-tested by
+# scripts/ci/test-check-workflow-hw-isolation.sh). Moving a self-hosted job back
+# into this file fails the PR.
+#
+# Jobs:
+#   1. lint     — code quality, test collection, isolation guard
+#                 (ubuntu-latest, always runs)
+#   2. publish  — GitHub Pages test report after a main push
+#                 (ubuntu-latest, push-to-main only, opt-in via the
+#                 PUBLISH_TEST_REPORTS repo variable)
 # =============================================================================
 
 name: CI
@@ -49,16 +59,20 @@ concurrency:
 # =============================================================================
 # Job 1: Lint/Collect Tests
 # =============================================================================
-# Runs on standard GitHub-hosted ubuntu-latest runner (no hardware needed)
-# Purpose: Validate code quality, check imports, verify test collection
-# Status: Always runs (not conditional)
+# Runs on standard GitHub-hosted ubuntu-latest runner (no hardware needed).
+# Safe for untrusted PR code: read-only token, no secrets, no `runs-on:
+# self-hosted`.
 # =============================================================================
 jobs:
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       # Checkout repository code
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Set up Node.js 22
       - uses: actions/setup-node@v4
@@ -87,148 +101,47 @@ jobs:
             './tests/helpers/payment-protocol.mjs'
           ].map(p=>import(p))).then(()=>console.log('all helpers import OK'))"
 
+      # Fail the PR if any workflow reachable from pull_request can touch the
+      # bench, if the hardware workflow gains a PR trigger, or if a job is parked
+      # behind `if: false`.
+      - name: Workflow hardware-lane isolation guard
+        run: bash scripts/ci/check-workflow-hw-isolation.sh
+
+      # Prove the guard itself can fail (fixture injections onto the real tree).
+      - name: Guard self-test
+        run: bash scripts/ci/test-check-workflow-hw-isolation.sh
+
 # =============================================================================
-# Job 2: LuCI UI Tests (Self-Hosted)
+# Job 2: Publish Test Report (Main Branch Only)
 # =============================================================================
-# Runs physical router UI tests against LuCI interface
-# Requirements:
-#   - Self-hosted runner with access to test router
-#   - Secrets: TOLLGATE_LUCI_URL, TOLLGATE_LUCI_USER, TOLLGATE_LUCI_PASSWORD
-#   - Secrets: TOLLGATE_SSH_HOST
+# Publishes the test report to GitHub Pages after a successful main push.
 #
-# To enable:
-#   1. Uncomment the `runs-on` line below
-#   2. Label the self-hosted runner with "tollgate-router" label
-#   3. Configure secrets in repository settings
-# =============================================================================
-  test-ui:
-    needs: lint
-    # Disabled until self-hosted runner is configured
-    if: false
-    runs-on: [self-hosted, tollgate-router]
-    env:
-      # LuCI interface URL (e.g., http://192.168.1.1)
-      TOLLGATE_LUCI_URL: ${{ secrets.TOLLGATE_LUCI_URL }}
-      # LuCI username for authentication
-      TOLLGATE_LUCI_USER: ${{ secrets.TOLLGATE_LUCI_USER }}
-      # LuCI password for authentication
-      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
-      # SSH host for remote access
-      TOLLGATE_SSH_HOST: ${{ secrets.TOLLGATE_SSH_HOST }}
-    steps:
-      # Checkout repository code
-      - uses: actions/checkout@v4
-
-      # Set up Node.js 22
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      # Install dependencies
-      - run: npm install
-
-      # Install Playwright browsers and dependencies
-      - run: npx playwright install --with-deps
-
-      # Run LuCI UI tests (excluding desktop interactions)
-      - name: Run LuCI UI tests
-        run: npx playwright test tests/tollgate.spec.mjs --config=tests/playwright.config.mjs
-
-      # Upload test report artifacts (even if tests fail)
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-report
-          path: test-results/
-          retention-days: 3
-
-# =============================================================================
-# Job 3: Physical Router Tests (Self-Hosted)
-# =============================================================================
-# Runs physical router tests for:
-#   - Network configuration
-#   - Payment protocol
-#   - Data allotment
-#   - WiFi client tests
+# `needs` is the hosted `lint` job, NOT a hardware job: depending on a job whose
+# own `if:` is false silently skips the dependent job too, which is how this
+# lane became dead without anybody noticing.
 #
-# Requirements:
-#   - Self-hosted runner connected to physical routers
-#   - Secrets: TOLLGATE_LUCI_PASSWORD, TOLLGATE_SSH_HOST, TOLLGATE_SSH_PASSWORD
-#   - Secrets: TOLLGATE_WIFI_INTERFACE
-#   - Environment variables for test configuration
-#
-# To enable:
-#   1. Uncomment the `runs-on` line below
-#   2. Label the self-hosted runner with "tollgate-router" label
-#   3. Configure secrets in repository settings
-# =============================================================================
-  test-physical:
-    needs: lint
-    # Disabled until self-hosted runner is configured
-    if: false
-    runs-on: [self-hosted, tollgate-router]
-    env:
-      # LuCI password (for UI tests)
-      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
-      # SSH host for remote access
-      TOLLGATE_SSH_HOST: ${{ secrets.TOLLGATE_SSH_HOST }}
-      # SSH password for remote access
-      TOLLGATE_SSH_PASSWORD: ${{ secrets.TOLLGATE_SSH_PASSWORD }}
-      # WiFi interface name (e.g., wlan0, eth1)
-      TOLLGATE_WIFI_INTERFACE: ${{ secrets.TOLLGATE_WIFI_INTERFACE }}
-      # Enable WiFi client tests
-      TOLLGATE_ENABLE_WIFI_CLIENT_TESTS: true
-      # Enable data allotment tests
-      TOLLGATE_ENABLE_DATA_ALLOTMENT_TESTS: true
-    steps:
-      # Checkout repository code
-      - uses: actions/checkout@v4
-
-      # Set up Node.js 22
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      # Install dependencies
-      - run: npm install
-
-      # Install Playwright browsers and dependencies
-      - run: npx playwright install --with-deps
-
-      # Run physical router tests (excluding desktop interactions)
-      - name: Run physical router tests
-        run: npx playwright test --config=tests/playwright.config.mjs --grep-invert "desktop interactions"
-
-      # Upload test report artifacts (even if tests fail)
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: physical-test-report
-          path: test-results/
-          retention-days: 3
-
-# =============================================================================
-# Job 4: Publish Test Report (Main Branch Only)
-# =============================================================================
-# Publishes test report to GitHub Pages after successful runs on main branch
-# Requirements:
-#   - Dependencies must be installed
-#   - Secrets: TOLLGATE_LUCI_URL, TOLLGATE_LUCI_USER, TOLLGATE_LUCI_PASSWORD
-#
-# Runs only when:
-#   - Event is a push to main branch
-#   - test-ui job succeeds (uses needs: [test-ui])
+# It stays opt-in behind the PUBLISH_TEST_REPORTS repo variable because the
+# report lane is not yet runnable from a hosted runner: scripts/run-tests.sh
+# delegates to scripts/run-profile.sh, which requires a Python venv at
+# $HOME/.tollgate-test-venv that no step here creates, and the bench URL in
+# TOLLGATE_LUCI_URL is LAN-only. Set the variable only after that lane has a
+# venv bootstrap and a reachable target.
 # =============================================================================
   publish:
-    needs: [test-ui]
-    # Only run on push to main (not PRs)
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [lint]
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && vars.PUBLISH_TEST_REPORTS == 'true'
     runs-on: ubuntu-latest
     env:
       # Enable publish mode
       TOLLGATE_PUBLISH: true
       # Keep last 20 reports on GitHub Pages
       TOLLGATE_GH_PAGES_KEEP: 20
+      TOLLGATE_LUCI_URL: ${{ secrets.TOLLGATE_LUCI_URL }}
+      TOLLGATE_LUCI_USER: ${{ secrets.TOLLGATE_LUCI_USER }}
+      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
     steps:
       # Checkout repository code
       - uses: actions/checkout@v4
@@ -247,8 +160,4 @@ jobs:
       # Run tests and publish report
       # Uses manual dispatch commit if provided, otherwise current commit
       - name: Run tests and publish report
-        env:
-          TOLLGATE_LUCI_URL: ${{ secrets.TOLLGATE_LUCI_URL }}
-          TOLLGATE_LUCI_USER: ${{ secrets.TOLLGATE_LUCI_USER }}
-          TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
         run: bash scripts/run-tests.sh ${{ github.event.inputs.tollgate_commit || github.sha }} desktop

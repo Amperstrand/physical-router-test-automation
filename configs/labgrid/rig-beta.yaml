@@ -1,0 +1,34 @@
+# Rig smoke environment — LOCAL labgrid env (no coordinator).
+#
+# router-beta = the lan3 DUT (Extreme WS-AP3915i, b4:2d:56:25:47:a2) on the
+# STOCK GS1900-8HP #2 port 2. Status 2026-09-25 PM3: POWERED but
+# NETWORK-DARK — the NetworkService below is UNREACHABLE until the DUT is
+# recovered (see configs/labgrid/port-map.md rev 4: no v4/v6 presence,
+# serial splice physically broken, recovery blocked on tollgate's
+# deploy-config answer + owner serial fix). Target address after recovery:
+# 192.168.105.52/24 (mint L2 doctrine — canonical mint
+# http://192.168.105.2:8383/; host ufw already allows 105.0/24 -> 8383).
+#
+# Reachability when recovered: DIRECT from this host (DUTs sit flat on the
+# lab 192.168.13.0/24 L2 via the stock switch p1 uplink; host secondary IPs
+# live on wlp4s0). No jump host.
+#
+# Power control (WORKS now): labgrid place ap-lan3 via the stock exporter —
+#   LG_COORDINATOR=192.168.13.208:20408 \
+#   LG_ENV=~/conwrt-bench/labgrid/env-stock-example.yaml \
+#   labgrid-client -p ap-lan3 power get|cycle
+# (client registration: ~/venvs/rig-labgrid site-packages
+#  tollgate_lab_stock_poe.pth — labgrid 25.0.1 has no plugin entry-point
+#  hook; fixes "unknown resource class StockZyxelPoePort")
+#
+# Target key must be "main" (labgrid 25.0.1 local-env `target` fixture).
+# "main" = router-beta.
+targets:
+  main:
+    resources:
+      NetworkService:
+        address: "192.168.103.51"
+        username: "root"
+    drivers:
+      SSHDriver:
+        connection_timeout: 240.0

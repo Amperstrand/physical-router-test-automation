@@ -13,7 +13,7 @@
 import { test, expect } from '@playwright/test';
 
 const WIZARD_URL = 'http://localhost:9876';
-const ROUTER_PASSWORD = 'c03rad0r123';
+const ROUTER_PASSWORD = process.env.ROUTER_PASSWORD || 'test123';
 
 test.use({
     actionTimeout: 30000,

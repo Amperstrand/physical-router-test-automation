@@ -1,0 +1,15 @@
+import fs from "fs";
+const base = "/Users/macbook/src/pecan/web/node_modules/@cashu/cashu-ts";
+const { Mint, Wallet } = await import(base + "/lib/cashu-ts.es.js");
+const MINT_URL = "https://signut.cashu.exchange";
+const QUOTE = process.argv[2];
+const AMOUNT = parseInt(process.argv[3] || "4", 10);
+const mint = new Mint(MINT_URL);
+const wallet = new Wallet(mint, { unit: "sat" });
+await wallet.loadMint();
+const proofs = await wallet.mintProofsBolt11(AMOUNT, QUOTE);
+const total = proofs.reduce((s, p) => s + Number(p.amount), 0);
+const norm = proofs.map(p => ({ ...p, amount: Number(p.amount) }));
+const v3 = "cashuA" + Buffer.from(JSON.stringify({ token: [{ mint: MINT_URL, proofs: norm }] })).toString("base64url");
+fs.writeFileSync("/tmp/phase-0/cln-paid-token.json", JSON.stringify({ total, v3, proofs: norm }, null, 1));
+console.log("MINTED", total, "sats from paid invoice,", proofs.length, "proofs");

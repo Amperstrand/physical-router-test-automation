@@ -1,0 +1,45 @@
+# Rig env — POST-MOVE topology (2026-09-25 PM). Supersedes rig-alpha.yaml
+# for the tollgate deploy lane; rig-alpha.yaml (switch #1 lan5 + ssh jump)
+# is kept as the record of the pre-move as-built and is now UNREACHABLE:
+# the owner physically moved router-alpha (WS-AP3915i, b4:2d:56:24:ad:97)
+# to STOCK GS1900-8HP #2 port 5.
+#
+#   DUT:       192.168.105.51 (static, flat 13.x L2 behind stock p5),
+#              OpenWrt 24.10.2, ipq40xx/generic, SSH key auth (proven).
+#   Power:     stock switch dispatcher.cgi via tollgate-lab-style driver
+#              (tests/labgrid_zyxel_stock.py, StockWeb from conwrt-bench).
+#              p1 (uplink) is PROTECTED; only p5 is toggled by this lane.
+#              Host below is POST re-IP (192.168.13.106 -> 192.168.13.3,
+#              landed 2026-09-25 PM during stock-poe maintenance); the
+#              STOCK_SWITCH_HOST env var still overrides it if it moves
+#              again — no file edit needed.
+#   SSH:       DIRECT from this host (secondary IP 192.168.105.2/24 on
+#              wlp4s0) — no ProxyJump, no `tools: ssh:` wrapper.
+#
+# The target key must be "main" (labgrid 25.0.1 local-env `target` fixture
+# only resolves that name). Power via tollgate-lab's canonical
+# StockZyxelPoEDriver (commits 6b82d1a/141868b): password self-resolves
+# (STOCK_ZYXEL_PASSWORD > BENCH_ROOT_PW > sops fleet.bench_root_password),
+# eviction-safe sessions, p1 protected. No sops export needed by the runner.
+#
+# Run (dedicated rig venv):
+#   TOLLGATE_SSH_HOST= ROUTER_IP= TOLLGATE_VIRTUAL_LAB= \
+#   ~/venvs/rig-labgrid/bin/python -m pytest \
+#     --lg-env=configs/labgrid/rig-alpha-stock.yaml --no-deploy \
+#     tests/test_tollgate_rig.py -v
+targets:
+  main:
+    resources:
+      StockZyxelPoePort:
+        host: "192.168.13.3"
+        port: "5"
+      NetworkService:
+        address: "192.168.105.51"
+        username: "root"
+    drivers:
+      StockZyxelPoEDriver: {}
+      SSHDriver:
+        connection_timeout: 240.0
+        # scp -O: OpenSSH >= 9 defaults to SFTP, and the feed-less DUT's
+        # dropbear has no sftp-server — force the legacy SCP protocol.
+        explicit_scp_mode: true

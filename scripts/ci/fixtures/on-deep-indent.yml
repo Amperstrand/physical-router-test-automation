@@ -1,0 +1,18 @@
+# Fixture (RED): an `on:` section the trigger parser cannot read.
+# -----------------------------------------------------------------------------
+# Valid YAML, but the trigger keys are indented four spaces while the parser
+# recognises them at exactly two. `triggers_of()` therefore returns nothing: the
+# file looks like one with no triggers at all, `is_pr_reachable` is false (R1
+# never arms) and the R2 whitelist loop iterates nothing. A non-empty `on:` block
+# that parses to zero triggers must fail closed instead of passing by default.
+name: deep-indented triggers
+
+on:
+    pull_request:
+
+jobs:
+  sneaky:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "who decides reachability here?"

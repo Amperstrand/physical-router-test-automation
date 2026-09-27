@@ -1,0 +1,458 @@
+{
+ "title": "TollGate laptop lane \u2014 real OpenWrt + NoDogSplash (local QEMU router)",
+ "start_epoch": 1789889988.329588,
+ "duration": 60.324,
+ "streams": {
+  "terminal": [
+   {
+    "t": 0.075,
+    "line": "TollGate 10.99.99.1 | bytes | 1 step(s) = 1 sats via cdk-cli @ http://10.99.99.2:8085"
+   },
+   {
+    "t": 0.076,
+    "line": "[TollGate 10.99.99.1] no session \u2014 needs payment  [topping up...]"
+   },
+   {
+    "t": 1.17,
+    "line": "  -> paid 1 sats (allotment now 22020096)"
+   },
+   {
+    "t": 3.174,
+    "line": "[TollGate 10.99.99.1] 21.0 MB left (2048/22020096)  [topping up...]"
+   },
+   {
+    "t": 5.178,
+    "line": "[TollGate 10.99.99.1] 21.0 MB left (4096/22020096)  [topping up...]"
+   },
+   {
+    "t": 5.72,
+    "line": "  -> paid 1 sats (allotment now 44040192)"
+   },
+   {
+    "t": 7.724,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (8192/44040192)"
+   },
+   {
+    "t": 9.728,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (10240/44040192)"
+   },
+   {
+    "t": 11.731,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (11264/44040192)"
+   },
+   {
+    "t": 13.736,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (13312/44040192)"
+   },
+   {
+    "t": 15.74,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (14336/44040192)"
+   },
+   {
+    "t": 17.743,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (16384/44040192)"
+   },
+   {
+    "t": 19.748,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (17408/44040192)"
+   },
+   {
+    "t": 21.752,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (19456/44040192)"
+   },
+   {
+    "t": 23.756,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (20480/44040192)"
+   },
+   {
+    "t": 25.76,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (22528/44040192)"
+   },
+   {
+    "t": 29.767,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (24576/44040192)"
+   },
+   {
+    "t": 31.771,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (25600/44040192)"
+   },
+   {
+    "t": 33.774,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (27648/44040192)"
+   },
+   {
+    "t": 35.778,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (28672/44040192)"
+   },
+   {
+    "t": 37.782,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (43008/44040192)"
+   },
+   {
+    "t": 39.786,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (45056/44040192)"
+   },
+   {
+    "t": 41.79,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (46080/44040192)"
+   },
+   {
+    "t": 43.794,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (48128/44040192)"
+   },
+   {
+    "t": 45.798,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (49152/44040192)"
+   },
+   {
+    "t": 47.801,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (51200/44040192)"
+   },
+   {
+    "t": 49.806,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (52224/44040192)"
+   },
+   {
+    "t": 51.81,
+    "line": "[TollGate 10.99.99.1] 41.9 MB left (54272/44040192)"
+   },
+   {
+    "t": 53.813,
+    "line": "[TollGate 10.99.99.1] 41.9 MB left (55296/44040192)"
+   },
+   {
+    "t": 55.817,
+    "line": "[TollGate 10.99.99.1] 41.9 MB left (57344/44040192)"
+   },
+   {
+    "t": 57.82,
+    "line": "[TollGate 10.99.99.1] 41.9 MB left (58368/44040192)"
+   },
+   {
+    "t": 59.824,
+    "line": "[TollGate 10.99.99.1] 41.9 MB left (60416/44040192)"
+   }
+  ],
+  "router": [
+   {
+    "t": 1.121,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:45Z] Received handleRootPost request               method=POST module=main remote_addr=\"10.99.99.2:52488\""
+   },
+   {
+    "t": 1.121,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:45Z] Treating request as plain Cashu token string  module=main"
+   },
+   {
+    "t": 1.126,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:45 PurchaseSession: calling Receive for mint=http://10.99.99.2:8085 token_amount=1 mac=76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 1.163,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:45 PurchaseSession: Receive completed, amount=1, err=<nil>"
+   },
+   {
+    "t": 1.164,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:45 Amount after swap: 1"
+   },
+   {
+    "t": 1.164,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:45 Converting 1 steps to 22020096 bytes using step size 22020096"
+   },
+   {
+    "t": 1.165,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.notice nodogsplash[2433]: Authenticating 10.99.99.2 76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 1.167,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:45Z] Authorization successful for MAC              attempts=1 mac_address=\"76:1b:89:c6:aa:d1\" module=valve output=\"Client 76:1b:89:c6:aa:d1 authenticated.\\n\""
+   },
+   {
+    "t": 1.17,
+    "line": "Sun Sep 20 07:39:45 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:45Z] Set data baseline for customer tracking       baseline_downloaded=0 baseline_total=0 baseline_uploaded=0 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 2.791,
+    "line": "Sun Sep 20 07:39:46 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:46 Data usage for 76:1b:89:c6:aa:d1: 2.0 KB / 21.0 MB (0.0%)"
+   },
+   {
+    "t": 4.791,
+    "line": "Sun Sep 20 07:39:48 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:48 Data usage for 76:1b:89:c6:aa:d1: 3.0 KB / 21.0 MB (0.0%)"
+   },
+   {
+    "t": 5.671,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:49Z] Received handleRootPost request               method=POST module=main remote_addr=\"10.99.99.2:51370\""
+   },
+   {
+    "t": 5.671,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:49Z] Treating request as plain Cashu token string  module=main"
+   },
+   {
+    "t": 5.676,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:49 PurchaseSession: calling Receive for mint=http://10.99.99.2:8085 token_amount=1 mac=76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 5.713,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:49 PurchaseSession: Receive completed, amount=1, err=<nil>"
+   },
+   {
+    "t": 5.714,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:49 Amount after swap: 1"
+   },
+   {
+    "t": 5.714,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:49 Converting 1 steps to 22020096 bytes using step size 22020096"
+   },
+   {
+    "t": 5.714,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:49Z] Replacing existing timed gate with indefinite data-based gate.  mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 5.717,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:49Z] Client already Authenticated in NDS; treating gate as open  attempt=1 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 5.72,
+    "line": "Sun Sep 20 07:39:49 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:49Z] Set data baseline for customer tracking       baseline_downloaded=10240 baseline_total=17408 baseline_uploaded=7168 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 6.791,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:50 Data usage for 76:1b:89:c6:aa:d1: 2.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 6.793,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:50Z] \ud83d\udce1 Reporting gateway to upstream session manager  gateway=10.99.88.1 interface=eth1 mac=\"52:54:00:12:34:57\" module=upstream_detector"
+   },
+   {
+    "t": 6.794,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:50Z] \ud83d\udd0d Checking if gateway is a TollGate           gateway=10.99.88.1 interface=eth1 module=upstream_session_manager"
+   },
+   {
+    "t": 6.796,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: WARN[2026-09-20T07:39:50Z] Gateway returned unexpected content type      content_type=\"text/plain; charset=utf-8\" module=upstream_session_manager url=\"http://10.99.88.1:2121/\""
+   },
+   {
+    "t": 6.796,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:50Z] \u2705 Gateway responded - validating TollGate advertisement  gateway=10.99.88.1 module=upstream_session_manager"
+   },
+   {
+    "t": 6.796,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:39:50Z] \ud83d\udea8 TEMPORARY: Triggering captive portal session for ndsctl  gateway_ip=10.99.88.1 module=upstream_session_manager protocol_note=\"TEMPORARY WORKAROUND - not part of TollGate protocol\" purpose=trigger_ndsctl_session url=\"http://10.99.88.1:80/\""
+   },
+   {
+    "t": 6.797,
+    "line": "Sun Sep 20 07:39:50 2026 daemon.err tollgate-wrt[28878]: WARN[2026-09-20T07:39:50Z] Captive portal request failed (this is expected and non-critical)  error=\"Get \\\"http://10.99.88.1:80/\\\": dial tcp 10.99.88.1:80: connect: connection refused\" gateway_ip=10.99.88.1 module=upstream_session_manager"
+   },
+   {
+    "t": 8.79,
+    "line": "Sun Sep 20 07:39:52 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:52 Data usage for 76:1b:89:c6:aa:d1: 8.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 10.791,
+    "line": "Sun Sep 20 07:39:54 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:54 Data usage for 76:1b:89:c6:aa:d1: 10.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 12.79,
+    "line": "Sun Sep 20 07:39:56 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:56 Data usage for 76:1b:89:c6:aa:d1: 11.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 14.792,
+    "line": "Sun Sep 20 07:39:58 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:39:58 Data usage for 76:1b:89:c6:aa:d1: 13.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 16.791,
+    "line": "Sun Sep 20 07:40:00 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:00 Data usage for 76:1b:89:c6:aa:d1: 14.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 18.791,
+    "line": "Sun Sep 20 07:40:02 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:02 Data usage for 76:1b:89:c6:aa:d1: 16.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 20.791,
+    "line": "Sun Sep 20 07:40:04 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:04 Data usage for 76:1b:89:c6:aa:d1: 17.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 22.791,
+    "line": "Sun Sep 20 07:40:06 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:06 Data usage for 76:1b:89:c6:aa:d1: 19.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 24.791,
+    "line": "Sun Sep 20 07:40:08 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:08 Data usage for 76:1b:89:c6:aa:d1: 20.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 26.792,
+    "line": "Sun Sep 20 07:40:10 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:10 Data usage for 76:1b:89:c6:aa:d1: 22.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 28.791,
+    "line": "Sun Sep 20 07:40:12 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:12 Data usage for 76:1b:89:c6:aa:d1: 23.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 30.791,
+    "line": "Sun Sep 20 07:40:14 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:14 Data usage for 76:1b:89:c6:aa:d1: 25.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 32.792,
+    "line": "Sun Sep 20 07:40:16 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:16 Data usage for 76:1b:89:c6:aa:d1: 26.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 34.791,
+    "line": "Sun Sep 20 07:40:18 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:18 Data usage for 76:1b:89:c6:aa:d1: 28.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 36.79,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:20 Skipping payout for c08r4d0r: aimedAmount rounded to 0 (aimedPaymentAmount=6, factor=0.0700)"
+   },
+   {
+    "t": 36.79,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:20 Skipping payout for amperstrand: aimedAmount rounded to 0 (aimedPaymentAmount=6, factor=0.0700)"
+   },
+   {
+    "t": 36.79,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:20 Skipping payout for origami74: aimedAmount rounded to 0 (aimedPaymentAmount=6, factor=0.0700)"
+   },
+   {
+    "t": 36.792,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:20 Data usage for 76:1b:89:c6:aa:d1: 30.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 36.793,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:40:20Z] \ud83d\udce1 Reporting gateway to upstream session manager  gateway=10.99.88.1 interface=eth1 mac=\"52:54:00:12:34:57\" module=upstream_detector"
+   },
+   {
+    "t": 36.793,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:40:20Z] \ud83d\udd0d Checking if gateway is a TollGate           gateway=10.99.88.1 interface=eth1 module=upstream_session_manager"
+   },
+   {
+    "t": 36.794,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: WARN[2026-09-20T07:40:20Z] Gateway returned unexpected content type      content_type=\"text/plain; charset=utf-8\" module=upstream_session_manager url=\"http://10.99.88.1:2121/\""
+   },
+   {
+    "t": 36.795,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:40:20Z] \u2705 Gateway responded - validating TollGate advertisement  gateway=10.99.88.1 module=upstream_session_manager"
+   },
+   {
+    "t": 36.795,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: INFO[2026-09-20T07:40:20Z] \ud83d\udea8 TEMPORARY: Triggering captive portal session for ndsctl  gateway_ip=10.99.88.1 module=upstream_session_manager protocol_note=\"TEMPORARY WORKAROUND - not part of TollGate protocol\" purpose=trigger_ndsctl_session url=\"http://10.99.88.1:80/\""
+   },
+   {
+    "t": 36.795,
+    "line": "Sun Sep 20 07:40:20 2026 daemon.err tollgate-wrt[28878]: WARN[2026-09-20T07:40:20Z] Captive portal request failed (this is expected and non-critical)  error=\"Get \\\"http://10.99.88.1:80/\\\": dial tcp 10.99.88.1:80: connect: connection refused\" gateway_ip=10.99.88.1 module=upstream_session_manager"
+   },
+   {
+    "t": 36.958,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 fetchInvoiceWithRetry(tollgate@minibits.cash, 5) attempt 1/5 failed: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused"
+   },
+   {
+    "t": 37.136,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 fetchInvoiceWithRetry(tollgate@minibits.cash, 5) attempt 2/5 failed: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused"
+   },
+   {
+    "t": 37.164,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 fetchInvoiceWithRetry(tollgate@minibits.cash, 5) attempt 3/5 failed: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused"
+   },
+   {
+    "t": 37.34,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 fetchInvoiceWithRetry(tollgate@minibits.cash, 5) attempt 4/5 failed: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused"
+   },
+   {
+    "t": 37.551,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 fetchInvoiceWithRetry(tollgate@minibits.cash, 5) attempt 5/5 failed: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused"
+   },
+   {
+    "t": 37.551,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 Payout http://10.99.99.2:8085: owner unreachable (no invoice after 5 attempts: failed to make request to Lightning Address service: Get \"https://minibits.cash/.well-known/lnurlp/tollgate\": dial tcp 195.201.20.134:443: connect: connection refused) \u2014 skipping, share stays in wallet"
+   },
+   {
+    "t": 37.552,
+    "line": "Sun Sep 20 07:40:21 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:21 Payout http://10.99.99.2:8085: owner is unreachable \u2014 aborting all payouts this cycle"
+   },
+   {
+    "t": 38.791,
+    "line": "Sun Sep 20 07:40:22 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:22 Data usage for 76:1b:89:c6:aa:d1: 43.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 40.791,
+    "line": "Sun Sep 20 07:40:24 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:24 Data usage for 76:1b:89:c6:aa:d1: 45.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 42.791,
+    "line": "Sun Sep 20 07:40:26 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:26 Data usage for 76:1b:89:c6:aa:d1: 46.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 44.791,
+    "line": "Sun Sep 20 07:40:28 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:28 Data usage for 76:1b:89:c6:aa:d1: 48.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 46.792,
+    "line": "Sun Sep 20 07:40:30 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:30 Data usage for 76:1b:89:c6:aa:d1: 49.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 48.791,
+    "line": "Sun Sep 20 07:40:32 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:32 Data usage for 76:1b:89:c6:aa:d1: 51.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 50.791,
+    "line": "Sun Sep 20 07:40:34 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:34 Data usage for 76:1b:89:c6:aa:d1: 52.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 52.792,
+    "line": "Sun Sep 20 07:40:36 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:36 Data usage for 76:1b:89:c6:aa:d1: 54.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 54.791,
+    "line": "Sun Sep 20 07:40:38 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:38 Data usage for 76:1b:89:c6:aa:d1: 55.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 56.792,
+    "line": "Sun Sep 20 07:40:40 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:40 Data usage for 76:1b:89:c6:aa:d1: 57.0 KB / 42.0 MB (0.1%)"
+   },
+   {
+    "t": 58.791,
+    "line": "Sun Sep 20 07:40:42 2026 daemon.err tollgate-wrt[28878]: 2026/09/20 07:40:42 Data usage for 76:1b:89:c6:aa:d1: 58.0 KB / 42.0 MB (0.1%)"
+   }
+  ]
+ },
+ "status": [
+  {
+   "text": "TG no session",
+   "cls": "critical",
+   "pct": 0,
+   "t": 0.076
+  },
+  {
+   "text": "TG 21.0 MB",
+   "cls": "warning",
+   "pct": 99,
+   "t": 3.174
+  },
+  {
+   "text": "TG 42.0 MB",
+   "cls": "good",
+   "pct": 99,
+   "t": 7.724
+  },
+  {
+   "text": "TG 41.9 MB",
+   "cls": "good",
+   "pct": 99,
+   "t": 51.81
+  }
+ ],
+ "events": [
+  {
+   "t": 0.076,
+   "kind": "notice",
+   "text": "no session \u2014 payment needed"
+  },
+  {
+   "t": 1.17,
+   "kind": "payment",
+   "text": "paid 1 sats (allotment now 22020096)"
+  },
+  {
+   "t": 5.72,
+   "kind": "payment",
+   "text": "paid 1 sats (allotment now 44040192)"
+  }
+ ]
+}

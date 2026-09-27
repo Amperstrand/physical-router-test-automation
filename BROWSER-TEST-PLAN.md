@@ -32,13 +32,13 @@ cp dist/nsyte ~/.local/bin/
 ### Router Setup
 ```bash
 # Set passwords (both routers)
-ssh root@10.47.41.1 "printf 'c03rad0r123\nc03rad0r123\n' | passwd root"
-ssh root@192.168.244.1 "printf 'c03rad0r123\nc03rad0r123\n' | passwd root"
+ssh root@10.47.41.1 "printf 'test123\ntest123\n' | passwd root"
+ssh root@192.168.244.1 "printf 'test123\ntest123\n' | passwd root"
 ```
 
 Credentials are stored in `mint-health/routers.env`:
-- `ROUTER_PASSWORD=c03rad0r123`
-- `TOLLGATE_LUCI_PASSWORD=c03rad0r123`
+- `ROUTER_PASSWORD=test123`
+- `TOLLGATE_LUCI_PASSWORD=test123`
 
 ## Execution Checklist
 
@@ -50,7 +50,7 @@ Credentials are stored in `mint-health/routers.env`:
 - [x] Beta (192.168.244.1): password set
 
 ### Step 3: Add password to mint-health/routers.env
-- [x] `ROUTER_PASSWORD=c03rad0r123` and `TOLLGATE_LUCI_PASSWORD=c03rad0r123` appended
+- [x] `ROUTER_PASSWORD=test123` and `TOLLGATE_LUCI_PASSWORD=test123` appended
 
 ### Step 4: Add admin SPA project to playwright.config.mjs
 - [x] Added `desktop-admin` project matching `admin_spa.spec.mjs`

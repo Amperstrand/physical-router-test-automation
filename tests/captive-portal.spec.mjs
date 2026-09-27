@@ -2,6 +2,14 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+	SEL_SUCCESS,
+	SEL_SUBMIT_CLICK,
+	SEL_SUBMIT_READY,
+	SEL_TOKEN_INPUT,
+	fillCashuToken,
+	openCashuTab,
+} from './helpers/portal-selectors.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -125,7 +133,9 @@ test.describe('Captive Portal — degraded mode (backend notice)', () => {
 		await page.goto(`${PORTAL_BASE}/splash.html`, { waitUntil: 'networkidle', timeout: 30000 });
 		await page.waitForSelector('.status.error', { timeout: 15000 });
 
-		const cashuInput = page.locator('#cashu-token');
+		// The tabbed portal only renders the token input once the Cashu tab is
+		// active, so the payment inputs are absent/not visible in degraded mode.
+		const cashuInput = page.locator(SEL_TOKEN_INPUT);
 		await expect(cashuInput).not.toBeVisible();
 	});
 });
@@ -146,8 +156,9 @@ test.describe('Captive Portal — happy path (mints reachable)', () => {
 
 	test('portal shows cashu token input', async ({ page }) => {
 		await page.goto(`${PORTAL_BASE}/splash.html`, { waitUntil: 'networkidle', timeout: 30000 });
-		await page.waitForSelector('#cashu-token', { timeout: 15000 });
-		await expect(page.locator('#cashu-token')).toBeVisible();
+		await openCashuTab(page);
+		await page.waitForSelector(SEL_TOKEN_INPUT, { timeout: 15000 });
+		await expect(page.locator(SEL_TOKEN_INPUT)).toBeVisible();
 	});
 
 	test('portal shows lightning amount input', async ({ page }) => {
@@ -178,18 +189,18 @@ test.describe('Captive Portal — cashu e2e payment', () => {
 		expect(amount, 'minted amount should be >= 1').toBeGreaterThanOrEqual(1);
 
 		await page.goto(`${PORTAL_BASE}/splash.html`, { waitUntil: 'networkidle', timeout: 30000 });
-		await page.waitForSelector('#cashu-token', { timeout: 15000 });
 
-		const input = page.locator('#cashu-token');
-		await input.fill(token);
+		// The portal is tabbed: click the Cashu tab, then fill the token input
+		// (located by placeholder, the token input has no stable id).
+		await fillCashuToken(page, token);
 
-		await page.waitForSelector('.tollgate-captive-portal-method-submit button.cta:not([disabled])', { timeout: 10000 });
+		await page.waitForSelector(SEL_SUBMIT_READY, { timeout: 10000 });
 
-		await page.click('.tollgate-captive-portal-method-submit button.cta');
+		await page.click(SEL_SUBMIT_CLICK);
 
-		await page.waitForSelector('.checkmark', { timeout: 35000 });
-		const checkmark = page.locator('.checkmark');
-		await expect(checkmark).toBeVisible();
+		await page.waitForSelector(SEL_SUCCESS, { timeout: 35000 });
+		const success = page.locator(SEL_SUCCESS);
+		await expect(success).toBeVisible();
 
 		const content = page.locator('.tollgate-captive-portal-method-content');
 		const text = await content.innerText();

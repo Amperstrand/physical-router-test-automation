@@ -1,0 +1,11 @@
+# FIXTURE (self-test only — never executed by Actions; lives outside .github/)
+# Regression: a self-hosted bench runner on a pull_request-triggered workflow.
+name: Fixture PR self-hosted
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  bench:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: echo "PR code would run next to the router"

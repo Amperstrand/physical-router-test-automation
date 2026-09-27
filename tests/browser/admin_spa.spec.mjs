@@ -19,7 +19,7 @@ test.describe('admin SPA', () => {
 		const passwordInput = await page.$('input[type="password"]');
 		if (!passwordInput) return true;
 
-		const password = process.env.TOLLGATE_LUCI_PASSWORD || 'c03rad0r123';
+		const password = process.env.TOLLGATE_LUCI_PASSWORD || 'test123';
 		await passwordInput.fill(password);
 
 		const usernameInput = await page.$('input[type="text"], input[name="username"], input[placeholder*="user" i]');

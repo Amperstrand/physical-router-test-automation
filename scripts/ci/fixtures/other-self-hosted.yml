@@ -1,0 +1,20 @@
+# Fixture (RED): a bench-label runner in a file that is NOT the hardware
+# workflow and NOT PR-reachable.
+# -----------------------------------------------------------------------------
+# R1 only arms on files whose triggers the parser reads as PR-reachable, and
+# R2/R4/R5 only ever look at `hw-smoke.yml`. A third file like this one — push
+# triggered, or `workflow_call`-able and therefore reachable from a
+# pull_request-triggered caller — therefore used to pass every rule while
+# running contributor-reachable code on the bench. Only R6 stops it.
+name: shadow bench job
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  shadow:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "bench code from a file the R2 whitelist never looks at"

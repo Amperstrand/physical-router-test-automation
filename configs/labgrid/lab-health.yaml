@@ -1,0 +1,18 @@
+# Labgrid deployment health env — power control on the SAFE EMPTY port.
+# lan7 has no PD attached (verified 2026-09-25): toggling it can not affect
+# any device. lan1 (uplink/trunk) and lan8 (old cascade) are PROTECTED and
+# refused by the driver anyway.
+#
+# Run:
+#   TOLLGATE_SSH_HOST= ROUTER_IP= TOLLGATE_VIRTUAL_LAB= \
+#   ~/venvs/rig-labgrid/bin/python -m pytest \
+#     --lg-env=configs/labgrid/lab-health.yaml --no-deploy \
+#     tests/test_lab_health.py -v
+targets:
+  main:
+    resources:
+      ZyxelPoePort:
+        host: "192.168.13.2"
+        port: "lan7"
+    drivers:
+      ZyxelPoEDriver: {}

@@ -174,7 +174,7 @@ Both Go and Rust backends successfully process V3 token payments end-to-end:
 - Rust + V1 keyset (testnut): `Receive completed, amount=3, err=<nil>`
 - Both backends: token parsed, verified, payment processed, MAC authorized, session event returned
 
-V4 tokens (`cashuB` prefix, CBOR) previously failed because gonuts lacked short keyset ID resolution. **Fixed in gonuts-tollgate v0.8.0** ([PR #284](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/284) — pending merge). The fix adds `resolveShortKeysetIds()` which fetches active keysets from the mint and resolves 8-byte short IDs to full IDs before swap.
+V4 tokens (`cashuB` prefix, CBOR) previously failed because gonuts lacked short keyset ID resolution. **Fixed in gonuts-tollgate v0.8.0** (tollgate-module-basic-go PR [#286](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/286), merged 2026-07-24 — the fork-PR #284 was closed in its favor; fork PRs didn't trigger CI). The fix adds `resolveShortKeysetIds()` which fetches active keysets from the mint and resolves 8-byte short IDs to full IDs before swap. Main has since moved to gonuts-tollgate **v0.11.2**; V4+V1 re-verified end-to-end on 2026-09-18 against a v0.6.0-alpha2 build (portal checkmark + `Receive completed, amount=4` + 150 MiB granted).
 
 **Before the fix (gonuts < v0.8.0):** V4 tokens store keyset IDs as 8-byte short IDs (per NUT-00 V4 spec). gonuts's `TokenV4.Proofs()` converted the raw CBOR bytes directly to hex without resolving the short ID. When gonuts sent the 8-byte hex to the mint swap endpoint, the mint rejected it: `NUT02: ID length invalid, expected 8 bytes (short/v1) or 33 bytes (v2)`.
 
@@ -406,6 +406,67 @@ The framework runs in three environments. Detection is automatic — no manual c
 
 ## Lessons Learned
 
+### Test-rail contamination produced two false "product broken" verdicts (2026-09-19, mint-zoo session)
+
+During mint-compat testing, the SAME product defect ("V4 tokens rejected")
+was "confirmed" twice — and both were **test-rail bugs, not product bugs**:
+
+1. **NDS already-authenticated race**: a prior successful payment leaves the
+   client MAC authenticated; the next payment's `ndsctl auth` then exits 1 and
+   the backend reports `session-error: failed to open gate` — AFTER consuming
+   the token (consume-before-gate). Read as "payment broken".
+2. **Stale mint pin**: the router's `accepted_mints` still pointed at the
+   previous scenario's mint; the new token was rejected as
+   "Token for mint X is not accepted". Read as "token format broken".
+
+A clean-room retest (router pinned to the token's mint + deauth before every
+payment + full-response capture) showed **both verdicts were false** — V4+V2
+pays fine everywhere. The contamination nearly drove a pre-release wallet
+rewrite.
+
+**Rules (enforced by `scripts/bench/bench.py` — use it, don't hand-copy rails):**
+- Deauthenticate the paying client before EVERY payment.
+- Pin `accepted_mints` to the token's mint in the SAME scenario that pays.
+- Capture and assert on FULL responses (kind + code + content) — never grep
+  a truncated body.
+- Assertions must FAIL LOUDLY on sentinel garbage: an advertisement parse
+  returning `"0"`/`""`/`AD_EMPTY` must raise, not compare-equal-and-pass.
+  (An ad-tag off-by-one returned the min-steps field `"0"` and two assertions
+  silently evaluated against it.)
+- Compatibility claims require the clean-room rail behind them.
+
+### Shell orchestration footguns (repeated 2026-09-19)
+
+- **Never edit a script while it runs** — bash reads scripts incrementally;
+  overwriting `matrix.sh` mid-run corrupted execution past the file offset.
+  Killed two runs. Copy-then-run, or use an installed library.
+- **pgrep/pkill self-match**: an ssh wrapper whose command line contains the
+  pattern kills itself (`pkill -f partial-degradation` matched my own ssh).
+  Third strike this session. Match `bash /full/path/script.sh` or use pidfiles.
+- **One rail library, not copies**: pay/pin/deauth/probe logic was
+  hand-copied into four shell runners; bugs fixed in one persisted in the
+  others (recovery-log pattern fixed twice; ad-parser bug existed in only one
+  copy). New scenario code goes in `scripts/bench/` on `Bench`, not in new
+  shell.
+
+### Readiness ≠ liveness (reaffirmed)
+
+`/v1/info` answering is NOT mint health — settle a NUT-04 quote before
+blaming the router (see the fast-start lesson). The same applies to the
+backend (`:2121` answering ≠ wallet registered) and to docker ("running"
+≠ ready). Every wait in `Bench` uses a functional probe.
+
+### Labgrid (future direction for physical hardware)
+
+As physical-hardware testing gets serious, the plan is
+[labgrid](https://labgrid.readthedocs.io/) for board/place management
+(power, serial, console logging, resource reservation). `scripts/bench/`
+is deliberately shaped as the seam: `Bench` abstracts
+router-control/payment/mint-control behind one interface — a future
+`LabgridBench` can subclass it and swap SSH/QEMU control for labgrid places
+without touching scenario code. Keep scenarios written against `Bench`, never
+against raw ssh/curl.
+
 ### GitHub org-Actions freeze: billing hold, not policy (2026-08-27 forensics)
 
 **Symptom**: workflow dispatch 422s with "Actions has been disabled for this
@@ -565,7 +626,15 @@ The Go backend's wallet dependency is declared as `Origami74/gonuts-tollgate v0.
 
 **testnut.cashu.exchange returns a dummy string, not bolt11**:
 
-> **Note (July 2026)**: `testnut.cashu.space` is currently unreachable (HTTP 000 / connection refused). Only `testnut.cashu.exchange` is operational. The `.space` domain was previously the recommended fallback for valid bolt11 invoices but is no longer available.
+> **Note (updated 2026-09-18)**: both testnut domains are currently operational —
+> live-probed: `testnut.cashu.space` answers `/v1/info` (0.17s) AND settles
+> NUT-04 quotes (verified end-to-end with HttpMinter), as does
+> `testnut.cashu.exchange`. An earlier July 2026 note declared `.space` dead
+> (HTTP 000); that was transient or has been fixed. `.space` is the canonical
+> testnut domain (returns proper bolt11); `.exchange` remains the fallback and
+> still returns its dummy `dummy-mint-*` string instead of bolt11 (see below).
+> Mints flap — probe before blaming the router, and prefer a quote-settle probe
+> over `/v1/info` alone.
 
 ```
 testnut.cashu.exchange → "dummy-mint-4-46876457c0684c65d07e993705706d7b84c528aa75be1c722b8970f37585c7ba-exp1780177644"
@@ -1525,15 +1594,17 @@ Tests are ordered by dependency and run sequentially. The full suite validates W
 
 ## Cashu Token Version Compatibility
 
-The Go backend (gonuts) supports V1, V3, and V4 Cashu tokens. V4 support was added in gonuts-tollgate v0.8.0 via `resolveShortKeysetIds()`. PR #284 bumps the dependency (pending merge).
+The Go backend (gonuts) supports V1, V3, and V4 Cashu tokens. V4 support was added in gonuts-tollgate v0.8.0 via `resolveShortKeysetIds()`, merged via tollgate-module-basic-go PR #286 (2026-07-24); main now pins v0.11.2.
 
 | Token Version | Prefix | Encoding | Go Backend | Notes |
 |---------------|--------|----------|------------|-------|
 | V1 | `cashuA` | Base64 JSON | **Accepted** | Legacy format |
 | V3 | `cashuAeyJ` | Base64 JSON | **Accepted** | Current standard, tested with 378-char testnut tokens |
-| V4 | `cashuB` | Binary CBOR | **Accepted (gonuts v0.8.0+)** | `resolveShortKeysetIds()` resolves 8-byte short keyset IDs to full IDs before swap. V4+V1 verified e2e (`kind=1022, allotment=176160768`). V4+V2 keyset confirmed locally. Without v0.8.0: `NUT02: ID length invalid`. |
+| V4 | `cashuB` | Binary CBOR | **Accepted (gonuts v0.8.0+ for V2 keysets)** | `resolveShortKeysetIds()` resolves 8-byte short keyset IDs to full IDs before swap. V4+V1 verified e2e (`kind=1022, allotment=176160768`). V4+V2 keyset confirmed locally. The v0.8.0 requirement applies to **V4+V2** (short ID ≠ 33-byte V2 full ID → `NUT02: ID length invalid`); V4+V1 needs no resolution (the 8-byte short ID *is* the full V1 ID) and pays even on pre-v0.8.0 gonuts — verified live 2026-09-20 against the v0.5.0 tag build (Amperstrand gonuts v0.7.0): `Receive completed, amount=4, err=<nil>`. |
 
-Users with modern Cashu wallets (eNuts, cashu.me with latest CDK) producing V4 tokens are supported once PR #284 is merged.
+Users with modern Cashu wallets (eNuts, cashu.me with latest CDK) producing V4 tokens are supported on main and in v0.6.0-alpha2+. Field-compat is narrower than previously believed (live-verified 2026-09-20): **V4+V1 pays even on field v0.5.0 routers** (v0.5.0 tag pins the Amperstrand gonuts fork v0.7.0, and V1 keysets need no short-ID resolution); the actual v0.5.0 field gap is **V4+V2-keyset** tokens only.
+
+**Minting caveats (2026-09-18, gonuts-tollgate v0.11.2 wallet):** the Go wallet path cannot mint from either public testnut domain — `testnut.cashu.exchange` returns its dummy non-bolt11 string (zpay32 decode fails), and `testnut.cashu.space` now runs **V2 keysets**, which the gonuts wallet rejects at LoadWallet (`Derived id: '00…' but got '01…' from mint`). To mint V4+V1 tokens for tests use **cdk-cli** (on ai-legion-small at `/opt/cdk-mintd/cdk-cli`, 0.18.0): `cdk-cli mint https://testnut.cashu.exchange 11` then `cdk-cli send --mint-url https://testnut.cashu.exchange --amount 4 --include-fee` (V4 by default, `--v3` for V3). `scripts/mint-token` (also gonuts-based) only works against real-bolt11 V1-keyset mints, e.g. the local Nutshell V1 at `:8385`.
 
 Full findings and test matrix: `docs/portal-test-findings.md`.
 
@@ -1810,6 +1881,15 @@ and emit the matching config.
 - 0.18 opens/migrates existing mint DBs — never point 0.16 at a
   0.18-written work dir afterwards (backup first if the DB matters; lab
   mints are disposable).
+- **0.18.0-FINAL startup contract (2026-09-17, upgrade bench)**: the final
+  release dropped `--config`/`--config-file` as startup inputs entirely.
+  Config lives in the DB: run `cdk-mintd config validate --file config.toml`
+  + `cdk-mintd config init --new-mint --file config.toml` once (with
+  `CDK_MINTD_WORK_DIR` + `CDK_MINTD_MNEMONIC` exported, mnemonic as
+  `env:` ref), then start **bare** `cdk-mintd` — the daemon reads its config
+  from the work-dir DB. A dedicated second-mint setup script lives at
+  `scripts/upgrade-emulation/mint2-setup.sh` (fakewallet on 10.99.99.2:8383,
+  usable from the QEMU upgrade bench and the host).
 
 ### Nodogsplash 5.0.2 auth-mark bug: authenticated clients cannot open NEW connections (2026-09-03)
 
@@ -1860,28 +1940,23 @@ notes above). Natural follow-up: fold the NDS mark workaround into the
 lab runner / `lib/router.py` as a `fix_nodogsplash_auth_marks()` helper
 in the spirit of `fix_nodogsplash_dhcp()`.
 
-## Lessons Learned — Local-Lab-Green Campaign (2026-09-05/06)
+## Physical-router deployment kit (2026-09-17)
 
-Three suite-poisoning cascade classes root-caused on the local virtual lab
-(branch `integ/local-lab-green`, PR #101; full suite 229E → 4E, zero cascade):
+`deployment-kit/` holds reproducible bring-up tooling for **physical** routers
+(complementing the cloud-lab mint recipe in `lib/cloud_lab/worker/mints.py`).
 
-1. **Wedged SSH ControlMaster**: one hung mux makes every `Router.ssh` client
-   time out while the router stays healthy and fresh connections work.
-   `Router.ssh`/`ssh_stdin` now tear the master down and retry once. Evidence
-   pattern: mass `subprocess.TimeoutExpired` on `ndsctl deauth` in
-   `container_nds_preflight` with a healthy `/v1/info` + `ndsctl json`.
-2. **Wedged NDS** (SIGKILL trap re-confirmed): kill -9 on a pytest mid-test
-   wedges `ndsctl` (first deauth-only, then the socket goes EBADF; restarts
-   cannot clear an init-time hang — a VM reboot was required once). The
-   runner gates on `ndsctl json` (host-side `timeout 15` — **OpenWrt has no
-   `timeout` binary**; `timeout 6 ndsctl …` inside ssh returns 127 and fakes
-   a "wedge"), restarts NDS+backend once, aborts with a reboot hint.
-3. **NDS 5.0.2 auth-mark gating**: rewriting the per-client ndsOUT rule LEAKS
-   (NDS cannot delete a foreign rule at deauth → permanent internet; NDS also
-   removes its rule asynchronously and the backend's 5s session valve
-   re-asserts auth while a session lives — poll for the rule to actually
-   disappear). The repair is one client-agnostic `ndsNET` accept rule for the
-   auth bit (`--mark 0x20000/0x20000`), idempotent, wired into `wait_for_auth`.
+- `deployment-kit/scripts/bring-up-fakewallet-mint.sh` — run cdk-mintd
+  `fakewallet` natively on a host the router can reach (auto-pays NUT-04 quotes).
+- `deployment-kit/scripts/configure-router-test-mint.sh` — backup the router's
+  `config.json`/`wallet.db` and repoint `accepted_mints` at the test mint
+  (`--restore` to revert).
+- `deployment-kit/scripts/hot-deploy-portal.sh` — build + hot-deploy the portal
+  SPA to `/etc/tollgate/tollgate-captive-portal-site` (`:2051`).
+- `deployment-kit/scripts/lightning-e2e.sh` — prime NDS, create an invoice,
+  poll until `access_granted=true`.
+- `deployment-kit/runbooks/mt6000-lightning-e2e.md` — the verified reproduction.
+- `tests/browser/tollgate-portal-lightning.spec.mjs` — hardware regression for
+  the Lightning capability probe + balance page.
 
 Environment traps found while verifying:
 - **neverssl.com is TCP-blocked from this network** (ICMP passes) — a
@@ -1964,3 +2039,19 @@ Exporters: `ai-legion-small-rig` (phone), `ai-legion-small-microfips` (ESP32s).
 3. Contract JSON — behavior changes are visible in the diff
 4. Cross-implementation matrix — same story, different devices
 5. DRY — one test file per story, parameterized across devices
+
+### Two root causes for the Lightning flow (both bit us)
+
+1. **Mint generation must match the backend wallet.** The Go backend's Cashu
+   wallet (`cashubtc/cdk-go 0.17.3`) rejects mint-quote signatures from
+   cdk-mintd `<0.17`; settlement fails with
+   `ensureLightningAccessGranted failed: Signature missing or invalid` even
+   though `POST /ln-invoice` succeeds. Use **cdk-mintd 0.18.0**.
+2. **Prime NDS before paying.** `ndsctl auth <mac>` only works for a MAC NDS
+   already tracks, so the client must fetch `http://<router>:2050/` (and the
+   `:2051` portal) first, or gate-open fails with
+   `failed to open gate: exit status 1` — after the token was already consumed.
+
+Also: `wallet.db` caches mint URLs, so delete it after changing mints; use
+`scp -O` for OpenWrt.
+

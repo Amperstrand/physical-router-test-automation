@@ -1,0 +1,15 @@
+# Fixture: a PR-reachable workflow that names ONLY the bench runner's custom
+# label. GitHub routes a job to any runner carrying the label, so this reaches
+# the bench without ever containing the literal string `self-hosted`.
+name: label-only PR job
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  sneaky:
+    runs-on: [tollgate-router]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "this executes on the bench host"

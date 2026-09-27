@@ -1,0 +1,236 @@
+# =============================================================================
+# HW Smoke — the ONLY workflow that may run bench (self-hosted) work
+# =============================================================================
+# Threat model this file exists to enforce:
+#   A `pull_request` trigger combined with a `[self-hosted, tollgate-router]`
+#   runner means ANY contributor's PR code executes on the machine that flashes
+#   routers, holds the repo secrets, and sits in the bench's L1/L2
+#   neighbourhood. The old ci.yml jobs `test-ui` / `test-physical` were exactly
+#   that, parked behind a single `if: false` a later edit was invited to flip.
+#
+# Contract (mechanically enforced on every PR by the ci.yml `lint` job, via
+# scripts/ci/check-workflow-hw-isolation.sh, self-tested by
+# scripts/ci/test-check-workflow-hw-isolation.sh):
+#   * This workflow MUST NOT gain a pull_request / pull_request_target trigger.
+#     It is maintainer-triggered only.
+#   * Trigger whitelist: workflow_dispatch (+ schedule for the read-only lane).
+#   * No `if: false` job guards anywhere in .github/workflows/. Enablement is an
+#     explicit dispatch input, a repo variable, or an environment approval —
+#     never a commented-out kill switch waiting to be flipped.
+#   * A job that touches bench-mutating state must declare `environment:` so it
+#     sits behind required reviewers.
+#
+# LANES
+#   readonly-surface  No secrets, no credentials, no mutation, no paid traffic.
+#                     Safe while another agent holds the bench and while a
+#                     merchant session is live. This is the lane an agent runs
+#                     for an "is the box still healthy" check; locally the same
+#                     script is `make hw-readonly`.
+#   mutating-e2e      Requires the `bench-hardware` environment approval. The
+#                     paid-traffic specs (WiFi client / data allotment) are OFF
+#                     by default and must be opted into per dispatch — the old
+#                     job force-enabled them on every run.
+#   destructive-e2e   Firmware flash / reboot specs; requires the environment
+#                     AND an explicit `include_destructive` dispatch input.
+#
+# ENABLING THIS LANE (operator):
+#   1. Register a self-hosted runner labelled `tollgate-router` on the bench.
+#   2. Create the `bench-hardware` environment with required reviewers.
+#   3. Set repo variable HW_BENCH_SCHEDULE=true to arm the weekly read-only run,
+#      and HW_BENCH_HOST if the bench is not at 192.168.1.1.
+#   Until then the scheduled lane self-skips (no `if: false` flag to flip) and
+#   manual dispatch still works the moment a runner appears.
+# =============================================================================
+
+name: HW Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: 'readonly = surface check only. mutating = bench E2E (needs bench-hardware approval).'
+        type: choice
+        options:
+          - readonly
+          - mutating
+        default: readonly
+      target_host:
+        description: 'Bench host (blank = HW_BENCH_HOST repo var, else 192.168.1.1)'
+        required: false
+        default: ''
+      enable_wifi_client_tests:
+        description: 'MUTATING + PAID TRAFFIC: WiFi client specs (default off)'
+        type: boolean
+        default: false
+      enable_data_allotment_tests:
+        description: 'MUTATING + PAID TRAFFIC: data allotment specs (default off)'
+        type: boolean
+        default: false
+      include_destructive:
+        description: 'DESTRUCTIVE: firmware-upgrade + reboot-recovery specs (default off)'
+        type: boolean
+        default: false
+  # Weekly read-only surface check. Dormant until an operator arms the repo
+  # variable HW_BENCH_SCHEDULE — a live cron with no runner would just queue
+  # ghost runs forever.
+  schedule:
+    - cron: '17 5 * * 1'
+
+concurrency:
+  # All bench work serialises, whatever the lane and whoever triggers it.
+  # Never cancel: a half-finished mutating lane leaves the router transitional.
+  group: hw-bench
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lane 1 — READ ONLY. No secrets, no credentials, no router mutation.
+  # ---------------------------------------------------------------------------
+  readonly-surface:
+    name: read-only surface check (no secrets, no mutation)
+    # Manual dispatch always runs. The cron only runs once the bench runner is
+    # declared live by the operator (repo variable), so no ghost runs.
+    if: github.event_name == 'workflow_dispatch' || vars.HW_BENCH_SCHEDULE == 'true'
+    runs-on: [self-hosted, tollgate-router]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Bench read-only surface check
+        env:
+          # Explicit in the lane, never inherited: the bench address is pinned
+          # here because tests/helpers/inventory.mjs has a stale 192.168.13.112
+          # fallback that reads like a hardware fault.
+          TOLLGATE_ROUTER_HOST: ${{ github.event.inputs.target_host || vars.HW_BENCH_HOST || '192.168.1.1' }}
+        run: |
+          mkdir -p hw-smoke-out
+          bash scripts/hw-readonly-check.sh --host "${TOLLGATE_ROUTER_HOST}" 2>&1 \
+            | tee hw-smoke-out/readonly-surface.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hw-readonly-surface
+          path: hw-smoke-out/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Lane 2 — MUTATING. Behind the bench-hardware environment (required
+  # reviewers). Paid-traffic specs stay off unless opted in per dispatch.
+  # ---------------------------------------------------------------------------
+  mutating-e2e:
+    name: mutating bench E2E (bench-hardware approval required)
+    needs: [readonly-surface]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.lane == 'mutating'
+    environment: bench-hardware
+    runs-on: [self-hosted, tollgate-router]
+    timeout-minutes: 60
+    env:
+      TOLLGATE_LUCI_URL: ${{ secrets.TOLLGATE_LUCI_URL }}
+      TOLLGATE_LUCI_USER: ${{ secrets.TOLLGATE_LUCI_USER }}
+      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
+      TOLLGATE_SSH_HOST: ${{ secrets.TOLLGATE_SSH_HOST }}
+      TOLLGATE_SSH_PASSWORD: ${{ secrets.TOLLGATE_SSH_PASSWORD }}
+      TOLLGATE_WIFI_INTERFACE: ${{ secrets.TOLLGATE_WIFI_INTERFACE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+
+      - run: npx playwright install --with-deps
+
+      - name: Pre-flight — read-only gate must pass BEFORE anything mutates
+        env:
+          TOLLGATE_ROUTER_HOST: ${{ github.event.inputs.target_host || vars.HW_BENCH_HOST || '192.168.1.1' }}
+        run: bash scripts/hw-readonly-check.sh --host "${TOLLGATE_ROUTER_HOST}"
+
+      # Non-destructive projects only. The destructive project (firmware flash,
+      # reboot) has its own job below — the old `test-physical` job ran the
+      # whole config, destructive project included.
+      #
+      # The paid-traffic opt-in lives HERE, on the spec step, and not in the
+      # job-level env: `scripts/hw-readonly-check.sh` G0 refuses to run at all
+      # when it sees a mutating flag, so a job-level flag would abort the
+      # pre-flight of the very lane that opted in (the opt-in path would be
+      # dead on arrival).
+      - name: Bench E2E (non-destructive projects)
+        env:
+          TOLLGATE_ENABLE_WIFI_CLIENT_TESTS: ${{ github.event.inputs.enable_wifi_client_tests || 'false' }}
+          TOLLGATE_ENABLE_DATA_ALLOTMENT_TESTS: ${{ github.event.inputs.enable_data_allotment_tests || 'false' }}
+        run: |
+          npx playwright test --config=tests/playwright.config.mjs \
+            --project=desktop-luci \
+            --project=desktop-portal \
+            --project=desktop-admin \
+            --project=desktop-admin-login \
+            --project=desktop-css-regression \
+            --project=desktop-protocol
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hw-mutating-report
+          path: test-results/
+          retention-days: 3
+
+  # ---------------------------------------------------------------------------
+  # Lane 3 — DESTRUCTIVE. Flashes firmware / reboots the bench. Requires the
+  # environment approval AND an explicit dispatch input.
+  # ---------------------------------------------------------------------------
+  destructive-e2e:
+    name: destructive bench E2E (firmware/reboot, bench-hardware approval required)
+    needs: [readonly-surface]
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && github.event.inputs.lane == 'mutating'
+      && github.event.inputs.include_destructive == 'true'
+    environment: bench-hardware
+    runs-on: [self-hosted, tollgate-router]
+    timeout-minutes: 90
+    env:
+      TOLLGATE_LUCI_URL: ${{ secrets.TOLLGATE_LUCI_URL }}
+      TOLLGATE_LUCI_USER: ${{ secrets.TOLLGATE_LUCI_USER }}
+      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
+      TOLLGATE_SSH_HOST: ${{ secrets.TOLLGATE_SSH_HOST }}
+      TOLLGATE_SSH_PASSWORD: ${{ secrets.TOLLGATE_SSH_PASSWORD }}
+      # Parity with the mutating lane: the flash/reboot specs read the WiFi
+      # interface name like every other bench project.
+      TOLLGATE_WIFI_INTERFACE: ${{ secrets.TOLLGATE_WIFI_INTERFACE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+
+      - run: npx playwright install --with-deps
+
+      - name: Pre-flight — read-only gate must pass BEFORE anything destabilises the box
+        env:
+          TOLLGATE_ROUTER_HOST: ${{ github.event.inputs.target_host || vars.HW_BENCH_HOST || '192.168.1.1' }}
+        run: bash scripts/hw-readonly-check.sh --host "${TOLLGATE_ROUTER_HOST}"
+
+      - name: Destructive specs (flash / reboot)
+        run: npx playwright test --config=tests/playwright.config.mjs --project=desktop-destructive
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hw-destructive-report
+          path: test-results/
+          retention-days: 3

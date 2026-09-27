@@ -1,0 +1,13 @@
+# FIXTURE (self-test only) — regression: the paid-traffic, router-mutating spec
+# flags reachable from a pull_request-triggered workflow.
+name: Fixture PR mutating env
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  specs:
+    runs-on: ubuntu-latest
+    env:
+      TOLLGATE_ENABLE_DATA_ALLOTMENT_TESTS: true
+    steps:
+      - run: echo "a PR run would burn paid traffic and mutate router state"

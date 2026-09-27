@@ -50,7 +50,17 @@ SEL_CASHU_TAB = ".tollgate-captive-portal-tabs-tab-cashu"
 SEL_TOKEN_INPUT = 'input[placeholder*="cashu"]'
 SEL_SUBMIT_READY = ".tollgate-captive-portal-method-submit button:not([disabled])"
 SEL_SUBMIT_CLICK = ".tollgate-captive-portal-method-submit button:not([disabled])"
-SEL_CHECKMARK = ".tollgate-captive-portal-access-granted-check"
+# The post-payment success indicator is a leaf element *inside*
+# ``.tollgate-captive-portal-access-granted``. New portal bundles
+# (tollgate-captive-portal-site#42, net4sats-captive-portal-site#3) mark the
+# success-state checkmark with the shared, prefix-free id
+# ``captive-portal-access-granted-checkmark`` — present on the success view
+# only, so the expired-session view (which reuses the same checkmark class
+# with an error icon) can never match. Already-deployed portals predate the
+# id, so fall back to the tolerant ``class*=`` match from PRs #114/#115 (on
+# old bundles only, that fallback also matches the expired view — a known
+# limitation of the compatibility path).
+SEL_CHECKMARK = '#captive-portal-access-granted-checkmark, [class*="access-granted-check"]'
 SEL_CONTENT = ".tollgate-captive-portal-method-content"
 
 # Allotment text like "500 MB", "2 GB", "1024 MiB", "1.5 GiB", "1,024 KB".
@@ -81,8 +91,10 @@ class PortalPaymentResult:
         success: True only when the checkmark rendered AND a positive allotment
             was parsed from the post-payment content. The integration test
             additionally asserts :func:`verify_session` succeeds.
-        checkmark_visible: Whether the ``.checkmark`` element was visible after
-            submitting.
+        checkmark_visible: Whether the success checkmark element was visible
+            after submitting (:data:`SEL_CHECKMARK` — the stable
+            ``captive-portal-access-granted-checkmark`` id on new bundles,
+            ``class*=`` fallback on already-deployed ones).
         allotment_text: Raw inner text of ``.tollgate-captive-portal-method-content``
             captured after payment (for evidence/diagnostics).
         allotment_bytes: Allotment parsed into bytes, or ``None`` if no unit was

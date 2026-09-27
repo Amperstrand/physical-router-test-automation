@@ -12,8 +12,8 @@
 
 ## Item 2: Install `curl` on both routers (test setup step)
 
-- [ ] `sshpass -p 'c03rad0r123' ssh root@10.47.41.1 "opkg update && opkg install curl"`
-- [ ] `sshpass -p 'c03rad0r123' ssh root@192.168.244.1 "opkg update && opkg install curl"`
+- [ ] `sshpass -p 'test123' ssh root@10.47.41.1 "opkg update && opkg install curl"`
+- [ ] `sshpass -p 'test123' ssh root@192.168.244.1 "opkg update && opkg install curl"`
 
 ## Item 3: Fix e2e scripts
 

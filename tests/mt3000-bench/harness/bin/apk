@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `apk` for the offline bench harness.
+#
+# It mimics apk-tools 3's two invocations the deploy path uses, against the harness
+# router root instead of a real router:
+#   apk info -v                          -> the harness install DB
+#   apk add --allow-untrusted FILE       -> installs the EXTRACTED PAYLOAD BYTES that the
+#                                           fixture map associates with FILE, so the
+#                                           post-install identity check runs against an
+#                                           artifact's real bytes.
+# HARNESS_FORCE_PAYLOAD=<file> overrides that lookup: it installs THOSE bytes no matter
+# which apk was staged — i.e. "install build A while the script names build B", the
+# substitution the deploy helper must catch.
+set -uo pipefail
+
+ROOT="${HARNESS_ROOT:?harness apk: HARNESS_ROOT unset}"
+LOG="$ROOT/var/log/apk.log"
+DB="$ROOT/var/lib/apk/installed"
+MAP="$ROOT/payload-map"
+BIN_DIR="$ROOT/usr/bin"
+
+if [ "${1:-}" = "info" ]; then
+  cat "$DB" 2>/dev/null
+  exit 0
+fi
+
+if [ "${1:-}" = "add" ]; then
+  file=""
+  for a in "$@"; do
+    case "$a" in -*) : ;; *) file="$a" ;; esac
+  done
+  mkdir -p "$(dirname "$LOG")" "$BIN_DIR" "$(dirname "$DB")"
+  printf 'Running `apk add --allow-untrusted %s` at %s\n' "$file" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+
+  payload="${HARNESS_FORCE_PAYLOAD:-}"
+  if [ -z "$payload" ] && [ -f "$file" ]; then
+    h="$(sha256sum "$file" | cut -d' ' -f1)"
+    [ -f "$MAP/$h" ] && payload="$(head -1 "$MAP/$h")"
+  fi
+  if [ -z "$payload" ] || [ ! -f "$payload" ]; then
+    {
+      echo "ERROR: no payload bytes resolved for '$file' (map under $MAP)"
+    } | tee -a "$LOG" >&2
+    exit 99
+  fi
+  install -D -m 0755 "$payload" "$BIN_DIR/tollgate-wrt"
+  printf '%s\n' "${HARNESS_PKG_VERSION:-tollgate-wrt-0.6.0_alpha4-r0}" > "$DB"
+  printf '(1/1) Upgrading tollgate-wrt (%s)\n' "${HARNESS_PKG_VERSION:-tollgate-wrt-0.6.0_alpha4-r0}" >> "$LOG"
+  printf 'installed payload %s -> %s\n' "$(basename "$payload")" "$BIN_DIR/tollgate-wrt" >> "$LOG"
+  exit 0
+fi
+
+echo "harness apk: unsupported invocation: $*" >&2
+exit 2

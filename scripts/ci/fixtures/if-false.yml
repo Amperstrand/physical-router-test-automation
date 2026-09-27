@@ -1,0 +1,13 @@
+# FIXTURE (self-test only) — regression: the stale kill switch. A job parked
+# behind `if: false` on a PR-triggered workflow is one flipped boolean away from
+# running contributor code on the bench.
+name: Fixture if false
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  bench:
+    if: false
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: echo "flip me"

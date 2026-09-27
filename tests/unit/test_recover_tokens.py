@@ -30,6 +30,7 @@ from scripts.recover_tokens import (
     check_token_state,
     compute_proof_y,
     decode_cashu_token,
+    extract_mint_url,
     extract_proofs,
     get_token_amount,
     parse_token_file,
@@ -282,6 +283,51 @@ def test_extract_proofs_from_real_v4_cbor():
 
     assert get_token_amount(decoded) == 4
     assert compute_proof_y(p) == compute_proof_y({"secret": _PROOF["secret"]})
+
+
+# --------------------------------------------------------------------------- #
+# extract_mint_url
+# --------------------------------------------------------------------------- #
+
+def test_extract_mint_url_from_cashuA():
+    """V3 JSON: the mint lives on each entry of the `token` list."""
+    obj = {"token": [{"mint": "https://testnut.cashu.exchange", "proofs": []}], "unit": "sat"}
+    assert extract_mint_url(decode_cashu_token(_make_cashuA(obj))) == "https://testnut.cashu.exchange"
+
+
+def test_extract_mint_url_from_real_v4_cbor_top_level():
+    """NUT-00 V4 CBOR puts the mint URL at the TOP level (`m` next to `t`/`u`).
+
+    Regression: a real `cashuB` token (decoded keys == ['t','m','u']) reported
+    "no mint", so it could not be NUT-07-verified at all.
+    """
+    v4 = {
+        "t": [{"i": bytes.fromhex("00abcdef01234567"), "p": [
+            {"a": 4, "s": _PROOF["secret"].encode(), "c": bytes.fromhex(_PROOF["C"])},
+        ]}],
+        "m": "https://testnut.cashu.exchange",
+        "u": "sat",
+    }
+    token = TOKEN_PREFIX_B + base64.urlsafe_b64encode(cbor2.dumps(v4)).decode().rstrip("=")
+    decoded = decode_cashu_token(token)
+    assert set(decoded) == {"t", "m", "u"}
+    assert extract_mint_url(decoded) == "https://testnut.cashu.exchange"
+    assert len(extract_proofs(decoded)) == 1
+
+
+def test_extract_mint_url_from_v4_entry_shape():
+    """The simplified V4 fixture shape keeps `m` on each `t` entry."""
+    decoded = {"t": [{"i": b"\x00", "m": "https://nofee.testnut.cashu.space", "p": []}], "d": "sat"}
+    assert extract_mint_url(decoded) == "https://nofee.testnut.cashu.space"
+
+
+def test_extract_mint_url_absent_or_unusable():
+    """No mint URL anywhere -> empty string, never a guess or an exception."""
+    assert extract_mint_url({"token": [{"proofs": []}], "unit": "sat"}) == ""
+    assert extract_mint_url({"t": [{"i": b"\x00", "p": []}], "u": "sat"}) == ""
+    assert extract_mint_url({}) == ""
+    assert extract_mint_url(["cashuA"]) == ""
+    assert extract_mint_url(None) == ""
 
 
 # --------------------------------------------------------------------------- #

@@ -50,6 +50,21 @@ def mint_reachable(mint_url: str, timeout: float = 3.0) -> bool:
         return False
 
 
+def _encode_c(point: bytes) -> str:
+    """Serialize a compressed secp256k1 point for token proofs.
+
+    Two dialects exist in the deployed stack: the Go backend parses hex
+    (a base64 string hex-decodes to the wrong size and its swap endpoint
+    rejects it with 'Invalid public key size'), while the cashu-ts-family
+    portal decoder parses base64. Default hex — the backend dialect every
+    deployed router speaks; set TOLLGATE_TOKEN_C_BASE64=1 for portal-only
+    flows.
+    """
+    if os.environ.get("TOLLGATE_TOKEN_C_BASE64", "").lower() in ("1", "true", "yes"):
+        return base64.b64encode(point).decode()
+    return point.hex()
+
+
 class CashuMint:
     def __init__(self, venv_path: str | None = None, mint_url: str = TEST_MINT_URL):
         venv_path = venv_path or os.environ.get("TOLLGATE_CASHU_VENV", "/opt/cashu-venv")
@@ -520,7 +535,7 @@ class HttpMinter:
                 "amount": sig["amount"],
                 "id": sig["id"],
                 "secret": blind_data[i][0],
-                "C": c.format().hex(),
+                "C": _encode_c(c.format()),
             })
 
         # 7. Serialize to V3 token
@@ -632,9 +647,23 @@ class HttpMinter:
         return powers
 
     def _serialize_v3(self, proofs: list[dict]) -> str:
-        """Serialize proofs to a V3 Cashu token (cashuA...)."""
+        """Serialize proofs to a V3 Cashu token (cashuA...).
+
+        Spec shape (NUT-00 V3): proofs carry base64-encoded compressed
+        ``C`` points — a hex-encoded point is rejected by cashu-ts and the
+        portal's decoder with CU102 ("Token could not be decoded").
+        """
+        clean_proofs = []
+        for p in proofs:
+            entry = {"amount": p["amount"], "secret": p["secret"], "C": p["C"]}
+            if p.get("id"):
+                # Portal decoders (cashu-ts family) accept SHORT keyset ids
+                # only: v1 (00…) or v2-short (first 16 hex of the full 64-hex
+                # id, 01…). A full-length id fails token parsing outright.
+                entry["id"] = p["id"][:16]
+            clean_proofs.append(entry)
         token_obj = {
-            "token": [{"mint": self.mint_url, "proofs": proofs}],
+            "token": [{"mint": self.mint_url, "proofs": clean_proofs}],
             "unit": "sat",
         }
         token_json = json.dumps(token_obj, separators=(",", ":"))

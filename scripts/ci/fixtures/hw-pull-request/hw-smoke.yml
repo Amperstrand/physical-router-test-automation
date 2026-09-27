@@ -1,0 +1,12 @@
+# FIXTURE (self-test only) — regression: the hardware workflow itself gains a
+# pull_request trigger, which puts contributor code on the bench runner.
+name: HW Smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+jobs:
+  readonly-surface:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: bash scripts/hw-readonly-check.sh

@@ -1,0 +1,18 @@
+# Fixture (RED): the ALLOWLISTED basename naming ONLY `self-hosted`.
+# -----------------------------------------------------------------------------
+# `self-hosted` is not a fleet: GitHub gives every self-hosted runner that label,
+# runs-on: [self-hosted] also matches the bench machine's tollgate-router label.
+# A PR can add this file (its basename is in HW_NON_BENCH_SELF_HOSTED_ALLOW, and
+# a PR chooses names as freely as contents) and `uses:` it from a
+# pull_request-triggered job, so the allowlist may not excuse the bare label —
+# it may only excuse `self-hosted` on a line that also names a DIFFERENT fleet
+# (round-6 review Y1).
+name: cloud lab runner
+
+on: workflow_call
+
+jobs:
+  cloud-lab:
+    runs-on: [self-hosted]
+    steps:
+      - run: echo "bare self-hosted behind an allowlisted basename"

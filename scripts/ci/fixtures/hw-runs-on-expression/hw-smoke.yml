@@ -1,0 +1,30 @@
+# =============================================================================
+# Fixture (RED): the hardware workflow's runner target is an EXPRESSION.
+# =============================================================================
+# The guard derives its denied label set from this file's `runs-on` lines, so a
+# PR that rewrites them as `${{ … }}` would silently shrink the denied set to
+# `self-hosted` alone and let the original payload through. The derivation must
+# therefore fail closed: an unreadable runner target is a violation by itself.
+#
+# Everything else here is deliberately clean (dispatch-only trigger, no
+# mutating env flags, no `secrets.`) so the ONLY violation the guard may report
+# is the unreadable label set.
+# =============================================================================
+name: HW Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-surface:
+    name: read-only surface check
+    runs-on: ${{ vars.HW_BENCH_RUNNER }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/hw-readonly-check.sh

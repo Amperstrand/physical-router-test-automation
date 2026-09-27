@@ -1,0 +1,31 @@
+# Fixture (RED): falsy `if:` guards that are not the bare word `false`.
+# -----------------------------------------------------------------------------
+# All three park a job exactly as effectively as the original `if: false`:
+#   * `if: ${{ false }}` — expression form
+#   * `if: 0`            — numeric falsy
+#   * `if: ''`           — quoted empty string
+# R3 must catch every one of them, or the kill switch simply changes spelling.
+name: expression kill switches
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  parked-expression:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "never runs"
+
+  parked-numeric:
+    if: 0
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "never runs"
+
+  parked-empty:
+    if: ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "never runs"

@@ -243,6 +243,56 @@ test-cashu-payment: ## Run cashu e2e payment Playwright test [playwright]
 	$(call migrated_target,test-cashu-payment)
 
 # ===========================================================================
+#  BENCH LANES — read-only vs mutating (see docs/hw-lane-isolation.md)
+# ===========================================================================
+
+.PHONY: check-workflows hw-readonly
+
+check-workflows: ## Guard: no PR-reachable workflow can reach the bench (+ self-test)
+	@bash scripts/ci/check-workflow-hw-isolation.sh
+	@bash scripts/ci/test-check-workflow-hw-isolation.sh
+
+hw-readonly: ## Read-only bench surface check: no creds, no mutation, no paid traffic
+	@# Deliberately takes NO hardware lock: it mutates nothing, so it must stay
+	@# runnable while another agent holds the bench and while a session is live.
+	@# Host via TOLLGATE_ROUTER_HOST (default 192.168.1.1).
+	@bash scripts/hw-readonly-check.sh
+#  DEMO RECORDING (docs/demo-recording.md)
+# ===========================================================================
+
+.PHONY: record-demo-clientd
+
+TOLLGATE_LAB_COMPOSE ?= ../tollgate-module-basic-go/tests/cloud-lab/docker-compose.yml
+
+record-demo-clientd: ## Record clientd auto-top-up demo vs cloud lab → evidence/ [demo]
+	@test -f "$(TOLLGATE_LAB_COMPOSE)" || { echo "cloud-lab compose not found: $(TOLLGATE_LAB_COMPOSE) — set TOLLGATE_LAB_COMPOSE"; exit 1; }
+	@mkdir -p /tmp/tollgate-demo-wallet
+	docker compose -f $(TOLLGATE_LAB_COMPOSE) run --rm --entrypoint cdk-cli \
+		-v /tmp/tollgate-demo-wallet:/w client -w /w mint http://mint:8085 100
+	docker compose -f $(TOLLGATE_LAB_COMPOSE) restart upstream
+	python3 scripts/record-demo.py \
+		--clientd-cmd "docker compose -f $(TOLLGATE_LAB_COMPOSE) run --rm --entrypoint python3 \
+			-v /tmp/tollgate-demo-wallet:/w -v $(CURDIR)/scripts:/prta:ro client \
+			/prta/tollgate-clientd.py --gateway upstream --mac 02:00:00:00:00:20 \
+			--wallet cdk-cli --wallet-dir /w --steps 1 --renew-below 45s --interval 1" \
+		--log-source docker:tg-upstream \
+		--duration 45 \
+		--out evidence/$(shell date +%F)-clientd-demo \
+		--title "PRTA laptop lane — clientd auto-top-up (cloud lab)" \
+		--export-video --export-speed 2
+
+.PHONY: test-laptop-clientd
+
+# tests/laptop/ — clientd from this host against a real TollGate router
+# (real ARP + NoDogSplash MAC registration). Requires provisioning, see
+# docs/tollgate-clientd.md "The laptop lane": LAPTOP_GATEWAY (router IP),
+# a funded cdk-cli wallet reachable in PATH, and SSH to the router.
+test-laptop-clientd: ## [hardware] clientd vs real router: ARP + NDS MAC lane (tests/laptop/)
+	$(call require_hardware_lock)
+	@test -n "$${LAPTOP_GATEWAY:-}" || { echo "$(RED)Set LAPTOP_GATEWAY (e.g. 10.99.99.1)$(RESET)"; exit 1; }
+	LAPTOP_GATEWAY="$${LAPTOP_GATEWAY}" $(PYTHON) -m pytest tests/laptop/ -v $(PYTEST_ARGS)
+
+# ===========================================================================
 #  FULL TEST SUITES
 # ===========================================================================
 
@@ -1022,6 +1072,8 @@ arch-test-full: ## Run all arch E2E tests (~4min)
 
 .PHONY: pytest-smoke pytest-critical pytest-extended pytest-api pytest-phone \
         pytest-test pytest-scenarios pytest-hardware-smoke pymake-help \
+        install-path-preflight install-path-dry-run install-path-e2e \
+        fresh-flash-check bench-lock-status \
         pytest-smoke-mac pytest-critical-mac pytest-api-mac pytest-test-mac \
         pytest-smoke-linux pytest-api-linux pytest-test-linux \
         pytest-smoke-rust pytest-api-rust pytest-test-rust pytest-critical-rust \
@@ -1053,6 +1105,77 @@ pytest-test:
 pytest-scenarios: ## Hardware scenario tests (requires lock + routers.env)
 	$(call require_hardware_lock)
 	@TOLLGATE_USE_HARDWARE_LOCK=1 pytest tests/scenarios/ -m hardware -v --tb=short
+
+# --- Dual-install-path e2e (fresh flash -> direct package / installer -> happy path) ---
+#
+# The bench MT3000 is a SINGLE-OWNER resource: every router-touching step runs
+# under the sanctioned bench lock (`bench-with-lock` / `bench-deploy-apk`, see
+# the tollgate-development skill reference `bench-router-single-owner`).  When
+# that helper is not installed the lock is taken in-process by lib/bench_lock.py
+# on the same flock + the same holder-line format.
+
+install-path-preflight: ## Flash-free, network-free: does this release support the POLICY/guard assertion? [exit 3 = unsupported]
+	@PYTHONPATH=. python3 -c "import os; from lib import install_paths as ip; r = ip.policy_preflight(os.environ.get('TOLLGATE_FEED_TAG') or ip.FEED_RELEASE_DEFAULT); print(r.message()); raise SystemExit(0 if r.supported else 3)"
+
+install-path-dry-run: ## Flash-free dual-install-path checks: pre-flight, artifact fetch+hash, same-format payload identity, installer shape, image verify, lock state
+	@if command -v bench-with-lock >/dev/null 2>&1; then \
+		bench-with-lock --purpose "install-path dry run" --task $${TOLLGATE_BENCH_TASK_ID:-t_a05094ad} -- \
+			env PYTHONPATH=. TOLLGATE_APK_TOOL=$${TOLLGATE_APK_TOOL:-$$HOME/.cache/apk-v3/apk.static} \
+			python3 scripts/install-path-e2e.py --dry-run --host $(TOLLGATE_SSH_HOST) \
+			--md-out docs/install-paths-dry-run-report.md; \
+	else \
+		echo "note: bench-with-lock not installed — using the in-process lock (lib/bench_lock.py)"; \
+		env PYTHONPATH=. TOLLGATE_APK_TOOL=$${TOLLGATE_APK_TOOL:-$$HOME/.cache/apk-v3/apk.static} \
+			python3 scripts/install-path-e2e.py --dry-run --host $(TOLLGATE_SSH_HOST) \
+			--md-out docs/install-paths-dry-run-report.md; \
+	fi
+
+install-path-e2e: ## LOCKED bench phase: wallet gate + bench lock + fresh flash + both install paths + happy path (needs TOLLGATE_LN_ADDRESS + TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true)
+	$(call require_hardware_lock)
+	@PYTHONPATH=. python3 scripts/install-path-e2e.py --flash-and-run --host $(TOLLGATE_SSH_HOST)
+
+fresh-flash-check: ## Read-only fresh-flash preconditions (image hash, wallet drain gate, lock state)
+	@PYTHONPATH=. python3 scripts/fresh-flash.py --check
+
+bench-lock-status: ## Show who holds the shared bench lock (~/.hermes/state/bench-mt3000.lock)
+	@python3 -m lib.bench_lock status
+
+# --- Second-purchase bench lanes (procedure + measured result: docs/second-purchase-bench.md)
+#
+# Every router-touching step rides the sanctioned single-owner bench lock; the e2e takes it
+# itself (re-exec under `bench-lock.sh exec`) unless it is already inside a window.
+# NOTHING HERE SPENDS ANYTHING unless you pass ARGS=--purchase (the e2e) or ARGS=--yes (mint).
+
+SECOND_PURCHASE_ARGS ?=
+BENCH_TOKEN_AMOUNT   ?= 64
+BENCH_TOKEN_ARGS     ?=
+TOKEN_FILE           ?=
+
+.PHONY: second-purchase-e2e second-purchase-detached bench-snapshot bench-snapshot-payload \
+        bench-token-mint bench-token-verify bench-tests
+
+second-purchase-e2e: ## Second purchase on the bench: DRY RUN default (ARGS=--purchase TOKEN_1=.. TOKEN_2=.. spends)
+	@bash scripts/mt3000-bench/second-purchase-e2e.sh $(SECOND_PURCHASE_ARGS)
+
+second-purchase-detached: ## Launch the long second-purchase run detached (systemd-run --user), then poll the journal
+	@systemd-run --user --collect --unit=tg-second-purchase-$$(date +%s) \
+		bash scripts/mt3000-bench/second-purchase-e2e.sh $(SECOND_PURCHASE_ARGS)
+
+bench-snapshot: ## Router-side snapshot: ndsctl, nft guard counters, /balance, module log (needs the bench window)
+	@bash scripts/mt3000-bench/router-snapshot.sh snapshot --label "make bench-snapshot"
+
+bench-snapshot-payload: ## Print the on-router snapshot payload locally (no ssh, no lock) — review what runs on the box
+	@bash scripts/mt3000-bench/router-snapshot.sh render
+
+bench-token-mint: ## Mint one token for the bench (DRY RUN; ARGS=--yes to actually mint)
+	@scripts/mt3000-bench/bench-token.py mint --amount $(BENCH_TOKEN_AMOUNT) $(BENCH_TOKEN_ARGS)
+
+bench-token-verify: ## NUT-07: TOKEN_FILE must read back fully UNSPENT before it is spent (exit 1 if not)
+	@test -n "$(TOKEN_FILE)" || { echo "set TOKEN_FILE=<path to a cashu token file>"; exit 1; }
+	@scripts/mt3000-bench/bench-token.py verify --token-file $(TOKEN_FILE) $(BENCH_TOKEN_ARGS)
+
+bench-tests: ## Offline negative-control suite for the bench lock, the e2e lanes and the snapshot payload (no router)
+	@bash tests/mt3000-bench/run-tests.sh
 
 pytest-hardware-smoke: ## Migrated smoke-* scenario subset
 	$(call require_hardware_lock)
@@ -1158,6 +1281,36 @@ deploy-ci:
 deploy-ci-rust:
 	bash scripts/deploy-rust-ci.sh
 
+# --- Feed RC verification (FreedomTechFeed/packages) ---
+#
+# Installs the feed-built tollgate-wrt release candidate over the router's own
+# package manager and asserts version + build identity + service health:
+#   * OpenWrt 24.x -> opkg -> .ipk    (FORMAT=ipk, default)
+#   * OpenWrt 25.x -> apk  -> .apk    (FORMAT=apk)
+# The artifact is downloaded from the feed release (sha256-verified) by
+# scripts/download-feed-release.sh. Requires the hardware lock.
+
+FEED_RELEASE_TAG ?= v0.6.0-alpha2-pre
+FEED_EXPECT_VERSION ?= 0.6.0_alpha2_pre-r1
+FEED_EXPECT_COMMIT ?= 089e876cb24fd2fa8bd9d36323edb71e347e825b
+FORMAT ?= ipk
+PYTHON ?= python3
+PYTEST_ARGS ?=
+
+.PHONY: verify-feed-rc
+verify-feed-rc: ## [hardware] Verify the FreedomTechFeed RC installs+works (.ipk on 24.x, .apk on 25.x)
+	$(call require_hardware_lock)
+	@test -n "$${TOLLGATE_SSH_HOST:-}" || { echo "$(RED)Set TOLLGATE_SSH_HOST (e.g. 192.168.1.1)$(RESET)"; exit 1; }
+	@test -n "$${TOLLGATE_SSH_PASSWORD:-}" || { echo "$(RED)Set TOLLGATE_SSH_PASSWORD$(RESET)"; exit 1; }
+	@ARCH="$${TOLLGATE_ROUTER_ARCH:-aarch64_cortex-a53}"; \
+	PKG=$$(bash scripts/download-feed-release.sh "$(FEED_RELEASE_TAG)" "$$ARCH" "$(FORMAT)"); \
+	echo "$(BOLD)=== verify-feed-rc: $$PKG (format=$(FORMAT), arch=$$ARCH) ===$(RESET)"; \
+	TOLLGATE_PACKAGE_PATH="$$PKG" \
+	TOLLGATE_ROUTER_ARCH="$$ARCH" \
+	FEED_EXPECT_VERSION="$(FEED_EXPECT_VERSION)" \
+	FEED_EXPECT_COMMIT="$(FEED_EXPECT_COMMIT)" \
+	$(PYTHON) -m pytest tests/scenarios/test_feed_package.py -v -s $(PYTEST_ARGS)
+
 # --- Setup (Python venv) ---
 
 setup-python:
@@ -1203,6 +1356,12 @@ pr120-recovery: ## Recovery lifecycle tests only
 record-portal: ## Record portal demo videos WITH cursor highlight (desktop+mobile)
 	@if [ ! -d node_modules ]; then echo "$(YELLOW)Run npm install first$(RESET)"; exit 1; fi
 	@node scripts/record-portal-highlight.mjs
+
+# --- Pre-auth probes ---
+
+.PHONY: probe-ports
+probe-ports: ## Pre-auth port/UI sweep from a captive-LAN client (no SSH, no creds)
+	@bash scripts/tollgate-port-sweep.sh $(if $(HOST),--host $(HOST),)
 
 # --- Clean ---
 

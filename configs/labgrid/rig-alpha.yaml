@@ -1,0 +1,38 @@
+# Rig smoke environment — LOCAL labgrid env (no coordinator).
+#
+# router-alpha = Extreme WS-AP3915i (b4:2d:56:24:ad:97) on the STOCK
+# GS1900-8HP #2 (web admin 192.168.13.3, sops fleet.bench_root_password)
+# port 5, flat on the lab 192.168.13.0/24 L2. OpenWrt 24.10.8 golden
+# (2026-09-25, scripts/rig-flash.sh), SSH key auth from ai-legion-small.
+#
+# Reachability: DIRECT from this host — the DUT subnet rides the flat lab
+# L2, so the probing host needs a secondary IP (already present on
+# wlp4s0: 192.168.105.2/24). The former OpenWrt-switch jump
+# (tools entry below, ssh-via-switch.sh) is RETIRED for alpha — VLAN 1005
+# on the OpenWrt switch no longer faces this DUT (owner moved it to the
+# stock switch 2026-09-25 PM).
+#
+# Power control: STOCK switch port 5 via tollgate-lab's StockWeb client:
+#   from tollgate_lab.hardware.zyxel_stock import StockWeb
+#   StockWeb('192.168.13.3', <sops fleet pw>).set_poe_state(5, True/False)
+# Coordinate with the herdr 'stock-poe' agent before toggling stock ports.
+# ZyxelPoePort/ZyxelPoEDriver (OpenWrt switch lane) are retired for alpha —
+# tests/test_rig_smoke.py's power-cycle step needs a stock-PoE labgrid
+# driver before that lane runs again (tollgate-lab extension point).
+#
+# Run (dedicated rig venv):
+#   TOLLGATE_SSH_HOST= ROUTER_IP= TOLLGATE_VIRTUAL_LAB= \
+#   ~/venvs/rig-labgrid/bin/python -m pytest \
+#     --lg-env=configs/labgrid/rig-alpha.yaml --no-deploy \
+#     tests/test_rig_smoke.py -v
+# The target key must be "main": labgrid 25.0.1's pytest `target` fixture
+# only resolves that name in local (non-coordinator) envs. "main" = router-alpha.
+targets:
+  main:
+    resources:
+      NetworkService:
+        address: "192.168.105.51"
+        username: "root"
+    drivers:
+      SSHDriver:
+        connection_timeout: 240.0

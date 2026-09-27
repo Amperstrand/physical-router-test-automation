@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getRouter } from '../helpers/inventory.mjs';
+import { SEL_TOKEN_INPUT, openCashuTab } from '../helpers/portal-selectors.mjs';
 
 const router = getRouter();
 const PORTAL_PORT = process.env.TOLLGATE_CAPTIVE_PORTAL_PORT || '80';
@@ -79,7 +80,9 @@ test.describe('captive portal — degraded mode', () => {
 		await skipIfNotDegraded(request);
 		await waitForPortal(page);
 		await page.waitForSelector('.status.error', { timeout: 15000 });
-		const cashuInput = page.locator('#cashu-token');
+		// The tabbed portal only renders the token input once the Cashu tab is
+		// active, so the payment inputs are absent in degraded mode.
+		const cashuInput = page.locator(SEL_TOKEN_INPUT);
 		await expect(cashuInput).not.toBeVisible();
 	});
 });
@@ -99,8 +102,9 @@ test.describe('captive portal — happy path', () => {
 
 	test('portal shows cashu token input', async ({ page }) => {
 		await waitForPortal(page);
-		await page.waitForSelector('#cashu-token', { timeout: 15000 });
-		await expect(page.locator('#cashu-token')).toBeVisible();
+		await openCashuTab(page);
+		await page.waitForSelector(SEL_TOKEN_INPUT, { timeout: 15000 });
+		await expect(page.locator(SEL_TOKEN_INPUT)).toBeVisible();
 	});
 
 	test('portal shows lightning amount input', async ({ page }) => {

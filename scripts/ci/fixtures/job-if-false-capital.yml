@@ -1,0 +1,15 @@
+# Fixture: the kill switch written with a capital F. YAML 1.1 (and GitHub's
+# parser) treats False/FALSE as the boolean too, so a case-sensitive match on
+# `false` would let this park a job one flip away from running again.
+name: capitalised kill switch
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  parked:
+    if: False
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "disabled, supposedly"

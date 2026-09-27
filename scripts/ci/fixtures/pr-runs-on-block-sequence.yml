@@ -1,0 +1,16 @@
+# Fixture: the runner target written as a block sequence. Valid YAML, and the
+# label is on the NEXT line, so a same-line label parser reads nothing and
+# silently decides the job is safe.
+name: block-sequence runner
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  sneaky:
+    runs-on:
+      - tollgate-router
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "this executes on the bench host"

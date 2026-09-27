@@ -1,0 +1,437 @@
+{
+ "title": "TollGate laptop lane \u2014 REAL signet zoo mint (cdk-d3dec24), no FakeWallet",
+ "start_epoch": 1790194376.2501411,
+ "duration": 54.841,
+ "streams": {
+  "terminal": [
+   {
+    "t": 0.081,
+    "line": "TollGate 10.99.99.1 | bytes | 1 step(s) = 1 sats via cdk-cli @ https://cdk-d3dec24.cashu.exchange"
+   },
+   {
+    "t": 0.082,
+    "line": "[TollGate 10.99.99.1] no session \u2014 needs payment  [topping up...]"
+   },
+   {
+    "t": 2.559,
+    "line": "  !! top-up failed: payment rejected (HTTP 400): Payment processing failed: could not swap proofs: Duplicate outputs (retrying in 10s)"
+   },
+   {
+    "t": 15.324,
+    "line": "  -> paid 1 sats (allotment now 22020096)"
+   },
+   {
+    "t": 17.328,
+    "line": "[TollGate 10.99.99.1] 21.0 MB left (1024/22020096)  [topping up...]"
+   },
+   {
+    "t": 19.334,
+    "line": "[TollGate 10.99.99.1] 21.0 MB left (3072/22020096)  [topping up...]"
+   },
+   {
+    "t": 21.778,
+    "line": "  -> paid 1 sats (allotment now 44040192)"
+   },
+   {
+    "t": 23.784,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (2048/44040192)"
+   },
+   {
+    "t": 25.788,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (3072/44040192)"
+   },
+   {
+    "t": 27.792,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (4096/44040192)"
+   },
+   {
+    "t": 29.796,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (6144/44040192)"
+   },
+   {
+    "t": 33.803,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (8192/44040192)"
+   },
+   {
+    "t": 35.807,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (9216/44040192)"
+   },
+   {
+    "t": 37.811,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (11264/44040192)"
+   },
+   {
+    "t": 39.816,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (13312/44040192)"
+   },
+   {
+    "t": 41.82,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (15360/44040192)"
+   },
+   {
+    "t": 43.824,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (16384/44040192)"
+   },
+   {
+    "t": 45.828,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (18432/44040192)"
+   },
+   {
+    "t": 49.836,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (20480/44040192)"
+   },
+   {
+    "t": 51.84,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (21504/44040192)"
+   },
+   {
+    "t": 53.844,
+    "line": "[TollGate 10.99.99.1] 42.0 MB left (22528/44040192)"
+   }
+  ],
+  "router": [
+   {
+    "t": 0.083,
+    "line": "Wed Sep 23 20:12:55 2026 daemon.notice nodogsplash[2433]: Adding 10.99.99.2 76:1b:89:c6:aa:d1 token 3b170a94 to client list"
+   },
+   {
+    "t": 1.78,
+    "line": "Wed Sep 23 20:12:57 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:12:57Z] Received handleRootPost request               method=POST module=main remote_addr=\"10.99.99.2:34166\""
+   },
+   {
+    "t": 1.78,
+    "line": "Wed Sep 23 20:12:57 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:12:57Z] Treating request as plain Cashu token string  module=main"
+   },
+   {
+    "t": 2.081,
+    "line": "Wed Sep 23 20:12:57 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:12:57 PurchaseSession: calling Receive for mint=https://cdk-d3dec24.cashu.exchange token_amount=1 mac=76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 2.558,
+    "line": "Wed Sep 23 20:12:58 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:12:58 PurchaseSession: Receive completed, amount=0, err=could not swap proofs: Duplicate outputs"
+   },
+   {
+    "t": 2.558,
+    "line": "Wed Sep 23 20:12:58 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:12:58 MarkUnreachable: reachable set changed (mint=https://cdk-d3dec24.cashu.exchange), firing callback"
+   },
+   {
+    "t": 2.559,
+    "line": "Wed Sep 23 20:12:58 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:12:58Z] Reachable mint set changed \u2014 rebuilding merchant  module=main"
+   },
+   {
+    "t": 8.339,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:03 Skipping payout for c08r4d0r: aimedAmount rounded to 0 (aimedPaymentAmount=1, factor=0.0700)"
+   },
+   {
+    "t": 8.339,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:03 Skipping payout for amperstrand: aimedAmount rounded to 0 (aimedPaymentAmount=1, factor=0.0700)"
+   },
+   {
+    "t": 8.339,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:03 Skipping payout for origami74: aimedAmount rounded to 0 (aimedPaymentAmount=1, factor=0.0700)"
+   },
+   {
+    "t": 8.345,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: ERRO[2026-09-23T20:13:03Z] Failed to execute UCI command                 error=\"exit status 1\" module=wireless_gateway_manager stderr=\"uci: Entry not found\\n\""
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:03Z] Failed to get active STA                      error=\"exit status 1\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:03Z] Running upstream scan cycle                   active_ssid= module=wireless_gateway_manager reason=no-active-upstream signal=0"
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:03Z] Cleaning up stale STA interfaces              module=wireless_gateway_manager"
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: ERRO[2026-09-23T20:13:03Z] Failed to execute UCI command                 error=\"exit status 1\" module=wireless_gateway_manager stderr=\"uci: Entry not found\\n\""
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:03Z] Failed to cleanup stale STAs before switch    error=\"failed to get STA sections for cleanup: exit status 1\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 8.346,
+    "line": "Wed Sep 23 20:13:03 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:03Z] Scan failed, retrying next cycle              error=\"no radios found\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 8.832,
+    "line": "Wed Sep 23 20:13:04 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:04 Processing payout for mint https://ns-a974914.cashu.exchange: aiming for 1 sats with 1 sats tolerance"
+   },
+   {
+    "t": 8.832,
+    "line": "Wed Sep 23 20:13:04 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:04 Attempting to melt 1 sats to LNURL tollgate@minibits.cash with max 2 sats"
+   },
+   {
+    "t": 8.832,
+    "line": "Wed Sep 23 20:13:04 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:04 Attempt 1: Trying to melt 1 sats"
+   },
+   {
+    "t": 9.672,
+    "line": "Wed Sep 23 20:13:05 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:05 Error melting quote 01a0cfe6-8341-7378-996a-8df646e6ac90 for https://ns-a974914.cashu.exchange: not enough funds in selected mint"
+   },
+   {
+    "t": 9.672,
+    "line": "Wed Sep 23 20:13:05 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:05 Attempt 2: Trying to melt 1 sats"
+   },
+   {
+    "t": 10.079,
+    "line": "Wed Sep 23 20:13:05 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:05 Error melting quote 01a0cfe6-84f4-7396-b4ac-49c500463399 for https://ns-a974914.cashu.exchange: not enough funds in selected mint"
+   },
+   {
+    "t": 10.079,
+    "line": "Wed Sep 23 20:13:05 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:05 Attempt 3: Trying to melt 1 sats"
+   },
+   {
+    "t": 10.891,
+    "line": "Wed Sep 23 20:13:06 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:06 Error melting quote 01a0cfe6-8805-72b0-a02f-719aa65770f8 for https://ns-a974914.cashu.exchange: not enough funds in selected mint"
+   },
+   {
+    "t": 10.891,
+    "line": "Wed Sep 23 20:13:06 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:06 Attempt 4: Trying to melt 1 sats"
+   },
+   {
+    "t": 11.685,
+    "line": "Wed Sep 23 20:13:07 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:07 Error melting quote 01a0cfe6-8b39-7483-80fc-a4c421466e5f for https://ns-a974914.cashu.exchange: not enough funds in selected mint"
+   },
+   {
+    "t": 11.685,
+    "line": "Wed Sep 23 20:13:07 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:07 Attempt 5: Trying to melt 1 sats"
+   },
+   {
+    "t": 12.531,
+    "line": "Wed Sep 23 20:13:08 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:08 Error melting quote 01a0cfe6-8e5c-798d-b26d-58a71cea1a72 for https://ns-a974914.cashu.exchange: not enough funds in selected mint"
+   },
+   {
+    "t": 12.531,
+    "line": "Wed Sep 23 20:13:08 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:08 Payout https://ns-a974914.cashu.exchange: owner payout failed (failed to melt after 5 attempts: not enough funds in selected mint) \u2014 aborting dev-split payouts; e-cash retained"
+   },
+   {
+    "t": 13.955,
+    "line": "Wed Sep 23 20:13:09 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:09Z] Received handleRootPost request               method=POST module=main remote_addr=\"10.99.99.2:37274\""
+   },
+   {
+    "t": 13.955,
+    "line": "Wed Sep 23 20:13:09 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:09Z] Treating request as plain Cashu token string  module=main"
+   },
+   {
+    "t": 14.208,
+    "line": "Wed Sep 23 20:13:09 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:09 PurchaseSession: calling Receive for mint=https://cdk-d3dec24.cashu.exchange token_amount=1 mac=76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 15.317,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:10 PurchaseSession: Receive completed, amount=1, err=<nil>"
+   },
+   {
+    "t": 15.317,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:10 Amount after swap: 1"
+   },
+   {
+    "t": 15.317,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:10 Converting 1 steps to 22020096 bytes using step size 22020096"
+   },
+   {
+    "t": 15.319,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.notice nodogsplash[2433]: Authenticating 10.99.99.2 76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 15.321,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:10Z] Authorization successful for MAC              attempts=1 mac_address=\"76:1b:89:c6:aa:d1\" module=valve output=\"Client 76:1b:89:c6:aa:d1 authenticated.\\n\""
+   },
+   {
+    "t": 15.323,
+    "line": "Wed Sep 23 20:13:10 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:10Z] Set data baseline for customer tracking       baseline_downloaded=0 baseline_total=0 baseline_uploaded=0 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 16.34,
+    "line": "Wed Sep 23 20:13:11 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:11 Data usage for 76:1b:89:c6:aa:d1: 1.0 KB / 21.0 MB (0.0%)"
+   },
+   {
+    "t": 18.342,
+    "line": "Wed Sep 23 20:13:13 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:13 Data usage for 76:1b:89:c6:aa:d1: 2.0 KB / 21.0 MB (0.0%)"
+   },
+   {
+    "t": 20.34,
+    "line": "Wed Sep 23 20:13:15 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:15 Data usage for 76:1b:89:c6:aa:d1: 4.0 KB / 21.0 MB (0.0%)"
+   },
+   {
+    "t": 21.18,
+    "line": "Wed Sep 23 20:13:16 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:16Z] Received handleRootPost request               method=POST module=main remote_addr=\"10.99.99.2:37302\""
+   },
+   {
+    "t": 21.18,
+    "line": "Wed Sep 23 20:13:16 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:16Z] Treating request as plain Cashu token string  module=main"
+   },
+   {
+    "t": 21.347,
+    "line": "Wed Sep 23 20:13:16 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:16 PurchaseSession: calling Receive for mint=https://cdk-d3dec24.cashu.exchange token_amount=1 mac=76:1b:89:c6:aa:d1"
+   },
+   {
+    "t": 21.772,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:17 PurchaseSession: Receive completed, amount=1, err=<nil>"
+   },
+   {
+    "t": 21.772,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:17 Amount after swap: 1"
+   },
+   {
+    "t": 21.772,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:17 Converting 1 steps to 22020096 bytes using step size 22020096"
+   },
+   {
+    "t": 21.772,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:17Z] Replacing existing timed gate with indefinite data-based gate.  mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 21.776,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:17Z] Client already Authenticated in NDS; treating gate as open  attempt=1 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 21.778,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:17Z] Set data baseline for customer tracking       baseline_downloaded=5120 baseline_total=7168 baseline_uploaded=2048 mac_address=\"76:1b:89:c6:aa:d1\" module=valve"
+   },
+   {
+    "t": 22.34,
+    "line": "Wed Sep 23 20:13:17 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:17 Data usage for 76:1b:89:c6:aa:d1: 1.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 24.341,
+    "line": "Wed Sep 23 20:13:19 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:19 Data usage for 76:1b:89:c6:aa:d1: 3.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 26.34,
+    "line": "Wed Sep 23 20:13:21 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:21 Data usage for 76:1b:89:c6:aa:d1: 4.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 28.34,
+    "line": "Wed Sep 23 20:13:23 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:23 Data usage for 76:1b:89:c6:aa:d1: 5.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 30.341,
+    "line": "Wed Sep 23 20:13:25 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:25 Data usage for 76:1b:89:c6:aa:d1: 6.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 32.34,
+    "line": "Wed Sep 23 20:13:27 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:27 Data usage for 76:1b:89:c6:aa:d1: 7.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 34.34,
+    "line": "Wed Sep 23 20:13:29 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:29 Data usage for 76:1b:89:c6:aa:d1: 9.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 36.342,
+    "line": "Wed Sep 23 20:13:31 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:31 Data usage for 76:1b:89:c6:aa:d1: 9.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 38.344,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:33 Data usage for 76:1b:89:c6:aa:d1: 11.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 38.345,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: ERRO[2026-09-23T20:13:33Z] Failed to execute UCI command                 error=\"exit status 1\" module=wireless_gateway_manager stderr=\"uci: Entry not found\\n\""
+   },
+   {
+    "t": 38.345,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:33Z] Failed to get active STA                      error=\"exit status 1\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 38.345,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:33Z] Running upstream scan cycle                   active_ssid= module=wireless_gateway_manager reason=no-active-upstream signal=0"
+   },
+   {
+    "t": 38.345,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: INFO[2026-09-23T20:13:33Z] Cleaning up stale STA interfaces              module=wireless_gateway_manager"
+   },
+   {
+    "t": 38.346,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: ERRO[2026-09-23T20:13:33Z] Failed to execute UCI command                 error=\"exit status 1\" module=wireless_gateway_manager stderr=\"uci: Entry not found\\n\""
+   },
+   {
+    "t": 38.346,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:33Z] Failed to cleanup stale STAs before switch    error=\"failed to get STA sections for cleanup: exit status 1\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 38.346,
+    "line": "Wed Sep 23 20:13:33 2026 daemon.err tollgate-wrt[2525]: WARN[2026-09-23T20:13:33Z] Scan failed, retrying next cycle              error=\"no radios found\" module=wireless_gateway_manager"
+   },
+   {
+    "t": 40.341,
+    "line": "Wed Sep 23 20:13:35 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:35 Data usage for 76:1b:89:c6:aa:d1: 14.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 42.342,
+    "line": "Wed Sep 23 20:13:37 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:37 Data usage for 76:1b:89:c6:aa:d1: 16.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 44.341,
+    "line": "Wed Sep 23 20:13:39 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:39 Data usage for 76:1b:89:c6:aa:d1: 16.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 46.34,
+    "line": "Wed Sep 23 20:13:41 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:41 Data usage for 76:1b:89:c6:aa:d1: 18.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 48.34,
+    "line": "Wed Sep 23 20:13:43 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:43 Data usage for 76:1b:89:c6:aa:d1: 19.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 50.341,
+    "line": "Wed Sep 23 20:13:45 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:45 Data usage for 76:1b:89:c6:aa:d1: 21.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 52.341,
+    "line": "Wed Sep 23 20:13:47 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:47 Data usage for 76:1b:89:c6:aa:d1: 21.0 KB / 42.0 MB (0.0%)"
+   },
+   {
+    "t": 54.341,
+    "line": "Wed Sep 23 20:13:49 2026 daemon.err tollgate-wrt[2525]: 2026/09/23 20:13:49 Data usage for 76:1b:89:c6:aa:d1: 22.0 KB / 42.0 MB (0.1%)"
+   }
+  ]
+ },
+ "status": [
+  {
+   "text": "TG no session",
+   "cls": "critical",
+   "pct": 0,
+   "t": 0.082
+  },
+  {
+   "text": "TG 21.0 MB",
+   "cls": "warning",
+   "pct": 99,
+   "t": 17.328
+  },
+  {
+   "text": "TG 42.0 MB",
+   "cls": "good",
+   "pct": 99,
+   "t": 23.784
+  }
+ ],
+ "events": [
+  {
+   "t": 0.082,
+   "kind": "notice",
+   "text": "no session \u2014 payment needed"
+  },
+  {
+   "t": 2.559,
+   "kind": "failure",
+   "text": "top-up failed: payment rejected (HTTP 400): Payment processing failed: could not swap proofs: Duplicate outputs (retrying in 10s)"
+  },
+  {
+   "t": 15.324,
+   "kind": "payment",
+   "text": "paid 1 sats (allotment now 22020096)"
+  },
+  {
+   "t": 21.778,
+   "kind": "payment",
+   "text": "paid 1 sats (allotment now 44040192)"
+  }
+ ]
+}

@@ -1,0 +1,17 @@
+# Fixture (RED): the hardware workflow's runner target respelled to `self-hosted`
+# only, while another file carries the bench-specific label.
+# -----------------------------------------------------------------------------
+# The denied label set is derived from hw-smoke.yml, a file a PR can edit: with
+# runs-on [self-hosted] here, a purely derived set collapses to the generic label
+# and tollgate-router stops being denied. The hardcoded floor
+# (HW_BENCH_LABELS_DEFAULT) must keep it denied, so this pair is a violation of
+# the file below (round-6 review Y2).
+name: degraded hardware runner target
+
+on: workflow_dispatch
+
+jobs:
+  sneaky-bench:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: echo "bench-specific label after the hardware workflow stopped declaring it"

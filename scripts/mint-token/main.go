@@ -85,16 +85,42 @@ func main() {
 		log.Fatalf("SendWithOptions: %v", err)
 	}
 
-	token, err := cashu.NewTokenV4(sendResult.Proofs, mintURL, cashu.Sat, true)
-	if err != nil {
-		w.Shutdown()
-		log.Fatalf("NewTokenV4: %v", err)
+	// Token format is configurable: V3 (default) works on every deployed
+	// backend including field v0.5.0 (gonuts < v0.8.0 has no V4 short-keyset
+	// resolution); V4 (cashuB CBOR) is what modern CDK-based wallets emit
+	// and needs gonuts-tollgate >= v0.8.0 on the router.
+	format := os.Getenv("MINT_TOKEN_FORMAT")
+	if format == "" {
+		format = "v3"
 	}
 
-	tokenStr, err := token.Serialize()
-	if err != nil {
+	var tokenStr string
+	switch format {
+	case "v4":
+		tokenV4, err := cashu.NewTokenV4(sendResult.Proofs, mintURL, cashu.Sat, true)
+		if err != nil {
+			w.Shutdown()
+			log.Fatalf("NewTokenV4: %v", err)
+		}
+		tokenStr, err = tokenV4.Serialize()
+		if err != nil {
+			w.Shutdown()
+			log.Fatalf("Serialize V4: %v", err)
+		}
+	case "v3":
+		tokenV3, err := cashu.NewTokenV3(sendResult.Proofs, mintURL, cashu.Sat, true)
+		if err != nil {
+			w.Shutdown()
+			log.Fatalf("NewTokenV3: %v", err)
+		}
+		tokenStr, err = tokenV3.Serialize()
+		if err != nil {
+			w.Shutdown()
+			log.Fatalf("Serialize V3: %v", err)
+		}
+	default:
 		w.Shutdown()
-		log.Fatalf("Serialize: %v", err)
+		log.Fatalf("unknown MINT_TOKEN_FORMAT %q (want v3 or v4)", format)
 	}
 
 	if err := w.Shutdown(); err != nil {

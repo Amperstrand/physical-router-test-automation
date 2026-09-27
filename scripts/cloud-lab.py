@@ -217,8 +217,27 @@ def cmd_ssh(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_cloud_venue(args: argparse.Namespace) -> str:
+    """--cloud flag > TOLLGATE_VM_PROVIDER env > SHC-by-default.
+
+    TOLLGATE_VM_PROVIDER is the documented venue selector (AGENTS.md: shc,
+    gcloud, local-kvm, local, physical); honoring it for the cloud commands
+    prevents the wrong-venue class where the env var is set but the pulumi
+    default silently overrides it.
+    """
+    explicit = getattr(args, "cloud", None)
+    if explicit:
+        return explicit
+    env = os.environ.get("TOLLGATE_VM_PROVIDER", "").strip().lower()
+    if env in ("gcloud", "gcp"):
+        return "gcp"
+    if env in ("shc", "pulumi"):
+        return "pulumi"
+    return "pulumi"
+
+
 def cmd_submit(args: argparse.Namespace) -> int:
-    cloud = getattr(args, "cloud", "gcp")
+    cloud = _resolve_cloud_venue(args)
     if cloud not in ("pulumi", "shc"):
         _warn_running_vms()
     target = resolve_target(
@@ -229,9 +248,21 @@ def cmd_submit(args: argparse.Namespace) -> int:
         repo_override=cast(str | None, args.repo),
     )
 
-    cloud = getattr(args, "cloud", "gcp")
     if cloud in ("pulumi", "shc"):
         from lib.cloud_lab.shc_submit import submit_run_shc
+
+        if os.environ.get("SHC_ALLOW_DEAD_ZONE", "") != "1":
+            print(
+                "ERROR: refusing to order an SHC Dev-zone VM — the Dev tier zone has been\n"
+                "unroutable from every vantage since 2026-08-27 (shc-toolkit#28, incl.\n"
+                "cross-zone from SHC's own Katy site); a VM ordered there is unreachable\n"
+                "but still bills. Use --cloud gcp (revived: snapshot v19+), or set\n"
+                "SHC_ALLOW_DEAD_ZONE=1 to override, or point SHC_PACKAGE_ID/\n"
+                "SHC_PRICING_ID at a Zone-4 package (note: Dev tier is the only one with\n"
+                "nested KVM — inner QEMU VMs will fail without it).",
+                file=sys.stderr,
+            )
+            return 2
 
         try:
             from lib.cloud_lab.provider import SHCProvider
@@ -644,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssh.set_defaults(func=cmd_ssh)
 
     submit = sub.add_parser("submit", help="Fire-and-forget: wait for CI artifact, spawn autonomous test VM")
-    submit.add_argument("--cloud", default="pulumi", choices=["gcp", "pulumi", "shc"],
+    submit.add_argument("--cloud", default=None, choices=["gcp", "pulumi", "shc"],
                         help="Cloud provider: pulumi/shc (SHC via imperative API) or gcp (legacy)")
     submit.add_argument("--zone", default=DEFAULT_ZONE)
     submit.add_argument("--machine-type", default=DEFAULT_MACHINE_TYPE)

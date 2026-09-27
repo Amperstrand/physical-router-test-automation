@@ -1,0 +1,19 @@
+# Fixture (RED): the kill switch as a FOLDED SCALAR.
+# -----------------------------------------------------------------------------
+# The value of `if: >-` lives on the continuation lines, so a line-anchored
+# regex sees only the `>-` marker and nothing falsy. Idiomatic in this very tree
+# (the destructive lane uses `if: >-`), so it is the obvious next respelling of
+# the `if: false` this whole guard exists to remove.
+name: folded kill switch
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  parked:
+    if: >-
+      false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "never runs"

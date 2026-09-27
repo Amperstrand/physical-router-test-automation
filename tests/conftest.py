@@ -23,6 +23,7 @@ from lib.clients.adb import ADBDevice
 from lib.clients.wifi import WiFi
 from lib.clients.desktop import MacWiFiClient, MacAdapter, LinuxWiFiClient, LinuxAdapter
 from lib.clients.container import ContainerClient
+from lib.clients.cuttlefish import CuttlefishClient
 from lib.constants import DEFAULT_STEP_SIZE_MS, NDS_PORTAL_PORT
 from lib.backend import BackendConfig, BACKEND_CHOICES_CLI
 
@@ -36,7 +37,7 @@ if IS_MOCK_MODE:
 # Register the auto-minting Cashu fixture module so its `minted_token` fixture
 # (lib/cashu_fixture.py, Part A of WD6) is discoverable by any test by name.
 # Fixtures defined in a non-conftest module are otherwise invisible to pytest.
-pytest_plugins = ["lib.cashu_fixture"]
+pytest_plugins = ["lib.cashu_fixture", "lib.film_recorder"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -223,9 +224,9 @@ def pytest_addoption(parser):
                      help="Skip portal deploy before phone tests")
     parser.addoption("--results", default=None,
                      help="Custom results directory path")
-    parser.addoption("--client", default="adb",
-                     choices=["adb", "mac", "linux", "container"],
-                     help="WiFi client mode: adb (Android phone), mac (macOS), linux (NetworkManager/nmcli), or container (Docker via SSH)")
+    parser.addoption("--client", default=os.environ.get("TOLLGATE_CLIENT", "adb"),
+                     choices=["adb", "cuttlefish", "mac", "linux", "container"],
+                     help="WiFi client mode: adb (Android phone), cuttlefish (Android VM on a remote host, e.g. ai-legion), mac (macOS), linux (NetworkManager/nmcli), or container (Docker via SSH). Default also honors TOLLGATE_CLIENT.")
     parser.addoption("--publish", action="store_true",
                      help="Publish mode: only include screenshots from @pytest.mark.publish_screenshot tests in report")
     parser.addoption("--quick-phone", action="store_true",
@@ -300,6 +301,22 @@ def router(request, backend):
             backend=backend,
         )
         return mock
+
+    if os.environ.get("TOLLGATE_VENUE") == "labgrid":
+        from lib.lab_inventory import InventoryError, load_inventory
+        from lib.labgrid_venue import LabgridBenchError, apply_venue_env, bench_for_router
+
+        try:
+            labgrid_inv = load_inventory()
+            binding = bench_for_router(
+                labgrid_inv, os.environ.get("TOLLGATE_LABGRID_PLACE", "ap-lan2")
+            )
+        except (InventoryError, LabgridBenchError) as e:
+            pytest.exit(f"labgrid venue unavailable: {e}", returncode=4)
+        binding.bench.acquire()
+        request.addfinalizer(binding.bench.release)
+        apply_venue_env(binding.entry)
+        log.info("labgrid venue: acquired place %s", binding.entry.place)
 
     host = os.environ.get("TOLLGATE_SSH_HOST") or os.environ.get("ROUTER_IP")
     identity_file = os.environ.get("TOLLGATE_SSH_KEY", "")
@@ -570,6 +587,12 @@ def adb(request, router):
         )
         request.session._tollgate_adb = client
         return client
+    if client == "cuttlefish":
+        cf_host = os.environ.get("TOLLGATE_CF_HOST", "ai-legion")
+        cf_serial = os.environ.get("TOLLGATE_CF_SERIAL", "0.0.0.0:6520")
+        cf = CuttlefishClient(host=cf_host, serial=cf_serial)
+        request.session._tollgate_adb = cf
+        return cf
     serial = os.environ.get("PHONE_SERIAL", "")
     pin = os.environ.get("PHONE_PIN", "")
     return ADBDevice(serial=serial, pin=pin)

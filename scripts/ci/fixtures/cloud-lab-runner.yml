@@ -1,0 +1,17 @@
+# Fixture (RED): the ALLOWLISTED basename carrying a bench-specific label.
+# -----------------------------------------------------------------------------
+# `HW_NON_BENCH_SELF_HOSTED_ALLOW` defaults to `cloud-lab-runner.yml`, and a PR
+# controls an allowlisted file's NAME as much as another file's contents: it can
+# add this file and `uses:` it from a pull_request-triggered job. The allowlist
+# may excuse a DIFFERENT self-hosted fleet (`self-hosted` + `cloud-lab`), never a
+# label only the hardware workflow declares — so `tollgate-router` here must be a
+# violation even though the basename is allowlisted.
+name: cloud lab runner
+
+on: workflow_dispatch
+
+jobs:
+  cloud-lab:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: echo "bench-specific label behind an allowlisted basename"

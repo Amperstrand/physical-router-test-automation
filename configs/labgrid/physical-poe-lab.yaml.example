@@ -1,0 +1,38 @@
+# Labgrid environment — PoE physical lab via the shared coordinator.
+#
+# Phase 2 shape (LIVE since 2026-09-22): power flows through the shared
+# labgrid coordinator (see inventory.local.yaml coordinator.address) using
+# conwrt's conwrt_poe backend. Copy to physical-poe-lab.yaml (gitignored)
+# and extend per target. Comments in labgrid YAML must use ## never #.
+#
+# Locking model (per-resource, owner directive 2026-09-22):
+#   - per-DUT work: labgrid place acquire (this file) — no global lock
+#   - switch-wide mutations (VLANs, reboots, daemon restarts): the
+#     global amperstrand-bench flock, taken by nobody else's DUT work
+# PRTA touches ONLY the OpenWrt DUT places (ap-lan*), never the other
+# projects' places on this coordinator.
+#
+# Network resources per target get added as DUTs adopt bench addressing
+# (lan4 already has: see inventory). Direct-SSH fallback for bring-up:
+# tollgate_lab PoePowerController against inventory.switch.
+
+targets:
+  ap-lan2:
+    resources:
+      RemotePlace:
+        name: "ap-lan2"
+    drivers:
+      NetworkPowerDriver: {}
+      ## SSHDriver + NetworkService once the unit adopts 192.168.102.x
+
+  ap-lan4:
+    resources:
+      RemotePlace:
+        name: "ap-lan4"
+    drivers:
+      NetworkPowerDriver: {}
+      ## reference unit; owner = conwrt mesh plan — acquire only with handoff
+
+  ## ap-lan3 / ap-lan5: places exist but PROTECTED (inventory.local.yaml
+  ## + PoeProtectedPortError on the direct path). Do not add matches here
+  ## until conwrt #61 / lifeline re-arm; ap-lan5 power is a one-way trip.

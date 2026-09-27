@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `ssh` for the offline bench harness.
+#
+# It runs the "remote" command LOCALLY, inside the harness router root, while preserving
+# the production call shape (one self-contained ssh per stage, options included) so
+# bench-deploy-apk.sh's own transport code is exercised, not bypassed. It is installed on
+# PATH by tests/mt3000-bench/run-tests.sh and is never used against a real router.
+#
+# It is deliberately tolerant: sshpass(1) execs the `ssh` it finds on PATH, so this shim
+# also has to survive being invoked as `sshpass -f pw ssh -o X=Y root@ip 'cmd'`.
+set -uo pipefail
+
+ROOT="${BENCH_HARNESS_ROOT:-}"
+[ -n "$ROOT" ] || { echo "harness ssh: BENCH_HARNESS_ROOT unset" >&2; exit 250; }
+
+cmd_args=()
+skip_next=0
+for a in "$@"; do
+  if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
+  case "$a" in
+    -o)      skip_next=1 ;;               # -o KEY=VALUE
+    -o*)     : ;;                          # -oKEY=VALUE
+    -[bcDEeFiIJlLmOpPqQRSVvXy46]*) : ;;    # other single-letter options (+values)
+    root@*|*@*) : ;;                       # the target
+    *)       cmd_args+=("$a") ;;
+  esac
+done
+cmd="${cmd_args[*]}"
+
+# the only remote path this shim rewrites is the router's staging dir (/tmp), so the
+# SAME remote script text runs against the harness root
+cmd="$(printf '%s' "$cmd" | sed "s#/tmp/#$ROOT/tmp/#g")"
+
+export HARNESS_ROOT="$ROOT"
+export TG_TMP="$ROOT/tmp"
+export TG_BIN="$ROOT/usr/bin"
+export TG_ETC="$ROOT/etc/tollgate"
+export TG_APKLOG="$ROOT/var/log/apk.log"
+export PATH="$ROOT/bin:$PATH"
+
+# BENCH_HARNESS_SH lets the suite run the SAME remote script text under BusyBox ash (the
+# router's real shell) instead of the host's sh, so a BusyBox applet/syntax gap fails here.
+if [ -n "${BENCH_HARNESS_SH:-}" ]; then
+  # shellcheck disable=SC2086
+  exec $BENCH_HARNESS_SH -c "$cmd"
+fi
+sh -c "$cmd"

@@ -1,0 +1,17 @@
+# FIXTURE (self-test only) — regression: repo secrets exposed to a hardware job
+# with no environment approval gate. The read-only lane must stay
+# credential-free; anything holding secrets needs required reviewers.
+name: HW Smoke
+on:
+  workflow_dispatch:
+jobs:
+  readonly-surface:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - run: bash scripts/hw-readonly-check.sh
+  secrets-leak:
+    runs-on: [self-hosted, tollgate-router]
+    env:
+      TOLLGATE_LUCI_PASSWORD: ${{ secrets.TOLLGATE_LUCI_PASSWORD }}
+    steps:
+      - run: echo "password in a job nobody approved"

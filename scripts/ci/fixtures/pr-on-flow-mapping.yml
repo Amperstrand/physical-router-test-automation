@@ -1,0 +1,16 @@
+# Fixture (RED): the trigger section written as a YAML FLOW MAPPING.
+# -----------------------------------------------------------------------------
+# `triggers_of()` reads the block form and the inline list form only, so this
+# file yields ZERO triggers: `is_pr_reachable` is false (R1 never arms) and the
+# R2 whitelist loop iterates nothing. A real PR-triggered self-hosted job would
+# therefore pass the guard. Unverifiable trigger routing must fail closed.
+name: flow-mapping triggers
+
+on: {pull_request: null, workflow_dispatch: null}
+
+jobs:
+  sneaky:
+    runs-on: [self-hosted, tollgate-router]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "this executes on the bench host"

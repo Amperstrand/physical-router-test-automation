@@ -16,7 +16,13 @@ import re
 
 import pytest
 
-from lib.helpers import skip_if_no_ssl_cli, skip_if_no_openssl, ssl_is_applied
+from lib.helpers import (
+    nodogsplash_allow_entries,
+    nodogsplash_allows_port,
+    skip_if_no_openssl,
+    skip_if_no_ssl_cli,
+    ssl_is_applied,
+)
 
 log = logging.getLogger("tollgate.ssl_cli")
 
@@ -117,8 +123,16 @@ def test_ssl_nodogsplash_allows_443(router):
     nds_config = router.ssh("cat /etc/config/nodogsplash 2>/dev/null || echo MISSING")
     if "MISSING" in nds_config:
         pytest.skip("nodogsplash config not found")
-    assert "443" in nds_config or "ClientIdleTimeout" in nds_config, \
-        "nodogsplash config may not allow port 443"
+    # Parsed, never substring-searched: "443" is a substring of the
+    # `allow tcp port 8443` entry every router with the admin board carries, so
+    # the previous check passed while :443 was not allow-listed at all and the
+    # LuCI :8080 -> https://<router>/ redirect dead-ended. See
+    # tests/unit/test_nodogsplash_allow_list.py.
+    assert nodogsplash_allows_port(nds_config, 443), (
+        "nodogsplash users_to_router does not allow tcp port 443, so an "
+        "unauthenticated client's :8080 -> https://<router>/ redirect cannot "
+        "complete. Entries: %s" % (nodogsplash_allow_entries(nds_config),)
+    )
 
 
 @pytest.mark.extended

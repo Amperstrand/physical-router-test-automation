@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `scp -O` for the offline bench harness.
+# Copies SRC to <harness router root>/<remote path>, rewriting the router's /tmp.
+set -uo pipefail
+
+ROOT="${BENCH_HARNESS_ROOT:-}"
+[ -n "$ROOT" ] || { echo "harness scp: BENCH_HARNESS_ROOT unset" >&2; exit 250; }
+
+src=""; dst=""; skip_next=0
+for a in "$@"; do
+  if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
+  case "$a" in
+    -o)      skip_next=1 ;;                # -o KEY=VALUE
+    -o*)     : ;;                           # -oKEY=VALUE
+    -[A-Za-z]*) : ;;                        # -O, -q, -p, -r, -B, ...
+    *@*:*)   dst="${a#*:}" ;;               # root@host:/remote/path
+    *:/*)    dst="${a#*:}" ;;               # host:/remote/path
+    *)       if [ -z "$src" ]; then src="$a"; fi ;;
+  esac
+done
+[ -n "$src" ] || { echo "harness scp: no source" >&2; exit 251; }
+[ -n "$dst" ] || { echo "harness scp: no destination" >&2; exit 251; }
+
+dst="$(printf '%s' "$dst" | sed "s#^/tmp/#$ROOT/tmp/#")"
+mkdir -p "$(dirname "$dst")"
+cp -f "$src" "$dst"

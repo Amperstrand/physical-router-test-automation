@@ -18,6 +18,8 @@ MINT="${TOLLGATE_TEST_MINT_URL:-http://192.168.13.221:8383}"
 PHONE="${PHONE_SERIAL:-}"
 SSID="${TOLLGATE_SSID:-TollGate}"
 VENV="${TOLLGATE_PYTHON_VENV:-$HOME/venvs/rig-labgrid}"
+STORY_PATH="tests/stories/"
+STORY_TIMEOUT="${STORY_TIMEOUT:-300}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,6 +27,7 @@ while [[ $# -gt 0 ]]; do
         --mint) MINT="$2"; shift 2 ;;
         --phone) PHONE="$2"; shift 2 ;;
         --ssid) SSID="$2"; shift 2 ;;
+        --test) STORY_PATH="$2"; shift 2 ;;
         *) echo "unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -39,6 +42,7 @@ echo "Router: $ROUTER"
 echo "Mint:   $MINT"
 echo "Phone:  ${PHONE:-not set}"
 echo "SSID:   $SSID"
+echo "Tests:  $STORY_PATH"
 echo ""
 
 # Verify router reachable
@@ -66,8 +70,9 @@ if [[ -n "$PHONE" ]]; then
     export PHONE_SERIAL="$PHONE"
 fi
 
-"$VENV/bin/python" -m pytest tests/stories/ \
-    --no-deploy --timeout-method=signal -v --tb=short \
+"$VENV/bin/python" -m pytest "$STORY_PATH" \
+    --no-deploy --timeout "$STORY_TIMEOUT" --timeout-method=signal \
+    -v --tb=short \
     2>&1 | tee /tmp/story-run.log
 
 EXIT_CODE=$?

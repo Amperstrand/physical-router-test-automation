@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 from typing import Protocol
 
@@ -103,6 +104,54 @@ class ADBClientDevice:
         # On WiFi without internet = behind a captive portal
         wifi = self._shell("dumpsys wifi | grep -c 'mWifiInfo SSID: \"TollGate'")
         return wifi.strip() != "0"
+
+    def os_validated(self) -> bool:
+        """True when the active WIFI network agent carries the Android
+        VALIDATED capability and no CAPTIVE_PORTAL verdict.
+
+        Calibrated on the bench phone (Android 15, moto g(7)): the active
+        agent is a single ``NetworkAgentInfo{... ni{WIFI CONNECTED ...
+        nc{[ Transports: WIFI Capabilities: ...]}}`` dumpsys line; while a
+        portal verdict is cached the caps contain CAPTIVE_PORTAL, after a
+        successful re-probe they contain VALIDATED.
+        """
+        out = self._shell("dumpsys connectivity", timeout=20)
+        for line in out.splitlines():
+            if "NetworkAgentInfo{" in line and "ni{WIFI" in line:
+                return "VALIDATED" in line and "CAPTIVE_PORTAL" not in line
+        return False
+
+    def open_url(self, url: str) -> bool:
+        """Open a URL in the default browser (human-truth internet probe)."""
+        out = self._shell(
+            f"am start -W -a android.intent.action.VIEW -d '{url}'",
+            timeout=20)
+        return "Status: ok" in out
+
+    def wifi_cycle(self, ssid: str, wait: int = 40) -> bool:
+        """Toggle wifi off/on and verify reassociation to ``ssid``.
+
+        Forces Android's NetworkMonitor to re-probe the fresh connection —
+        the deterministic nudge when the OS holds a stale captive-portal
+        verdict (probe backoff, NR7101 runbook §9.5). Falls back to an
+        explicit connect-network because the selector may refuse to
+        auto-rejoin a churned SSID.
+        """
+        self._shell("svc wifi disable")
+        time.sleep(3)
+        self._shell("svc wifi enable")
+        for _ in range(wait // 2):
+            time.sleep(2)
+            info = self._shell("dumpsys wifi | grep mWifiInfo")
+            if ssid in info and "/192" in info:
+                return True
+        self._shell(f"cmd wifi connect-network {ssid} open", timeout=30)
+        for _ in range(10):
+            time.sleep(2)
+            info = self._shell("dumpsys wifi | grep mWifiInfo")
+            if ssid in info and "/192" in info:
+                return True
+        return False
 
 
 class SSHClientDevice:
@@ -320,6 +369,108 @@ def story_evidence(request, results_dir):
     rec = StoryRecorder()
     yield rec
     rec.write_manifest()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Screenrecord evidence (android) — chained segments + screen keepalive
+# ═══════════════════════════════════════════════════════════════════════
+
+class AndroidScreenRecorder:
+    """Record chained ``screenrecord`` segments, pulled to artifacts on stop.
+
+    Keeps the screen awake while recording: the unplugged bench phone dozes
+    within ~30s and a sleeping screen records black — useless as evidence
+    (take-3 class: dark screens produce empty page-load evidence).
+    Segments are short so an unclean teardown loses at most one.
+    """
+
+    SEGMENT_SECONDS = 50
+    MIN_VALID_BYTES = 4096
+
+    def __init__(self, serial: str, art_dir: str):
+        self.serial = serial
+        self.art_dir = art_dir
+        self.segments: list[str] = []
+        self._stop = threading.Event()
+        self._threads: list[threading.Thread] = []
+
+    def _adb(self, *args: str, timeout: int = 15):
+        return subprocess.run(
+            ["adb", "-s", self.serial] + list(args),
+            capture_output=True, text=True, timeout=timeout)
+
+    def _wake(self) -> None:
+        self._adb("shell", "input", "keyevent", "224")  # KEYCODE_WAKEUP
+        self._adb("shell", "wm", "dismiss-keyguard")
+
+    def _keepalive_loop(self) -> None:
+        while not self._stop.wait(10):
+            self._wake()
+
+    def _record_loop(self) -> None:
+        n = 0
+        while not self._stop.is_set():
+            n += 1
+            remote = f"/sdcard/tg-story-seg{n:02d}.mp4"
+            p = subprocess.Popen(
+                ["adb", "-s", self.serial, "shell", "screenrecord",
+                 "--time-limit", str(self.SEGMENT_SECONDS), remote])
+            rc = p.wait()
+            # Always offer the file to stop(): SIGINT-finalized segments (the
+            # normal teardown path) exit non-zero, and screenrecord exits
+            # instantly with rc 218 (INVALID_LAYER_STACK) while the display
+            # dozes — stop()'s size filter separates real video from stubs.
+            self.segments.append(remote)
+            if rc != 0 or self._stop.is_set():
+                self._wake()
+                self._stop.wait(3)
+                if self._stop.is_set():
+                    break
+                continue
+
+    def start(self) -> None:
+        os.makedirs(self.art_dir, exist_ok=True)
+        self._wake()
+        time.sleep(1)
+        for target in (self._keepalive_loop, self._record_loop):
+            t = threading.Thread(target=target, daemon=True)
+            t.start()
+            self._threads.append(t)
+
+    def stop(self) -> None:
+        self._stop.set()
+        # Finalize the in-flight segment (SIGINT makes screenrecord write
+        # its header); a failed kill only costs the current segment.
+        self._adb("shell", "pkill", "-INT", "screenrecord")
+        for t in self._threads:
+            t.join(timeout=self.SEGMENT_SECONDS + 10)
+        for remote in self.segments:
+            local = os.path.join(self.art_dir, os.path.basename(remote))
+            r = self._adb("pull", remote, local, timeout=60)
+            if r.returncode == 0 and \
+                    os.path.getsize(local) >= self.MIN_VALID_BYTES:
+                log.info("video segment: %s", local)
+            elif os.path.exists(local):
+                os.unlink(local)
+            self._adb("shell", "rm", "-f", remote)
+
+
+@pytest.fixture(scope="function")
+def story_video(results_dir):
+    """Chained screen recording for the test duration (android only).
+
+    No-op (yields None) when no PHONE_SERIAL is set — non-android devices
+    keep their own evidence paths.
+    """
+    serial = os.environ.get("PHONE_SERIAL", "")
+    if not serial:
+        yield None
+        return
+    rec = AndroidScreenRecorder(
+        serial, os.path.join(results_dir, "artifacts", "video"))
+    rec.start()
+    yield rec
+    rec.stop()
 
 
 # ═══════════════════════════════════════════════════════════════════════

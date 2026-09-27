@@ -18,8 +18,8 @@ log = logging.getLogger("tollgate.story.pay_internet")
 pytestmark = [pytest.mark.slow]
 
 
-def test_user_pays_and_gets_internet(no_session, story_evidence,
-                                     rate_limiter):
+def test_user_pays_and_gets_internet(story_video, no_session, tollgate_ssid,
+                                     story_evidence, rate_limiter):
     device = no_session
     story_evidence.attach(device)
 
@@ -53,3 +53,41 @@ def test_user_pays_and_gets_internet(no_session, story_evidence,
     story_evidence.shot("03-internet-confirmed",
                         f"{device.name} internet confirmed after payment")
     log.info("[%s] internet confirmed", device.name)
+
+    # ── Post-auth nudge: OS revalidation (probe-backoff lesson, §9.5) ──
+    # Ping proves routing, but Android's NetworkMonitor caches the
+    # captive-portal verdict and backs off re-probing — the OS can stay
+    # CAPTIVE_PORTAL (un-VALIDATED) while ping works, and a real user's
+    # Chrome keeps fleeing the network. The contract claims
+    # internet.validation == "Android VALIDATED network capability";
+    # nudge, then hold the story to that claim.
+    if not device.os_validated():
+        log.info("[%s] OS verdict stale — browser nudge (example.com)",
+                 device.name)
+        device.open_url("http://example.com/")
+        time.sleep(6)
+
+    if not device.os_validated():
+        log.info("[%s] browser nudge insufficient — wifi-cycle nudge",
+                 device.name)
+        assert device.wifi_cycle(tollgate_ssid), \
+            f"{device.name}: wifi-cycle nudge lost the association (RF/selector)"
+
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        if device.os_validated():
+            break
+        time.sleep(3)
+
+    story_evidence.shot("04-os-validated",
+                        f"{device.name} Android VALIDATED capability after nudge")
+    assert device.os_validated(), \
+        (f"{device.name}: contract falsified (internet.validation) — "
+         "TollGate granted internet (payment + ping OK) but Android never "
+         "re-validated the network")
+    log.info("[%s] OS validation confirmed", device.name)
+
+    device.open_url("http://example.com/")
+    time.sleep(6)
+    story_evidence.shot("05-browser-internet",
+                        f"{device.name} Chrome loads example.com — human truth")

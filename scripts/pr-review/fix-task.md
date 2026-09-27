@@ -28,11 +28,17 @@ according to its own review thread. The PR number is given in the prompt.
    since that review, re-check each finding against the new head before
    fixing.
 2. **Checkout**: `cd /tmp/pr-review-wt && git fetch origin main --quiet &&
-   gh pr checkout <N>`; record `git rev-parse HEAD`.
+   gh pr checkout <N>`; record `git rev-parse HEAD`. Then immediately write
+   the session marker: `git rev-parse --abbrev-ref HEAD > .pr-branch`
+   (the worktree's pre-push hook refuses any push to a different branch —
+   this exists because a 2026-09-24 session pushed its HEAD to four
+   unrelated PR branches and destroyed their content).
 3. **Implement** exactly the review's blocking items plus any one-liners
    it explicitly lists. NO scope creep: if an item needs a design decision
    the review did not already make, STOP and report it as deferred instead
-   of improvising.
+   of improvising. Before pushing, sanity-check the series: every commit
+   in `git log --oneline origin/main..HEAD` must belong to THIS PR — if any
+   subject references another PR's work, STOP and report.
 4. **Rebase** onto `origin/main`. CHANGELOG conflicts follow the
    keep-both pattern (never drop either side's entries; no duplicate
    section headers; entries live under `[Unreleased]` in the right
@@ -48,7 +54,7 @@ according to its own review thread. The PR number is given in the prompt.
 7. **Comment** (exactly one, via the env-bypass): what you changed per
    finding, the verification you ran with results, and the new head SHA.
 8. Clean the worktree: back to `pr-review-base`, delete only your exact
-   local branch.
+   local branch, remove the `.pr-branch` marker.
 
 ## Final session output (NOT part of the PR comment)
 

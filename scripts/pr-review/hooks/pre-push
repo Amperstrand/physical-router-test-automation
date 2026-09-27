@@ -1,0 +1,19 @@
+#!/bin/bash
+# pre-push — blocks the "agent pushed its HEAD to every branch" failure mode
+# (2026-09-24 incident: four PR branches replaced with #549's series).
+# The fix agent writes .pr-branch in the worktree root after gh pr checkout;
+# only that branch may be pushed from this worktree.
+MARKER="$(git rev-parse --show-toplevel 2>/dev/null)/.pr-branch"
+if [ ! -f "$MARKER" ]; then
+  echo "pre-push: no .pr-branch marker — run 'gh pr checkout <N>' and write the branch name to .pr-branch first." >&2
+  exit 1
+fi
+ALLOWED="$(cat "$MARKER")"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  branch="${remote_ref#refs/heads/}"
+  if [ "$branch" != "$ALLOWED" ]; then
+    echo "pre-push: refusing to push '$branch' — this session is checked out for PR branch '$ALLOWED' only." >&2
+    exit 1
+  fi
+done
+exit 0

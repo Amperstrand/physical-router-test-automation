@@ -1070,17 +1070,7 @@ arch-test-full: ## Run all arch E2E tests (~4min)
 #  PYTEST / CI / REPORT TARGETS (from main branch)
 # ===========================================================================
 
-.PHONY: pytest-smoke pytest-critical pytest-extended pytest-api pytest-phone \
-        pytest-test pytest-scenarios pytest-hardware-smoke pymake-help \
-        install-path-preflight install-path-dry-run install-path-e2e \
-        fresh-flash-check bench-lock-status \
-        pytest-smoke-mac pytest-critical-mac pytest-api-mac pytest-test-mac \
-        pytest-smoke-linux pytest-api-linux pytest-test-linux \
-        pytest-smoke-rust pytest-api-rust pytest-test-rust pytest-critical-rust \
-        pytest-smoke-rust-basic pytest-api-rust-basic \
-        luci deploy-ci deploy-ci-rust setup-python \
-        run-api run-api-quick run-phone run-captive-portal run-luci run-all run-profile \
-        collect render-report sanitize publish pr-smoke clean
+.PHONY: pytest-smoke pytest-critical pytest-extended pytest-api pytest-phone pytest-test pytest-scenarios pytest-hardware-smoke pymake-help install-path-preflight install-path-dry-run install-path-e2e fresh-flash-check bench-lock-status cudy-flash-check cudy-flash-capacity cudy-flash-dump-page cudy-flash-oem-upload cudy-flash-sysupgrade cudy-flash-install-tollgate cudy-flash-verify cudy-flash-tests pytest-smoke-mac pytest-critical-mac pytest-api-mac pytest-test-mac pytest-smoke-linux pytest-api-linux pytest-test-linux pytest-smoke-rust pytest-api-rust pytest-test-rust pytest-critical-rust pytest-smoke-rust-basic pytest-api-rust-basic luci deploy-ci deploy-ci-rust setup-python run-api run-api-quick run-phone run-captive-portal run-luci run-all run-profile collect render-report sanitize publish pr-smoke clean
 
 # --- Pytest test tiers (raw pytest, no canonical run dir) ---
 
@@ -1139,6 +1129,49 @@ fresh-flash-check: ## Read-only fresh-flash preconditions (image hash, wallet dr
 
 bench-lock-status: ## Show who holds the shared bench lock (~/.hermes/state/bench-mt3000.lock)
 	@python3 -m lib.bench_lock status
+
+# --- Cudy WR3000 v1 flash lane (procedure: docs/cudy-wr3000-flashing.md) ---
+#
+# Two stages, no case opening: Cudy's signed transitional image through the vendor
+# web UI, then a mainline sysupgrade, then the handover into the EXISTING install
+# path (install-path-e2e below).  Every mutating target needs BOTH
+# TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true AND --yes-i-mean-it (pass it in CUDY_ARGS).
+#
+# EVIDENCE (2026-09-27): stages 1 and 2 were verified on a real Cudy WR3000 v1; the
+# vendor upload endpoint/file-field are PINNED from that run.  The capacity preflight
+# and the volatile install are implemented + unit-tested but NOT hardware-verified.
+#
+# Lock policy (explicit): the Cudy is a SEPARATE physical box from the MT3000 bench,
+# so these targets do NOT take the shared bench flock.  Set
+# TOLLGATE_CUDY_TAKE_BENCH_LOCK=true to serialise on the Cudy's own lock.
+
+CUDY_ARGS ?=
+
+cudy-flash-check: ## Read-only Cudy preconditions: image hashes, model guard, page class, staged commands
+	@PYTHONPATH=. python3 scripts/cudy-flash.py check $(CUDY_ARGS)
+
+cudy-flash-capacity: ## Read-only flash-capacity preflight (the 16 MB device vs the 21 MB payload)
+	@PYTHONPATH=. python3 scripts/cudy-flash.py capacity $(CUDY_ARGS)
+
+cudy-flash-dump-page: ## STAGE 1 evidence-first: log the real vendor firmware page + selectors (uploads NOTHING)
+	@PYTHONPATH=. python3 scripts/cudy-flash.py oem-upload --dump-page $(CUDY_ARGS)
+
+cudy-flash-oem-upload: ## STAGE 1 (destructive): vendor-UI upload of the Cudy-signed transitional image (switch + --yes-i-mean-it)
+	@PYTHONPATH=. python3 scripts/cudy-flash.py oem-upload $(CUDY_ARGS)
+
+cudy-flash-sysupgrade: ## STAGE 2 (destructive): mainline sysupgrade -n over ssh stdin (switch + --yes-i-mean-it)
+	@PYTHONPATH=. python3 scripts/cudy-flash.py sysupgrade $(CUDY_ARGS)
+
+cudy-flash-install-tollgate: ## STAGE 3: set the root password, enable Wi-Fi, then hand over to the existing install path
+	@PYTHONPATH=. python3 scripts/cudy-flash.py install-tollgate $(CUDY_ARGS)
+#  add --volatile (and --package <local .apk>) for the tmpfs install: the 16 MB flash
+#  cannot hold the 21 MB payload, so the big binaries live in /tmp and IS LOST ON REBOOT
+
+cudy-flash-verify: ## Read-only post-install ladder (board, Wi-Fi ifaces, module kind:10021)
+	@PYTHONPATH=. python3 scripts/cudy-flash.py verify $(CUDY_ARGS)
+
+cudy-flash-tests: ## Offline unit tests for the Cudy lane (no router, no network)
+	@python3 -m pytest tests/unit/test_cudy_flash.py -q
 
 # --- Second-purchase bench lanes (procedure + measured result: docs/second-purchase-bench.md)
 #

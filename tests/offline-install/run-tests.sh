@@ -666,6 +666,86 @@ PY
         "$(grep -cF 'failed rc=$?' "$SCRIPTS_DIR/install-router.sh")"
 }
 
+# =============================================================== T21 fresh-box keepalive
+# The defect this group exists for: a FRESHLY FLASHED router has no /etc/config/nodogsplash
+# (nodogsplash is not installed yet).  The seed used to call
+# `uci add_list nodogsplash.@nodogsplash[0].trustedmac=…` straight away; real uci answers
+# `uci: Entry not found`, the seed still exits 0, the box trusts NOTHING, and the installer
+# correctly refuses (5).  VERIFIED ON REAL HARDWARE (freshly flashed Cudy WR3000,
+# 2026-09-27): create the file AND the anonymous section first, then seed.
+#
+# The uci double now models real section semantics (a write into a missing section fails),
+# so this suite can reproduce the fresh-box behaviour it never could before.  T21 runs the
+# SHIPPED seed against a fresh fixture router (the green half) and the PRE-FIX seed text as
+# a CONTROL (the refusal), so neither half can be vacuous.
+test_T21() {
+    local b stage seed_tpl="$SCRIPTS_DIR/templates/99z-mgmt-keepalive"
+    b="$(bundle_build "$WORK/b21")"
+
+    # (i) lexical drift guard: the shipped seed really creates the file + section first.
+    check_contains "the seed creates /etc/config/nodogsplash when it is absent" \
+        '|| : > "$CONF_DIR/nodogsplash"' "$(cat "$seed_tpl")"
+    check_contains "the seed adds the anonymous nodogsplash section" \
+        "uci add nodogsplash nodogsplash" "$(cat "$seed_tpl")"
+    check_contains "the seed guards the add with a -q get of the section" \
+        'if ! uci -q get nodogsplash.@nodogsplash[0]' "$(cat "$seed_tpl")"
+
+    stage_fixture() { # stage_fixture <keepalive-path-or-inline-file>
+        stage="$TGOFFLINE_HARNESS_ROOT/tmp/tgoffline"
+        mkdir -p "$stage/pkgs"
+        cp "$b"/pkgs/*.apk "$stage/pkgs/"
+        cp "$b/MANIFEST.sha256" "$stage/MANIFEST.sha256"
+        cp "$1" "$stage/99z-mgmt-keepalive"
+        chmod +x "$stage/99z-mgmt-keepalive"
+    }
+
+    # (ii) SHIPPED seed, FRESH box (no nodogsplash config at all): the pre-auth trust must
+    #      go LIVE.  This is what the pre-fix seed could never do.
+    router_root_new
+    check_eq "the fixture router starts with NO nodogsplash config" "" \
+        "$(ls "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    cp "$seed_tpl" "$WORK/b21-seed-shipped"
+    sed -i 's/__TRUST_MAC__/AA:BB:CC:DD:EE:FF/' "$WORK/b21-seed-shipped"
+    stage_fixture "$WORK/b21-seed-shipped"
+    run_remote_script "$stage"
+    if printf '%s' "$OUT" | grep -qE '^gate keepalive_applied +PASS'; then
+        pass "fresh box: the shipped seed makes the pre-auth trust live (keepalive_applied PASS)"
+    else
+        fail "fresh box: the shipped seed did not make the trust live"
+        printf '        --- output was ---\n%s\n' "$OUT"
+    fi
+    check_contains "fresh box: the committed config carries the workstation MAC" \
+        "AA:BB:CC:DD:EE:FF" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    check_contains "fresh box: …and 'allow tcp port 22' pre-auth" \
+        "allow tcp port 22" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    check_not_contains "fresh box: the seed no longer reports the fresh-box uci failure" \
+        "REFUSED(5)" "$OUT"
+
+    # (iii) CONTROL: the PRE-FIX seed text (no file/section creation) on the SAME fresh box
+    #       must REFUSE with the lockout reason — proof the green half is not vacuous.
+    router_root_new
+    cat > "$WORK/b21-seed-prefix" <<'EOF'
+#!/bin/sh
+TRUST_MAC="AA:BB:CC:DD:EE:FF"
+TM=$(uci -q get nodogsplash.@nodogsplash[0].trustedmac 2>/dev/null || echo "")
+if ! echo "$TM" | grep -q "$TRUST_MAC"; then
+    uci add_list nodogsplash.@nodogsplash[0].trustedmac="$TRUST_MAC"
+fi
+UTR=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+if ! echo "$UTR" | grep -q "port 22"; then
+    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22'
+fi
+uci commit nodogsplash
+exit 0
+EOF
+    stage_fixture "$WORK/b21-seed-prefix"
+    run_remote_script "$stage"
+    check_rc "control: the pre-fix seed on a fresh box is REFUSED (5)" 5 "$RC"
+    check_contains "control: the refusal is the lockout reason" "pre-auth trust is NOT live" "$OUT"
+    check_not_contains "control: the pre-fix seed trusted NOTHING (no committed MAC)" \
+        "AA:BB:CC:DD:EE:FF" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+}
+
 # =============================================================== runner
 TITLES="
 T01|dry-run: verify the bundle, print the ordered plan, touch nothing
@@ -688,8 +768,9 @@ T17|the production scripts run under the router's shell (BusyBox ash / dash)
 T18|staging never uses scp (stdin redirect only)
 T19|the machine-readable report has every gate, in JSON, with the remote half embedded
 T20|the dependency closure on a FRESH box (as-shipped refusal + upgrade-box control)
+T21|the keepalive seed on a FRESH box (pre-fix refusal control + shipped seed makes trust live)
 "
-TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20"
+TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21"
 if [ -n "${1:-}" ] && [ "${1:-}" = "--only" ]; then ONLY="${2:-}"; fi
 if [ -n "${TGOFFLINE_HARNESS_ONLY:-}" ]; then ONLY="$TGOFFLINE_HARNESS_ONLY"; fi
 

@@ -31,8 +31,53 @@ single-owner and make "what got installed" a verified fact instead of an assumpt
 | `bench-with-lock.sh` | the sanctioned wrapper: acquire the lock, run your command, release |
 | `bench-deploy-apk.sh` | deploy ONE named apk; rotate stale staged apks; verify the installed binary |
 | `router-snapshot.sh` | read-only router state dump (`snapshot`), the ssh transport for any local script (`run`), and `render` — the payload printed locally, no ssh, no lock |
-| `second-purchase-e2e.sh` | does a SECOND purchase re-open the gate? fresh-MAC buy → exhaust → post-exhaustion → `ndsctl deauth` → buy again. **Dry run by default** |
+| `second-purchase-e2e.sh` | does a SECOND purchase re-open the gate? fresh-MAC buy → exhaust → post-exhaustion → `ndsctl deauth` → buy again → **PHASE 5b FORCES the drift** (a deliberate, attributable nodogsplash restart) and asserts the module states the client is gone. **Dry run by default** |
 | `bench-token.py` | `mint` (unsigned NUT-04 quote, no `20008`) and `verify` (NUT-07: every proof must be UNSPENT) |
+
+## PHASE 5b forces the close (and why the obvious drift reproducer does not)
+
+A client that merely LEAVES nodogsplash (`ndsctl deauth`) while its PAID allotment is still open is
+**not** a reproduction: measured on this bench on 2026-09-26, the module holds the session and does
+nothing (`N_DEAUTH=0 N_UNCONF=0` in the window). A close has to be **TRIGGERED** before the failing
+deauth can happen. The deterministic trigger is a **deliberate restart of nodogsplash** after the
+purchase: NDS comes back not knowing the client, the module's sweeps find the session's counters
+unreadable and must close the gate, and `ndsctl deauth <mac>` answers `Client <mac> not found.`
+rc=1 — the failing deauth the defect needs. On pre17 the close loop started within 30 s (its
+`unconfirmed_closes` had reached 2141); with the fix binary the same scenario produced no new loop
+lines in 240 s.
+
+`second-purchase-e2e.sh` runs that as PHASE 5b's forcing step (`FORCE_DRIFT=restart`, the default;
+`FORCE_DRIFT=deauth` keeps the old step for the ablation). It is **attributable on purpose** — the
+step writes a `BENCH ACTION` line into the router's own log before it restarts, prints the pid
+change, fires the box guard if the MODULE moved with it, and re-pins the baseline afterwards, so it
+can never be mistaken for a product self-restart. The assertions are anchored to a `LOG-ANCHOR`
+marker written **before** the step, and they require a **state change**, not an absence of errors:
+the module's own `Client already gone … nothing left to deauthorize` line (naming the MAC), the
+`unconfirmed_closes` total not moving, nodogsplash still not knowing the MAC, and ndsctl still
+answering.
+
+### The negative control: run the SAME step against the PRE-FIX binary
+
+The pre17 build IS the offending build, so the control is the lane itself, run on the box that
+carries it — PHASE 5b **must fail** there:
+
+```sh
+make second-purchase-e2e SECOND_PURCHASE_ARGS="--purchase --lane ln"   # pre17 installed
+# expect: PHASE 5b ASSERT FAIL x4 (never settled / never stated / the total grew / the escalation
+# named the client), RESULT: assertions failed (n), exit 13 — that IS the reproduction, and it is
+# the same assertion set a fix must satisfy.
+```
+
+Offline, without a bench, the same assertions are driven by the **lines the pre17 binary actually
+logged**, captured in the forced-drift run and replayed verbatim (ANSI escapes and all) by
+`tests/mt3000-bench/zombie-settle-control.sh` — see `tests/mt3000-bench/fixtures/README.md` for the
+provenance of both directions.
+
+Before the next window: PHASE 5b's forcing step leaves the box with the close loop running on a
+pre-fix build, and a purchase cannot be authorised in that state. `CLEAN_PAIR_EPILOGUE=1` (default)
+bounces nodogsplash + tollgate-wrt after the evidence window and waits for the API, so the next run
+starts from a clean pair; `CLEAN_PAIR_EPILOGUE=0` is for a window whose whole point is to capture the
+leftover state.
 
 ## The lock
 
@@ -149,7 +194,7 @@ socket, so a purchase sent from the bench host authenticates the host, not the c
 tests/mt3000-bench/run-tests.sh
 ```
 
-23 tests / 0 skips on a host with `busybox`, `apk.static` (`~/.cache/apk-v3/`) and two real
+30 tests / 0 skips on a host with `busybox`, `apk.static` (`~/.cache/apk-v3/`) and two real
 fixture apks (`BENCH_TEST_APK_A` / `BENCH_TEST_APK_B` override the defaults). It builds a
 throw-away "router root", puts PATH doubles for `ssh`/`scp`/`apk` in front (so the
 production transport code is exercised), and runs the production remote scripts — optionally
@@ -160,6 +205,31 @@ the second-purchase lane offline: the e2e is dry-run by default, a paid run with
 refused, a paid run is refused (naming the holder) while another window owns the bench, the
 snapshot payload is accepted by `sh -n` **and** BusyBox `ash -n`, and the token tool mints
 nothing without `--yes`.
+
+**The suite is HERMETIC, and it says so.** It takes and releases bench locks to assert
+ownership semantics, so it never operates on the lock a real bench run holds: it uses its own
+lock inside a `mktemp -d` workdir, REFUSES to run (exit 90, loudly) when the lock it would take
+is `~/.hermes/state/bench-mt3000.lock` — including via `BENCH_TEST_WORKDIR` — and proves at the
+end that the production file, holder line included, is byte-identical to what it found. It can
+therefore be run **while a live run owns the bench**: it neither blocks behind that lock nor
+rewrites its holder metadata, and every command it runs is bounded (`BENCH_TEST_CMD_TIMEOUT`,
+default 60 s) with every lock invocation carrying a bounded `--wait` (`BENCH_LOCK_WAIT`,
+default 5) — a contended lock is a FAIL that names the holder, never a hang. It also covers the
+two live-run guards (the box-identity/restart guard and the PHASE 5b zombie-settle assertions)
+by driving `restart-guard-control.sh` and `zombie-settle-control.sh`, and then proves the wiring
+by running each control against a MUTATED `second-purchase-e2e.sh` that must turn it red.
+
+**Why the gate is load-bearing (RED control, 2026-09-27).** In a sandbox whose only lock is a
+state-dir lock held by another process, the PRE-FIX suite (HEAD `9e7cdb36`; exit 0, 23 tests, 20 s)
+**deleted** that lock file from its first case — the `rm -f "$BENCH_LOCK_PATH"` every lock case
+starts with — so the holder line was gone and the path was takeable again (`flock FREE`) while the
+live run's flock sat on an unlinked inode: a second window could then take the bench under a run
+that believed it owned it. That is the collision class this card is about, and the gate closes it
+(the same invocation now exits 90 and leaves the file byte-identical). Note what the experiment did
+*not* show: the pre-fix suite did not BLOCK there — it re-creates the file after unlinking, so it
+never contends. It did, however, carry unbounded waits of its own (`wait "$HOLDER1"`, `wait
+"$HOLD2"`) and a family-pattern `pkill -f 'sleep 20'` that could kill a live run's process; both are
+gone (bounded `stop_holder`, and a uniquely named descendant that only this suite reaps).
 
 ## Pitfalls this path has already paid for
 
@@ -180,7 +250,7 @@ nothing without `--yes`.
   would keep the bench locked after the window closed — the next window is refused by a
   holder `release` cannot even name, because the holder-line pid is gone. `bench-lock exec`
   runs the command in a subshell with `exec 9>&-`; if you open the lock fd yourself, close it
-  before spawning anything. Regression tests: `run-tests.sh` test 17 (RED without the fix).
+  before spawning anything. Regression tests: `run-tests.sh` test 19 (RED without the fix).
 * **Resolve your own path through symlinks.** `install.sh` links the commands into
   `~/.local/bin`, so `$BASH_SOURCE` is the *symlink*: `$(dirname "${BASH_SOURCE[0]}")` then
   points at `~/.local/bin` and the sibling scripts are "not found" (hit live). Use

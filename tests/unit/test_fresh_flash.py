@@ -119,6 +119,53 @@ def test_parse_wallet_state_is_empty_when_nothing_held():
     assert "total_sats=0" in state.summary()
 
 
+def test_parse_probed_wallet_state_records_a_successful_probe():
+    state = ff.parse_probed_wallet_state('{"total":0}', "total 0\n", balance_exit_code=0)
+    assert state.probed and state.empty
+    assert "total_sats=0" in state.summary()
+
+
+@pytest.mark.parametrize(
+    ("balance_output", "exit_code"),
+    [
+        ("", 0),  # the CLI answered, but with nothing at all
+        ("", 255),  # ssh never reached the router
+        (
+            # ssh merges its own stderr into the probe output — rc still decides
+            "ssh: connect to host 192.168.1.1 port 22: Connection refused",
+            255,
+        ),
+        ("total: 1200 sats", 1),  # output, but the probe itself failed
+    ],
+)
+def test_parse_probed_wallet_state_fails_closed_without_an_answer(balance_output, exit_code):
+    """A probe that did not answer is UNKNOWN — never 'empty, safe to flash'."""
+    state = ff.parse_probed_wallet_state(balance_output, "", balance_exit_code=exit_code)
+    assert not state.probed
+    assert "unknown" in state.summary()
+    # the gate is what refuses: `.empty` alone would still read True here
+    with pytest.raises(ff.FlashRefused):
+        ff.flash_guard(state, allow_nonempty=False)
+
+
+@pytest.mark.parametrize(
+    "error_document",
+    [
+        # `tollgate --json wallet balance` prints this and exits **0** when the
+        # service behind the CLI is down, so the exit code is not enough.
+        '{\n  "Success": false,\n  "Error": "Failed to communicate with TollGate service: '
+        'dial unix /var/run/tollgate.sock: connect: connection refused"\n}',
+        '{"Success": false, "Error": "Merchant not available"}',
+    ],
+)
+def test_parse_probed_wallet_state_fails_closed_on_a_service_error_document(error_document):
+    state = ff.parse_probed_wallet_state(error_document, "", balance_exit_code=0)
+    assert not state.probed
+    assert ff.probe_reports_failure(error_document)
+    # a healthy answer is not a failure document
+    assert not ff.probe_reports_failure('{"Success": true, "Data": {"balance": 0}}')
+
+
 def test_flash_guard_allows_an_empty_wallet():
     ff.flash_guard(ff.parse_wallet_state("", ""), allow_nonempty=False)
 
@@ -145,6 +192,28 @@ def test_flash_guard_refuses_on_ecash_files_even_with_a_zero_balance_reading():
 def test_flash_guard_can_be_overridden_explicitly():
     state = ff.parse_wallet_state('{"total":2100}', "/etc/tollgate/ecash/token-1\n")
     ff.flash_guard(state, allow_nonempty=True)  # explicit operator opt-in only
+
+
+def test_flash_guard_refuses_an_unprobed_wallet():
+    """The negative control for 'unknown is not empty'."""
+    state = ff.parse_probed_wallet_state("", "", balance_exit_code=255)
+    with pytest.raises(ff.FlashRefused) as excinfo:
+        ff.flash_guard(state, allow_nonempty=False)
+    message = str(excinfo.value)
+    assert "REFUSING TO FLASH" in message
+    assert "could NOT be read" in message
+    assert ff.ALLOW_NONEMPTY_FLAG in message
+    # ... and the explicit opt-in is still the only way through
+    ff.flash_guard(state, allow_nonempty=True)
+
+
+def test_flash_guard_reports_money_ahead_of_an_unreadable_probe():
+    """Hard evidence (files under /etc/tollgate/ecash) is the actionable one."""
+    state = ff.parse_probed_wallet_state("", "/etc/tollgate/ecash/token-1\n", balance_exit_code=255)
+    assert not state.probed and not state.empty
+    with pytest.raises(ff.FlashRefused) as excinfo:
+        ff.flash_guard(state, allow_nonempty=False)
+    assert "NOT empty" in str(excinfo.value)
 
 
 def test_the_drain_command_is_the_documented_cli_form():
@@ -205,6 +274,28 @@ def test_flash_preconditions_still_refuses_money_with_the_switch_on(monkeypatch)
     assert "NOT empty" in blockers[0]
     # ... unless the loss is explicitly accepted
     assert ff.flash_preconditions(money, allow_nonempty=True) == []
+
+
+def test_flash_preconditions_refuses_an_unprobed_wallet(monkeypatch):
+    """The negative control: an unanswered probe is a blocker, not a free pass."""
+    monkeypatch.setenv(ff.FLASH_ENABLE_ENV, "true")
+    unknown = ff.parse_probed_wallet_state("", "", balance_exit_code=255)
+    blockers = ff.flash_preconditions(unknown, allow_nonempty=False)
+    assert len(blockers) == 1, blockers
+    assert "could NOT be read" in blockers[0]
+    assert ff.ALLOW_NONEMPTY_FLAG in blockers[0]
+    # ... and the explicit opt-in clears it
+    assert ff.flash_preconditions(unknown, allow_nonempty=True) == []
+
+
+def test_flash_preconditions_reports_the_unprobed_wallet_exactly_once(monkeypatch):
+    """unprobed *and* money on disk => one blocker, the actionable one."""
+    monkeypatch.setenv(ff.FLASH_ENABLE_ENV, "true")
+    state = ff.parse_probed_wallet_state("", "/etc/tollgate/ecash/token-1\n", balance_exit_code=255)
+    blockers = ff.flash_preconditions(state)
+    assert len(blockers) == 1, blockers
+    assert "NOT empty" in blockers[0]
+    assert ff.flash_preconditions(state, allow_nonempty=True) == []
 
 
 # ---------------------------------------------------------------------------

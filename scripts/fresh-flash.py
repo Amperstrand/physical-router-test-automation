@@ -11,6 +11,8 @@ this script:
   3. probes the wallet and **REFUSES to flash a non-empty wallet** unless
      ``--allow-nonempty-wallet`` is given.  Draining is the operator's step:
      ``tollgate wallet drain cashu --yes`` on the router prints the Cashu tokens;
+     a probe that does not answer (unreachable router, no CLI, no service) is
+     *unknown*, not "empty", and refuses too — the gate fails closed.
   4. stages the image with ``scp -O`` (OpenWrt has no sftp-server), re-verifies
      the sha256 **on the router**, and only then runs ``sysupgrade -n``;
   5. waits for SSH to come back (this router drops ICMP — TCP 22 only) and
@@ -91,7 +93,11 @@ def wait_for_ssh(host: str, *, timeout: int = 300) -> bool:
 
 
 def check(args: argparse.Namespace) -> int:
-    """Read-only: image, wallet and lock state.  Changes nothing."""
+    """Read-only: image, wallet and lock state.  Changes nothing.
+
+    Exit bits: ``1`` = image problem, ``2`` = non-empty wallet (drain first),
+    ``4`` = the wallet probe did not answer (unknown, the flash gate refuses).
+    """
     print("== fresh-flash preconditions (read-only) ==")
     rc = 0
 
@@ -109,11 +115,17 @@ def check(args: argparse.Namespace) -> int:
         print(f"image  : MISSING — {exc}")
         rc |= 1
 
-    out, _ = ssh(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
+    out, wallet_rc = ssh(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
     listing, _ = ssh(args.host, ff.ECASH_LISTING_COMMAND, timeout=30)
-    state = ff.parse_wallet_state(out, listing)
+    state = ff.parse_probed_wallet_state(out, listing, balance_exit_code=wallet_rc)
     print(f"wallet : {state.summary()}")
-    if not state.empty:
+    if not state.probed:
+        print(
+            "         -> the wallet probe did not answer (ssh / CLI / service), so the "
+            "flash gate treats the wallet as UNKNOWN and refuses"
+        )
+        rc |= 4
+    elif not state.empty:
         print(f"         -> drain before flashing:  {ff.DRAIN_COMMAND}")
         rc |= 2
     release, _ = ssh(args.host, ip.openwrt_release_command(), timeout=20)
@@ -140,9 +152,9 @@ def flash(args: argparse.Namespace) -> int:
     try:
         print(f"[lock] holding {lock.path} as {lock.holder.raw}")
         # 1. wallet gate ------------------------------------------------------
-        out, _ = ssh(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
+        out, wallet_rc = ssh(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
         listing, _ = ssh(args.host, ff.ECASH_LISTING_COMMAND, timeout=30)
-        state = ff.parse_wallet_state(out, listing)
+        state = ff.parse_probed_wallet_state(out, listing, balance_exit_code=wallet_rc)
         print(f"[wallet] {state.summary()}")
         ff.flash_guard(state, allow_nonempty=args.allow_nonempty_wallet)
 

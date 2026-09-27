@@ -6,30 +6,17 @@ Uses the state-as-fixture pattern: the test requests `fresh_session`
 """
 import logging
 import os
-import subprocess
 import time
 
 import pytest
 
 from lib.contract import min_token_sats
 from lib.cashu import HttpMinter
+from tests.stories.conftest import _deauth_device
 
 log = logging.getLogger("tollgate.story.session_expiry")
 
 pytestmark = [pytest.mark.slow]
-
-PHONE_MAC = "24:46:c8:a9:de:bb"
-
-
-def _deauth():
-    host = os.environ.get("TOLLGATE_SSH_HOST", "")
-    if not host:
-        return
-    subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5",
-         "-o", "StrictHostKeyChecking=no",
-         f"root@{host}", f"ndsctl deauth {PHONE_MAC} 2>/dev/null"],
-        capture_output=True, timeout=10)
 
 
 def test_session_expiry_and_repayment(fresh_session, rate_limiter):
@@ -41,7 +28,7 @@ def test_session_expiry_and_repayment(fresh_session, rate_limiter):
     log.info("precondition: authenticated with internet")
 
     # Act: force session expiry
-    _deauth()
+    _deauth_device(device)
     time.sleep(3)
 
     # Assert: internet is gone

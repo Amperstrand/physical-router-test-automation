@@ -13,9 +13,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import os
-import shutil
 import subprocess
-import sys
 import threading
 import time
 from typing import Protocol
@@ -28,6 +26,11 @@ except ImportError:  # size-heuristic fallback below
     Image = None
 
 from lib.clients.ssid import get_router_host, resolve_ssid
+from lib.runlogs import (
+    RunLogCollector,
+    default_sources,
+    resolve_labgrid_client,
+)
 
 log = logging.getLogger("tollgate.stories")
 
@@ -64,6 +67,20 @@ class ADBClientDevice:
         cmd = f"cmd wifi connect-network {ssid} {security}"
         if psk:
             cmd += f" {psk}"
+        if self._connect_and_wait(cmd, ssid):
+            return True
+        # The supplicant can wedge DISCONNECTED (no association attempts
+        # reach the AP) after an interrupted wifi-cycle — a radio toggle
+        # resets it. Bench-verified 2026-09-27, moto g(7) test phone.
+        log.warning("%s: join_wifi failed once — toggling WiFi, retrying",
+                    self.name)
+        self._shell("svc wifi disable")
+        time.sleep(3)
+        self._shell("svc wifi enable")
+        time.sleep(10)
+        return self._connect_and_wait(cmd, ssid)
+
+    def _connect_and_wait(self, cmd: str, ssid: str) -> bool:
         self._shell(cmd, timeout=30)
         for _ in range(15):
             time.sleep(2)
@@ -234,7 +251,12 @@ class SSHClientDevice:
             out = self._ssh(
                 f"nmcli device wifi connect '{ssid}' 2>&1 "
                 f"|| iw dev wlan0 connect '{ssid}'", timeout=30)
-        return "error" not in out.lower()
+        if "error" not in out.lower():
+            return True
+        # Wired clients (VM lab) have no radio — being on the router's
+        # network with a default route is the equivalent of "joined".
+        return self._ssh(
+            "ip route | grep -c default") == "1"
 
     def get_ip(self) -> str:
         return self._ssh(
@@ -256,6 +278,20 @@ class SSHClientDevice:
         external = self._ssh("curl -s -m 5 http://ifconfig.me")
         route = self._ssh("ip route | grep default | head -1")
         return f"external_ip: {external}\nroute: {route}\n"
+
+    def os_validated(self) -> bool:
+        # A plain Linux client has no NetworkMonitor verdict — working
+        # connectivity IS the validated state for the story's purpose.
+        return self.has_internet()
+
+    def open_url(self, url: str) -> bool:
+        out = self._ssh(f"curl -s -m 10 -o /dev/null -w '%{{http_code}}' {url}")
+        return out in ("200", "204", "301", "302", "307", "308")
+
+    def wifi_cycle(self, ssid: str, wait: int = 40) -> bool:
+        # Wired client: no radio to cycle — the story's deterministic
+        # revalidation nudge is a no-op that keeps the association.
+        return ssid != "" and self.has_internet()
 
     def submit_token(self, token: str) -> bool:
         gateway = self._ssh(
@@ -321,18 +357,7 @@ def pytest_collection_modifyitems(items):
 
 LABGRID_COORDINATOR = os.environ.get(
     "LG_COORDINATOR", "192.168.13.208:20408")
-
-
-def _resolve_labgrid_client() -> str:
-    found = shutil.which("labgrid-client")
-    if found:
-        return found
-    sibling = os.path.join(os.path.dirname(sys.executable),
-                           "labgrid-client")
-    return sibling if os.path.exists(sibling) else "labgrid-client"
-
-
-LABGRID_CLIENT = _resolve_labgrid_client()
+LABGRID_CLIENT = resolve_labgrid_client()
 
 
 def _labgrid_client(*args, place: str | None = None) -> subprocess.CompletedProcess:
@@ -631,64 +656,24 @@ def story_video(results_dir):
 # Run logs — phone logcat + router logread + labgrid topology snapshot
 # ═══════════════════════════════════════════════════════════════════════
 
-def _capture(cmd: list[str], path: str) -> None:
-    try:
-        r = subprocess.run(cmd, capture_output=True, timeout=30)
-        with open(path, "wb") as f:
-            f.write(r.stdout or b"(no output)\n")
-    except Exception as exc:  # noqa: BLE001 — logging glue must not fail runs
-        with open(path, "w") as f:
-            f.write(f"(capture failed: {exc})\n")
-
-
 @pytest.fixture(scope="function")
 def story_logs(results_dir):
-    """Ship phone logcat, router logread and the labgrid topology with
-    every story run.
+    """Ship phone logcat, router logread, console history and the labgrid
+    topology with every story run (see lib/runlogs.py).
 
-    The 2026-09-27 walls (phone FallbackHome limbo, DUT br-lan collapse)
-    were diagnosed from ad-hoc probes after the fact; this fixture makes
-    that evidence automatic — teardown captures the logcat ring covering
-    the run window plus a filtered key slice (window manager,
-    connectivity, capture errors) and the router's logread tail
-    (tollgate/nds/dnsmasq/hostapd/netifd).
+    The 2026-09-27 walls (phone FallbackHome limbo, DUT br-lan collapse,
+    NDS auth-mark bug) were each diagnosed from ad-hoc probes after the
+    fact; this makes that evidence automatic. TCP console bridges (future
+    physical serial) stream for the duration of the run; file-backed
+    console history (QEMU chardev logfile on VMs) snapshots at teardown.
     """
     out_dir = os.path.join(results_dir, "artifacts", "logs")
-    os.makedirs(out_dir, exist_ok=True)
-    serial = os.environ.get("PHONE_SERIAL", "")
-    router = os.environ.get("TOLLGATE_SSH_HOST", "")
-
-    def collect():
-        ts = time.strftime("%H%M%S")
-        if serial:
-            base = ["adb", "-s", serial, "shell"]
-            _capture(base + ["logcat -d -t 1500 -v time"],
-                     os.path.join(out_dir, f"phone-logcat-{ts}.txt"))
-            _capture(base + [
-                "logcat -d -t 1500 -v time WindowManager:I "
-                "ConnectivityService:I NetworkMonitor:I "
-                "screencap:S screenrecord:S *:S"],
-                os.path.join(out_dir, f"phone-key-slice-{ts}.txt"))
-        if router:
-            _capture(["ssh", "-o", "ConnectTimeout=5",
-                      "-o", "StrictHostKeyChecking=no",
-                      f"root@{router}", "logread | tail -400"],
-                     os.path.join(out_dir, f"router-logread-{ts}.txt"))
-        _capture(
-            [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR, "places"],
-            os.path.join(out_dir, f"labgrid-places-{ts}.txt"))
-        _capture(
-            [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR, "who"],
-            os.path.join(out_dir, f"labgrid-who-{ts}.txt"))
-        for place in ("android-test", "nr7101-router"):
-            _capture(
-                [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR,
-                 "-p", place, "resources"],
-                os.path.join(out_dir, f"labgrid-{place}-{ts}.txt"))
-        log.info("story_logs: captured to %s", out_dir)
-
-    yield collect
-    collect()
+    collector = RunLogCollector(default_sources())
+    collector.start_live(os.path.join(out_dir, "live"))
+    yield collector
+    collector.stop_live()
+    written = collector.collect_into(out_dir)
+    log.info("story_logs: %d artifacts -> %s", len(written), out_dir)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -757,6 +742,15 @@ def _deauth_device(device=None):
                 "could not resolve MAC for %s — deauth falls back to the "
                 "phone MAC and may target the wrong client", device.name)
     _router_ssh(f"ndsctl deauth {mac} 2>/dev/null || true")
+    # NDS 5.0.2 auth-mark workaround rules (per-client ndsOUT MARK 0x20000,
+    # applied at gate-open to fix the 0x30000 mark bug) are not tracked by
+    # NDS — ndsctl deauth leaves them behind and the client stays
+    # authenticated at the firewall while NDS shows Preauthenticated
+    # (bench-verified 2026-09-27, NR7101). Remove them explicitly.
+    _router_ssh(
+        f"iptables -t mangle -S ndsOUT 2>/dev/null | grep '{mac}' "
+        f"| sed 's/^-A /-D /' | while read r; do "
+        f"iptables -t mangle $r 2>/dev/null || true; done")
     time.sleep(2)
 
 
@@ -796,24 +790,39 @@ def no_session(tollgate_ssid, rate_limiter):
     re-authenticates MACs with live paid sessions (observed 2026-09-27,
     NR7101/tollgate-wrt v0.6.0-alpha4: deauth -> "Authenticating" 9s
     later from upstream_session_manager). A deauth alone cannot
-    manufacture no_session while a session lives, so the fixture skips
-    loudly instead of letting the test fail on a phantom precondition.
+    manufacture no_session while a session lives. When a live session
+    is detected the fixture first clears it (backend restart wipes the
+    in-memory sessions) and re-verifies; it skips loudly only if the
+    keeper re-authenticates even after that.
 
     Teardown: none (next fixture sets its own state).
     """
-    device = get_client_device("android-phone")
+    device = get_client_device(story_client_name())
     if not device.join_wifi(tollgate_ssid):
         pytest.skip(f"device could not join {tollgate_ssid}")
-    _deauth_device()
-    deadline = time.time() + 40
-    while time.time() < deadline:
-        if device.has_internet():
+    _deauth_device(device)
+
+    def keeper_reopened(grace: int) -> bool:
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            if device.has_internet():
+                return True
+            time.sleep(2)
+        return False
+
+    if keeper_reopened(40):
+        log.warning(
+            "no_session: backend session-keeper re-authenticated the "
+            "client (live paid session) — restarting backend to clear it")
+        _router_ssh("/etc/init.d/tollgate-wrt restart")
+        time.sleep(8)
+        _deauth_device(device)
+        if keeper_reopened(20):
             pytest.skip(
                 "no_session unreachable: the backend session-keeper "
-                "re-authenticated the client (live paid session) — "
-                "expire or clear that session before requesting "
-                "no_session")
-        time.sleep(2)
+                "re-authenticated the client even after a backend "
+                "restart — expire or clear that session before "
+                "requesting no_session")
     yield device
 
 

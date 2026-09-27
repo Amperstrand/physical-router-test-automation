@@ -194,7 +194,7 @@ socket, so a purchase sent from the bench host authenticates the host, not the c
 tests/mt3000-bench/run-tests.sh
 ```
 
-23 tests / 0 skips on a host with `busybox`, `apk.static` (`~/.cache/apk-v3/`) and two real
+30 tests / 0 skips on a host with `busybox`, `apk.static` (`~/.cache/apk-v3/`) and two real
 fixture apks (`BENCH_TEST_APK_A` / `BENCH_TEST_APK_B` override the defaults). It builds a
 throw-away "router root", puts PATH doubles for `ssh`/`scp`/`apk` in front (so the
 production transport code is exercised), and runs the production remote scripts — optionally
@@ -205,6 +205,31 @@ the second-purchase lane offline: the e2e is dry-run by default, a paid run with
 refused, a paid run is refused (naming the holder) while another window owns the bench, the
 snapshot payload is accepted by `sh -n` **and** BusyBox `ash -n`, and the token tool mints
 nothing without `--yes`.
+
+**The suite is HERMETIC, and it says so.** It takes and releases bench locks to assert
+ownership semantics, so it never operates on the lock a real bench run holds: it uses its own
+lock inside a `mktemp -d` workdir, REFUSES to run (exit 90, loudly) when the lock it would take
+is `~/.hermes/state/bench-mt3000.lock` — including via `BENCH_TEST_WORKDIR` — and proves at the
+end that the production file, holder line included, is byte-identical to what it found. It can
+therefore be run **while a live run owns the bench**: it neither blocks behind that lock nor
+rewrites its holder metadata, and every command it runs is bounded (`BENCH_TEST_CMD_TIMEOUT`,
+default 60 s) with every lock invocation carrying a bounded `--wait` (`BENCH_LOCK_WAIT`,
+default 5) — a contended lock is a FAIL that names the holder, never a hang. It also covers the
+two live-run guards (the box-identity/restart guard and the PHASE 5b zombie-settle assertions)
+by driving `restart-guard-control.sh` and `zombie-settle-control.sh`, and then proves the wiring
+by running each control against a MUTATED `second-purchase-e2e.sh` that must turn it red.
+
+**Why the gate is load-bearing (RED control, 2026-09-27).** In a sandbox whose only lock is a
+state-dir lock held by another process, the PRE-FIX suite (HEAD `9e7cdb36`; exit 0, 23 tests, 20 s)
+**deleted** that lock file from its first case — the `rm -f "$BENCH_LOCK_PATH"` every lock case
+starts with — so the holder line was gone and the path was takeable again (`flock FREE`) while the
+live run's flock sat on an unlinked inode: a second window could then take the bench under a run
+that believed it owned it. That is the collision class this card is about, and the gate closes it
+(the same invocation now exits 90 and leaves the file byte-identical). Note what the experiment did
+*not* show: the pre-fix suite did not BLOCK there — it re-creates the file after unlinking, so it
+never contends. It did, however, carry unbounded waits of its own (`wait "$HOLDER1"`, `wait
+"$HOLD2"`) and a family-pattern `pkill -f 'sleep 20'` that could kill a live run's process; both are
+gone (bounded `stop_holder`, and a uniquely named descendant that only this suite reaps).
 
 ## Pitfalls this path has already paid for
 
@@ -225,7 +250,7 @@ nothing without `--yes`.
   would keep the bench locked after the window closed — the next window is refused by a
   holder `release` cannot even name, because the holder-line pid is gone. `bench-lock exec`
   runs the command in a subshell with `exec 9>&-`; if you open the lock fd yourself, close it
-  before spawning anything. Regression tests: `run-tests.sh` test 17 (RED without the fix).
+  before spawning anything. Regression tests: `run-tests.sh` test 19 (RED without the fix).
 * **Resolve your own path through symlinks.** `install.sh` links the commands into
   `~/.local/bin`, so `$BASH_SOURCE` is the *symlink*: `$(dirname "${BASH_SOURCE[0]}")` then
   points at `~/.local/bin` and the sibling scripts are "not found" (hit live). Use

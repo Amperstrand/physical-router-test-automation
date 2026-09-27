@@ -1,0 +1,3 @@
+#!/bin/bash
+# Rename the QEMU process so pattern-based cleanup (OpenCode) doesn't kill it.
+exec -a "vm-runner" /usr/bin/qemu-system-x86_64 "$@"

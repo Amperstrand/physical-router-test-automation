@@ -1,0 +1,8 @@
+---
+- name: reload sysctl
+  command: sysctl --system
+  become: true
+
+- name: restart cdk-mintd
+  systemd: { name: cdk-mintd, state: restarted, daemon_reload: true }
+  become: true

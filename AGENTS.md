@@ -1911,3 +1911,56 @@ Environment traps found while verifying:
 - The documented signal-timeout hang class struck again
   (`test_startup_mint_recovery_latency` >10 min past `--timeout=180`); kill
   + rerun the remainder is still the only recourse.
+
+## User-Story Test Architecture (2026-09-27)
+
+PRTA is the **authoritative test suite** — the single point of authority on
+expected TollGate behavior across all implementations (Go, Rust, NR7101,
+ESP32). Cross-implementation drift is caught by running the same user
+stories against every device.
+
+### Key Files
+
+- `config/behavior-contract.json` — versioned expected-behavior registry
+- `lib/contract.py` — helpers for reading the contract from tests
+- `tests/stories/` — device-agnostic user-story tests
+- `tests/stories/conftest.py` — ClientDevice protocol + adapters
+- `lib/clients/ssid.py` — SSID auto-resolution from router
+- `lib/labgrid_topology.py` — virtual topology manager (bridges, hwsim, QEMU)
+- `config/labgrid-env.yaml` — labgrid targets for all rig devices
+
+### Running Stories
+
+```bash
+# All stories
+make pytest-stories
+
+# Individual stories
+make pytest-story-pay        # user pays and gets internet
+make pytest-story-expiry     # session expiry and repayment
+make pytest-story-degraded   # degraded mode resilience
+
+# With env vars
+TOLLGATE_SSH_HOST=192.168.13.124 \
+TOLLGATE_SSID=TollGate \
+PHONE_SERIAL=ZY326DPC7R \
+TOLLGATE_TEST_MINT_URL=http://192.168.13.221:8383 \
+pytest tests/stories/ --no-deploy --timeout-method=signal -v
+```
+
+### Labgrid Infrastructure
+
+Coordinator runs on `192.168.13.208:20408` (ai-legion). Places:
+- `android-test` — phone mutex (AndroidADDDevice, serial ZY326DPC7R)
+- `nr7101-router` — NR7101 router (NetworkService)
+- `tollgate-s3-hil` — ESP32 S3 HIL (existing)
+
+Exporters: `ai-legion-small-rig` (phone), `ai-legion-small-microfips` (ESP32s).
+
+### Design Principles
+
+1. User stories, not implementation tests — "user joins, pays, gets internet"
+2. Film well — every test produces video + screenshots + vision validation
+3. Contract JSON — behavior changes are visible in the diff
+4. Cross-implementation matrix — same story, different devices
+5. DRY — one test file per story, parameterized across devices

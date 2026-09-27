@@ -48,9 +48,14 @@ hardware-verified, which are unit-tested only, and which remain unverified (nota
 *volatile / RAM* install, which is implemented but has NOT been run on hardware).
 
 The flash-capacity wall found on that run (a 16 MB device cannot hold the 21 MB
-uncompressed TollGate payload in its 4.6 MB free overlay) is modelled here as a hard
-preflight (``check_install_capacity``) plus a documented volatile (tmpfs) install
-(``volatile_install_plan``), rather than being allowed to die mid-extract with ENOSPC.
+uncompressed *default* TollGate payload in its 4.6 MB free overlay) is modelled here as a
+hard preflight (``check_install_capacity``).  A later hardware measurement (2026-09-27,
+same WR3000 v1) proved the project's existing ``upx-ultra-brute`` payload — 5,601,262 B
+(5.34 MiB) uncompressed — **does** fit the free overlay and **survives a reboot**, so the
+preflight now points FIRST at that compressed variant, then at dropping the ``tollgate``
+CLI to make room for the dependency closure, and only then at the volatile (tmpfs)
+install (``volatile_install_plan``) as a bench fallback — rather than letting the default
+payload die mid-extract with ENOSPC.
 """
 
 from __future__ import annotations
@@ -1138,31 +1143,104 @@ def module_identity_violations(api_text: str, *, expect_kind: int = MODULE_API_K
 # A Cudy WR3000 v1 has 16 MB SPI-NOR.  Measured on the bench box:
 #   mtd5  firmware   15.1 MB (0xf10000) = kernel (mtd6, 4.2 MB) + rootfs (mtd7, 10.8 MB)
 #   mtd8  rootfs_data    5.9 MB, of which only ~4.6 MB was FREE (the jffs2 overlay)
-#   the tollgate-wrt payload, UNCOMPRESSED = 21 MB:
+#   the DEFAULT tollgate-wrt payload, UNCOMPRESSED = 21 MB:
 #       usr/bin/tollgate-wrt  12,361,280 B
 #       usr/bin/tollgate       7,373,632 B
 #       etc/ 924 K, www/ 216 K, lib/ ~1.2 MB
-#   the .apk/.ipk is 8.5 MB COMPRESSED — it cannot be unpacked into 4.6 MB free.
+#   the DEFAULT .apk/.ipk is 8.5 MB COMPRESSED — it cannot be unpacked into 4.6 MB free.
 # So `apk` dies mid-extract: `failed to extract usr/bin/tollgate-wrt: No space left on
 # device`.  A custom ImageBuilder image fails the same arithmetic (base squashfs ~6.5 MB +
 # kernel 3.2 MB + ~8.5 MB compressed payload > 15.1 MB firmware area).
 #
-# The operator's chosen answer is a VOLATILE (tmpfs) install: ~117 MB of tmpfs is free, so
-# the two big binaries live in /tmp and are symlinked from /usr/bin, while the small parts
-# (~1.2 MB) go on flash.  It is NOT persistent, and this module says so loudly.
+# THE MISSING HALF, MEASURED ON HARDWARE 2026-09-27 (same WR3000 v1, dev-channel artifact):
+#   the project's CI already builds a `upx-ultra-brute` variant for aarch64_cortex-a53 /
+#   mediatek-filogic.  Artifact `tollgate-wrt_main.200.4469994_aarch64_cortex-a53-upx-ultra-
+#   brute.apk` (and .ipk), found via the project's Nostr NIP-94 kind-1063 events (publisher
+#   5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a, tag
+#   compression=upx-ultra-brute; relays relay1/relay2.orangesync.tech).  sha256 checked
+#   against each event's `x` tag: .apk 29bb68adbb26e67c0c0091e83f79fc79d9617f91364efa260e3e386fc00fff8b,
+#   .ipk 85a34d272629a386806462845cae071fdf12777e9be6ace09a1dd3f28bf39da8.
+#   Payload: 18 files, 5,601,262 B (5.34 MiB) uncompressed —
+#       usr/bin/tollgate-wrt  3,470,344 B
+#       usr/bin/tollgate       1,867,032 B
+#       ~256 KB of config/captive-portal files
+#   It FITS and is PERSISTENT: `apk add --no-network --allow-untrusted --force-non-repository
+#   /tmp/upx.apk` succeeded, registered `tollgate-wrt` in the apk DB, the UPX-compressed Go
+#   binaries execute on the router kernel, and after a real reboot (uptime 1 min) tollgate-wrt
+#   was RUNNING with /tmp/tg absent and the binaries still on flash.  Overlay after install:
+#   5.8 M used / 0.16 M free (97%).
+#   TWO TRAPS measured that the advisory must carry:
+#     (a) `apk add --force-non-repository <file>` performs a world sync and REMOVES packages
+#         previously installed from files (not in any repository): nodogsplash, jq,
+#         iptables-nft and libmicrohttpd-no-ssl silently vanished after the module install.
+#         Fix: install the whole dependency closure in ONE `apk add` transaction, or take
+#         nodogsplash from the feed repositories / bake it into the image.
+#     (b) Freeing the `tollgate` CLI (1,867,032 B / 1.78 MiB) — only needed for provisioning,
+#         which runs once — makes room for the nodogsplash closure on a 16 MB device: overlay
+#         went to 2.0 MB free after dropping it, and 1016 KB free after reinstalling the
+#         37-package closure.
+#   NOTE: the feed RELEASE does not publish the compressed variant (only default builds), so
+#   today a device cannot fetch it from a release; tracked in FreedomTechFeed/packages PR #39.
+#
+# The volatile (tmpfs) install stays the FALLBACK for bench work that cannot free the space:
+# the two big binaries live in /tmp and are symlinked from /usr/bin, the small parts (~1.2 MB)
+# go on flash.  It is NOT persistent, and this module says so loudly.
 
 FLASH_TOTAL_BYTES = 0xF10000              # mtd5 firmware area, 15.1 MB
 FLASH_KERNEL_BYTES = 4_200_000            # mtd6 (as measured)
 FLASH_ROOTFS_BYTES = 10_800_000           # mtd7 (as measured)
 OVERLAY_TOTAL_BYTES = 5_900_000           # mtd8 rootfs_data (as measured)
-OVERLAY_FREE_BYTES_MEASURED = 4_600_000   # free at install time on the bench box
+OVERLAY_FREE_BYTES_MEASURED = 4_600_000   # free AT THE FAILED DEFAULT ATTEMPT (residual)
+#: a freshly-flashed box has (nearly) the whole jffs2 overlay free.  The compressed variant
+#: below was installed into such an overlay and left "5.8 M used / 0.16 M free (97%)", i.e.
+#: ~5.9 MB of overlay was available and ~5.6 MB of it was consumed by the payload.
+OVERLAY_FRESH_FREE_BYTES = 5_900_000
 TMPFS_FREE_BYTES_MEASURED = 117 * 1024 * 1024
 
 TOLLGATE_BINARY_TOLLGATE_WRT_BYTES = 12_361_280
 TOLLGATE_BINARY_TOLLGATE_BYTES = 7_373_632
 TOLLGATE_SMALL_PARTS_BYTES = 924_000 + 216_000 + 1_200_000
-TOLLGATE_UNCOMPRESSED_BYTES = 21 * 1024 * 1024   # whole payload, measured
-TOLLGATE_PACKAGE_COMPRESSED_BYTES = 8_500_000    # .apk/.ipk, measured
+TOLLGATE_UNCOMPRESSED_BYTES = 21 * 1024 * 1024   # whole DEFAULT payload, measured
+TOLLGATE_PACKAGE_COMPRESSED_BYTES = 8_500_000    # DEFAULT .apk/.ipk, measured
+
+# --- the compressed (upx-ultra-brute) variant: VERIFIED ON HARDWARE 2026-09-27 ---------
+#: the CI variant name to look for in the NIP-94 artifact events
+TOLLGATE_COMPRESSED_VARIANT = "upx-ultra-brute"
+#: the artifact filename pattern this lane was tested with (a DEV-CHANNEL artifact, not a
+#: release asset — the feed release publishes only default builds)
+TOLLGATE_COMPRESSED_PACKAGE_PATTERN = (
+    "tollgate-wrt_<version>_aarch64_cortex-a53-upx-ultra-brute.apk"
+)
+TOLLGATE_COMPRESSED_BINARY_TOLLGATE_WRT_BYTES = 3_470_344
+TOLLGATE_COMPRESSED_BINARY_TOLLGATE_BYTES = 1_867_032
+#: the whole compressed-variant payload, 18 files, UNCOMPRESSED (measured 2026-09-27)
+TOLLGATE_COMPRESSED_PAYLOAD_BYTES = 5_601_262
+#: sha256 of the two artifacts this was verified with, from the kind-1063 event's `x` tag
+TOLLGATE_COMPRESSED_APK_SHA256 = (
+    "29bb68adbb26e67c0c0091e83f79fc79d9617f91364efa260e3e386fc00fff8b"
+)
+TOLLGATE_COMPRESSED_IPK_SHA256 = (
+    "85a34d272629a386806462845cae071fdf12777e9be6ace09a1dd3f28bf39da8"
+)
+#: overlay free space measured AFTER the compressed install (5.8 M used / 0.16 M free, 97%)
+OVERLAY_FREE_AFTER_COMPRESSED_INSTALL_BYTES = 160_000
+#: overlay free space measured after dropping the `tollgate` CLI (1,867,032 B), to make room
+#: for the 37-package nodogsplash closure on a 16 MB device
+OVERLAY_FREE_AFTER_DROPPING_CLI_BYTES = 2_000_000
+TOLLGATE_COMPRESSED_VERIFIED_DATE = "2026-09-27"
+TOLLGATE_COMPRESSED_PROVENANCE_NOTE = (
+    "VERIFIED ON HARDWARE 2026-09-27 on a real Cudy WR3000 v1: the upx-ultra-brute payload "
+    "(5,601,262 B uncompressed) installed persistently via `apk add --no-network "
+    "--allow-untrusted --force-non-repository`, the UPX-compressed Go binaries executed, and "
+    "after a real reboot tollgate-wrt was RUNNING with /tmp/tg absent. It was exercised from "
+    "a DEV-CHANNEL artifact (NIP-94 kind-1063, compression=upx-ultra-brute), NOT a release "
+    "asset — the feed release publishes only default builds (FreedomTechFeed/packages PR #39). "
+    "Trap (a): `apk add --force-non-repository <file>` world-syncs and REMOVES packages "
+    "previously installed from files (nodogsplash, jq, iptables-nft, libmicrohttpd-no-ssl "
+    "vanished) — install the whole closure in ONE `apk add`, or take nodogsplash from the "
+    "feed. Trap (b): dropping the `tollgate` CLI (1,867,032 B, provisioning-only) frees the "
+    "overlay for the nodogsplash closure."
+)
 
 #: on-device probes: free KB on the jffs2 overlay and on tmpfs (/tmp)
 OVERLAY_FREE_COMMAND = "df -k /overlay 2>/dev/null | awk 'NR==2 {print $4}'"
@@ -1215,6 +1293,20 @@ class CapacityVerdict:
         )
 
 
+def payload_variant_name(payload_bytes: int) -> str:
+    """Name the payload variant from its measured UNCOMPRESSED size.
+
+    The lane's two measured payloads are the DEFAULT build (21 MB uncompressed) and the
+    ``upx-ultra-brute`` compressed variant (5,601,262 B).  Anything at or below the
+    compressed size is treated as the compressed variant; anything larger is the default
+    (the honest default when the size is unknown — a caller must not assume "small").
+    """
+    payload = int(payload_bytes)
+    if 0 < payload <= TOLLGATE_COMPRESSED_PAYLOAD_BYTES:
+        return TOLLGATE_COMPRESSED_VARIANT
+    return "default"
+
+
 def check_install_capacity(
     payload_bytes: int, *, available_bytes: int, mode: str = MODE_FLASH
 ) -> CapacityVerdict:
@@ -1223,6 +1315,11 @@ def check_install_capacity(
     ``mode`` is ``"flash"`` (the jffs2 overlay) or ``"volatile"`` (tmpfs ``/tmp``).  The
     reason names the payload size against the free space, exactly as the hardware run
     measured it, so the operator sees the arithmetic rather than `apk`'s ENOSPC.
+
+    The refusal points FIRST at the ``upx-ultra-brute`` compressed variant (hardware-verified
+    2026-09-27 to fit and survive a reboot on this 16 MB box), then at dropping the
+    ``tollgate`` CLI to make room for the dependency closure, and only then at the volatile
+    (tmpfs) install as a bench fallback.
     """
     if mode not in INSTALL_MODES:
         raise ValueError(f"unknown install mode {mode!r}; expected one of {INSTALL_MODES}")
@@ -1236,8 +1333,15 @@ def check_install_capacity(
             f"payload size {payload} B vs free {where} {available} B — the payload is larger "
             f"than the free space.  A {mode} install would die mid-extract with "
             "`failed to extract usr/bin/tollgate-wrt: No space left on device` (ENOSPC). "
-            "Use the VOLATILE install (`install-tollgate --volatile`), which puts the two big "
-            "binaries in tmpfs and IS LOST ON REBOOT, or ship a smaller payload."
+            f"FIRST CHOICE: use the compressed `{TOLLGATE_COMPRESSED_VARIANT}` variant "
+            f"({TOLLGATE_COMPRESSED_PAYLOAD_BYTES} B uncompressed), which is VERIFIED ON "
+            f"HARDWARE ({TOLLGATE_COMPRESSED_VERIFIED_DATE}) to install persistently on this "
+            f"16 MB box; its artifact matches `{TOLLGATE_COMPRESSED_PACKAGE_PATTERN}` (a "
+            "DEV-CHANNEL artifact — NOT a release asset). "
+            f"OR drop the `tollgate` CLI ({TOLLGATE_COMPRESSED_BINARY_TOLLGATE_BYTES} B, "
+            "provisioning-only) to free the overlay for the nodogsplash dependency closure. "
+            "The VOLATILE install (`install-tollgate --volatile`) is the FALLBACK for bench "
+            "work that cannot free the space, and IS LOST ON REBOOT. Or ship a smaller payload."
         )
     return CapacityVerdict(
         payload_bytes=payload, available_bytes=available, mode=mode, fits=fits, reason=reason

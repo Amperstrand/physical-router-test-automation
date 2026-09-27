@@ -53,16 +53,27 @@
 #   fails closed (exit 14) if the mint cannot answer. Mint/verify with `bench-token.py`
 #   from this directory.
 #
-# THE BOX MUST NOT RESTART UNDER THE RUN (the invalidation this script used to miss)
+# THE BOX MUST NOT RESTART UNDER THE RUN — WITH ONE RECORDED, ATTRIBUTABLE EXCEPTION
 #   The run pins the box at PHASE 0 — router uptime, `ndsctl status` Uptime, the nodogsplash
 #   pid and the tollgate-wrt pid — and re-reads all four at EVERY phase boundary. If any of
-#   them moved (a reboot, or either daemon restarted), the run prints
+#   them moved UNEXPECTEDLY (a reboot, or either daemon restarted), the run prints
 #   "THE BOX RESTARTED UNDER THE TEST — RESULT INVALID", dumps the restart-cause log lines and
 #   exits 15. Nothing after such a restart is interpretable: the module comes back with no
 #   tracked sessions while nodogsplash still holds clients, and the close path retries forever.
-#   THIS SCRIPT ITSELF NEVER RESTARTS A ROUTER SERVICE. If a bounce is genuinely needed (a
-#   wedged ndsctl socket), it belongs in PHASE 0, BEFORE the baseline is recorded — doing it
-#   mid-run is what makes a transcript meaningless.
+#   THE ONE DELIBERATE RESTART IS PHASE 5b'S FORCING STEP (FORCE_DRIFT=restart, the default):
+#   nodogsplash is restarted ON PURPOSE, because a drifted session with an open allotment
+#   produces NO close attempt at all — the close has to be FORCED before the failing deauth can
+#   happen (measured 2026-09-26: N_DEAUTH=0 N_UNCONF=0 in the window). That restart is
+#     * announced in the ROUTER'S OWN log as a BENCH ACTION before it happens (an unattributed
+#     restart once invalidated a sibling's run and was mistaken for a product self-restart),
+#   * printed in the transcript with the nodogsplash pid change,
+#   * guarded: tollgate-wrt must NOT have moved with it — if the MODULE also restarted, that is
+#     not our step, it is a product self-restart, and the run is invalid (exit 15),
+#   * followed by a RE-PIN of the box baseline, so every later boundary is judged against the
+#     post-restart box and everything measured stays attributable.
+#   Any OTHER move during the run remains fatal. A bounce needed for any other reason (a wedged
+#   ndsctl socket) belongs in PHASE 0, BEFORE the baseline is recorded — doing it ad hoc mid-run
+#   is what makes a transcript meaningless.
 #
 # EXIT CODES
 #   0  ran to the end; every assertion held
@@ -109,6 +120,19 @@
 #   SETTLE_BUDGET     180                         PHASE 5b: seconds to wait for the module to settle an
 #                                                 address nodogsplash no longer knows
 #   SETTLE_WINDOW     45                          PHASE 5b: seconds between the two unconfirmed-closes samples
+#   FORCE_DRIFT       restart                     PHASE 5b's forcing step:
+#                                                 `restart` — restart nodogsplash DELIBERATELY (the
+#                                                 deterministic reproducer: the module's sweeps then find
+#                                                 the session's counters unreadable, so the close happens
+#                                                 at all and `ndsctl deauth` answers "Client <mac> not
+#                                                 found." rc=1 — the failing deauth the defect needs);
+#                                                 `deauth` — the weaker ndsctl-only step the lane shipped
+#                                                 with (kept for the ablation: on its own it produced
+#                                                 N_DEAUTH=0 N_UNCONF=0, i.e. no close attempt at all)
+#   CLEAN_PAIR_EPILOGUE 1                         after PHASE 5b, bounce nodogsplash + tollgate-wrt so the
+#                                                 bench is left as a clean pair for the next run (0 = leave
+#                                                 it exactly as the phase left it; the transcript records
+#                                                 which of the two happened, and the bounce is attributable)
 #   ROUTER_PW_FILE    ~/.tg-e2e/pw                for router-snapshot.sh
 #
 set -uo pipefail
@@ -156,6 +180,8 @@ GATE_STRIKES="${GATE_STRIKES:-2}"
 PROBE_TRIES="${PROBE_TRIES:-12}"
 SETTLE_BUDGET="${SETTLE_BUDGET:-180}"
 SETTLE_WINDOW="${SETTLE_WINDOW:-45}"
+FORCE_DRIFT="${FORCE_DRIFT:-restart}"
+CLEAN_PAIR_EPILOGUE="${CLEAN_PAIR_EPILOGUE:-1}"
 BURN_URLS="${BURN_URLS:-https://ash-speed.hetzner.com/100MB.bin https://fsn1-speed.hetzner.com/100MB.bin https://proof.ovh.net/files/100Mb.dat http://ipv4.download.thinkbroadband.com/100MB.zip http://speedtest.tele2.net/100MB.zip https://speed.cloudflare.com/__down?bytes=104857600}"
 
 PURCHASE="${PURCHASE:-0}"
@@ -253,6 +279,13 @@ json_val() {
 
 # ---------------------------------------------------------------- plan (always printed)
 
+# The forcing step PHASE 5b will use. Validated BEFORE the plan and before the bench lock, so a
+# typo is a usage error (exit 2) rather than a surprise after the tokens have been spent.
+case "$FORCE_DRIFT" in
+  restart|deauth) ;;
+  *) die "FORCE_DRIFT must be 'restart' (a deliberate nodogsplash restart — the deterministic reproducer) or 'deauth' (the weaker ndsctl-only step, kept for the ablation), not '$FORCE_DRIFT'" ;;
+esac
+
 printf 'second-purchase-e2e  mode=%s\n' "$([ "$PURCHASE" = 1 ] && printf 'PURCHASE' || printf 'DRY-RUN')"
 printf '  router            %s  (%s)\n' "$ROUTER_IP" "$API_BASE"
 printf '  lane              %s%s\n' "$LANE" \
@@ -275,6 +308,12 @@ printf '  exhaustion        %s rounds x %s parallel downloads\n' "$BURN_ROUNDS" 
 printf '  log dir           %s\n' "$LOG_DIR"
 printf '  phases            0 fresh-MAC baseline -> 1 buy#1 -> 2 exhaust -> 3 post-exhaustion\n'
 printf '                    -> 4 ndsctl deauth discriminator -> 5 buy#2 (does the gate re-open?)\n'
+printf '                    -> 5b FORCE the drift, then check the module converges on an address\n'
+printf '                       nodogsplash no longer knows\n'
+printf '  forcing step      PHASE 5b: %s\n' \
+  "$([ "$FORCE_DRIFT" = restart ] \
+      && printf 'a DELIBERATE, attributable nodogsplash restart (the deterministic reproducer)' \
+      || printf 'ndsctl deauth only (the ablation — on its own it produced NO close attempt at all)')"
 
 if [ "$PURCHASE" != 1 ]; then
   printf '\nDRY-RUN: nothing was purchased, no interface was created, no bench lock was taken.\n'
@@ -575,6 +614,21 @@ snap() { "$SNAP" snapshot --label "$1" --out "$LOG_DIR/snapshot-$TS.log"; }
 run_on_router() { "$SNAP" run "$1" --out "$LOG_DIR/onrouter-$TS.log"; }
 
 # The decisive module-log greps, read through the transport (one place, both phases).
+#
+# THE ROUTER'S LOG IS COLOURED, AND THAT BROKE THE COUNTER ASSERTION SILENTLY. tollgate-wrt's
+# logrus lines reach the ring buffer with ANSI escapes between a field NAME and its `=`, so on
+# the real bench the line is
+#   ERRO[..] Gate close NOT confirmed ... \x1b[31munconfirmed_closes\x1b[0m=2134
+# and a pattern like `unconfirmed_closes=` matches NOTHING. Measured on the 2026-09-26 pre17
+# forced-drift capture: 43 of its lines carry an escape, and the capture's own
+# `grep -oE "unconfirmed_closes=[0-9]+"` returned EMPTY while the value 2134+ was right there —
+# a counter read that returns 0 for ever is a false-PASS generator, which is the one thing a
+# convergence assertion must not be. So the windows are normalised ONCE, locally (GNU sed; the
+# router's busybox sed is never asked to interpret \x1b). Because the ROUTER-side grep runs
+# before this, a caller's pattern must not depend on the `=`: use `unconfirmed_closes`, not
+# `unconfirmed_closes=`.
+strip_ansi() { sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r$//'; }
+
 router_log_grep() {   # $1 = extra grep -E pattern for the payload
   local sh out
   sh="$(mktemp "${TMPDIR:-/tmp}/loggrep.XXXXXX")"
@@ -583,7 +637,7 @@ logread 2>/dev/null | grep -iE "$1" | tail -40
 EOF
   out="$(run_on_router "$sh" 2>&1)"
   rm -f "$sh"
-  printf '%s\n' "$out"
+  printf '%s\n' "$out" | strip_ansi
 }
 
 # ---------------------------------------------------------------- zombie-session convergence helpers
@@ -625,13 +679,16 @@ logread 2>/dev/null | awk -v m="LOG-ANCHOR $1" 'index(\$0,m){n=NR} {a[NR]=\$0} E
 EOF
   out="$(run_on_router "$sh" 2>&1)"
   rm -f "$sh"
-  printf '%s\n' "$out"
+  printf '%s\n' "$out" | strip_ansi
 }
 
 # The module's running total of unconfirmed closes, read from either log surface: the valve's
 # `unconfirmed_closes=` (logrus, the close machinery) or the merchant's `unconfirmed gate
 # closes=` (the sweep that drives it). 0 when the module reported none, which is the honest
 # reading of "nothing was escalated in this window".
+#
+# The value is parsed AFTER strip_ansi (see router_log_grep): on the bench the logrus field is
+# `unconfirmed_closes\x1b[0m=2134`, so a `unconfirmed_closes=` sed would have read 0 for ever.
 unconfirmed_total() {
   local n
   n="$(printf '%s\n' "$1" | sed -n 's/.*unconfirmed_closes=\([0-9][0-9]*\).*/\1/p' | tail -1)"
@@ -677,17 +734,33 @@ assert_grant_not_silent() {   # $1 = label, $2 = the module's error window
 # access_granted never true) — the operator's "the second purchase showed a new allotment, but no
 # internet". The remedy that restored the box was an operator restart of nodogsplash.
 #
-# So after the client leaves, the module must CONVERGE on that address:
+# THE CLIENT LEAVING IS NOT ENOUGH — THE CLOSE HAS TO BE FORCED (measured on this bench the same
+# day). With the client merely deauthed, a worker measured N_DEAUTH=0 N_UNCONF=0 in the window: the
+# module holds the session and does nothing, because nothing has asked it to close yet. The
+# deterministic reproducer is PHASE 5b's forcing step — a DELIBERATE nodogsplash restart — after
+# which the module's sweeps find the session's counters unreadable and must close the gate, and
+# `ndsctl deauth <mac>` answers `Client <mac> not found.` rc=1: the failing deauth the defect needs.
+# On pre17 the close loop started within 30 s (the buffer showed 72 loop lines and
+# `unconfirmed_closes` had reached 2141); with the fix binary the same scenario produced no new loop
+# lines in 240 s, and the module logged its own positive statement (see converge_assert_state_change).
+#
+# So after the client is gone, the module must CONVERGE on that address:
 #   * it RETIRES the binding — or re-establishes the gate deliberately — never the drift state, in
 #     which /balance and the portal keep reporting a session nobody can use;
+#   * it SAYS SO positively: for an address nodogsplash does not know, the module states that the
+#     client is gone and that there is nothing left to deauthorize (the fix's own INFO line). A
+#     "settled" state whose reason is only the ABSENCE of errors cannot be told apart from a ring
+#     buffer that rotated the errors out — which is exactly why the 2026-09-26 AFTER capture could
+#     not prove the fix in one run;
 #   * it stops driving ndsctl about the address: no unconfirmed-close escalation names the client
 #     inside the window, and the running total does not move across a settle window;
 #   * it never claims the client holds unmetered access, because nodogsplash does not know it;
 #   * it leaves the ndsctl socket ANSWERABLE, which is what the NEXT purchase depends on.
 #
-# The window is anchored with a marker in the router's own log (router_log_mark): the exhaustion of
-# buy#1 ALSO logs "Removed expired session for <mac>", so an unanchored read reports the address as
-# settled without the module having done anything — a false PASS this contract must not have.
+# The window is anchored with a marker in the router's own log (router_log_mark), written BEFORE
+# the forcing step: the exhaustion of buy#1 ALSO logs "Removed expired session for <mac>", so an
+# unanchored read reports the address as settled without the module having done anything — a false
+# PASS this contract must not have.
 
 # Write the anchor for one convergence window. $1 = token
 converge_window_open() {
@@ -700,7 +773,13 @@ converge_assert_settled() {
 
   while [ "$waited" -le "$budget" ]; do
     log="$(router_log_since "$token" "$(settled_pattern)")"
-    if printf '%s\n' "$log" | grep -q "$CLIENT_MAC" 2>/dev/null; then settled=1; break; fi
+    # A literal substring test in the shell, NOT `printf '%s\n' "$log" | grep -q`: `grep -q` exits
+    # on the first match, the still-writing printf then dies of SIGPIPE (141) and this script's
+    # `set -o pipefail` turns that into a non-zero pipeline — i.e. a window that DOES name the
+    # client would be read as "not settled" and the phase would wait out its whole budget. The
+    # `case` form has no second process to lose a race. (Measured 2026-09-26 in the kit's own
+    # test harness: 166/300 false FAILs on a 51 KiB haystack with the needle at the top.)
+    case "$log" in *"$CLIENT_MAC"*) settled=1; break ;; esac
     sleep 10
     waited=$((waited + 10))
   done
@@ -720,14 +799,19 @@ converge_assert_settled() {
 # The running total is a cumulative gauge, so it is read from the WHOLE buffer (its last line is the
 # current total); how many escalations NAME this client is read from the anchored window, so the
 # assertion covers this window and not the phases that preceded it. $1 = label, $2 = token
+#
+# The ROUTER-side pattern is `unconfirmed_closes`, WITHOUT the `=`: on this bench the logrus field
+# is `unconfirmed_closes\x1b[0m=2134`, so the `=` never matches there (strip_ansi fixes the local
+# read, but the router's grep has already filtered the lines by then). A pattern with the `=` in it
+# is a counter assertion that reads 0 for ever — a false PASS generator.
 converge_assert_counters() {
   local label="$1" token="$2" total_a total_b client_a client_b
 
-  total_a="$(unconfirmed_total "$(router_log_grep 'unconfirmed_closes=|unconfirmed gate closes=')")"
-  client_a="$(unconfirmed_for_client "$(router_log_since "$token" 'unconfirmed_closes=|unconfirmed gate closes=')")"
+  total_a="$(unconfirmed_total "$(router_log_grep 'unconfirmed_closes|unconfirmed gate closes')")"
+  client_a="$(unconfirmed_for_client "$(router_log_since "$token" 'unconfirmed_closes|unconfirmed gate closes')")"
   sleep "$SETTLE_WINDOW"
-  total_b="$(unconfirmed_total "$(router_log_grep 'unconfirmed_closes=|unconfirmed gate closes=')")"
-  client_b="$(unconfirmed_for_client "$(router_log_since "$token" 'unconfirmed_closes=|unconfirmed gate closes=')")"
+  total_b="$(unconfirmed_total "$(router_log_grep 'unconfirmed_closes|unconfirmed gate closes')")"
+  client_b="$(unconfirmed_for_client "$(router_log_since "$token" 'unconfirmed_closes|unconfirmed gate closes')")"
   printf -- '--- %s: unconfirmed closes sample A=%s (naming %s in this window: %s) -> sample B=%s (naming %s in this window: %s)\n' \
     "$label" "$total_a" "$CLIENT_MAC" "$client_a" "$total_b" "$CLIENT_MAC" "$client_b"
   assert_eq "$label: unconfirmed_closes did not grow while the address was gone" "$total_a" "$total_b"
@@ -764,6 +848,13 @@ converge_assert_wording_and_socket() {
 #
 # ONE recorded ndsctl step. No service is bounced, so the run's restart guard is untouched, and the
 # box identity is re-checked by the caller at the phase boundary.
+#
+# KEPT FOR THE ABLATION ONLY (FORCE_DRIFT=deauth). This step is what the lane used to call "the
+# drift", and it is NOT sufficient: measured on this bench on 2026-09-26, a client that deauths
+# itself while its paid allotment is open produces NO close attempt at all in the window
+# (N_DEAUTH=0 N_UNCONF=0) — the module holds the session and does nothing, because a close has to
+# be TRIGGERED before the failing deauth can happen. The deterministic trigger is the deliberate
+# nodogsplash restart below.
 client_leaves_nodsplash() {
   local sh out
   sh="$(mktemp "${TMPDIR:-/tmp}/deauth.XXXXXX")"
@@ -776,6 +867,158 @@ EOF
   out="$(run_on_router "$sh" 2>&1)"
   rm -f "$sh"
   printf '%s\n' "$out"
+}
+
+# ---------------------------------------------------------------- PHASE 5b's FORCING STEP
+#
+# WHY A FORCING STEP EXISTS AT ALL — measured on this bench on 2026-09-26.
+#   Having the client LEAVE nodogsplash (`ndsctl deauth`) while its PAID allotment stays open is
+#   necessary but NOT sufficient: the module simply keeps holding the session and does nothing
+#   (N_DEAUTH=0 N_UNCONF=0 in the window), because a close has to be TRIGGERED before the failing
+#   deauth can happen. What reproduces the defect, in seconds, is a DELIBERATE restart of
+#   nodogsplash after the purchase: NDS comes back not knowing the client, the module's sweeps then
+#   find the session's counters unreadable and must close the gate, and `ndsctl deauth <mac>`
+#   answers `Client <mac> not found.` rc=1 — the failing deauth the defect needs. On the pre17
+#   build the close loop started within 30 s (its `unconfirmed_closes` had reached 2141); with the
+#   fix binary the same scenario produced no new loop lines in 240 s.
+#
+# THREE THINGS THE FORCING STEP MUST NOT GET WRONG
+#   1. It must be ATTRIBUTABLE. An unattributed restart once invalidated a sibling's run and was
+#      mistaken for a product self-restart, so the step announces itself in the ROUTER'S OWN log
+#      (logger -t tollgate-bench "BENCH ACTION ...") BEFORE it restarts and prints the pid change
+#      in the transcript. The box guard then fires if the MODULE moved with it — that would be a
+#      product self-restart, not our step — and the baseline is re-pinned afterwards.
+#   2. The client must stay SILENT after it. Any packet FROM the client re-creates its nodogsplash
+#      record within a sweep or two (`Adding <ip> <mac> ... to client list`) and the drift
+#      dissolves, so nothing in PHASE 5b may probe THROUGH the client after the restart. That is
+#      why the phase reads its evidence from the box and from the module's log, never with
+#      probe()/balance()/egress().
+#   3. It must PROVE it forced something. A restart that leaves nodogsplash still knowing the
+#      client forces nothing, so the precondition (NDS does not list the MAC) is itself asserted:
+#      a phase that "passes" without it would be evidence of nothing.
+
+# The fix's own positive INFO line (module PR #595, src/valve/valve.go): for a MAC nodogsplash does
+# not know, the gate is closed BY DEFINITION, there is nothing left to deauthorize, and no retry is
+# armed. The two phrases below are the two halves of that ONE line.
+state_change_pattern() {
+  printf '%s' 'Client already gone|nothing left to deauthorize'
+}
+
+# What nodogsplash itself says about the client RIGHT NOW: 0 when it holds no record for the MAC,
+# a count when it does, `?` when the question could not be asked (a wedged ndsctl is not a pass).
+# The state the whole phase depends on, read from the box — this is the "never on the log alone"
+# half of the assertion.
+nds_knows_client() {
+  local sh out
+  sh="$(mktemp "${TMPDIR:-/tmp}/ndsknows.XXXXXX")"
+  {
+    printf 'mac=%s\n' "$CLIENT_MAC"
+    cat <<'EOF'
+ndsctl json 2>/dev/null | grep -c "$mac"
+EOF
+  } > "$sh"
+  out="$(run_on_router "$sh" 2>&1)"
+  rm -f "$sh"
+  out="$(printf '%s\n' "$out" | sed -n 's/^\([0-9][0-9]*\)$/\1/p' | tail -1)"
+  printf '%s' "${out:-?}"
+}
+
+# The forcing step, as PHASE 5b runs it. $FORCE_DRIFT selects it; `restart` is the default and the
+# only one that reproduces the defect.
+force_client_drift() {
+  case "$FORCE_DRIFT" in
+    restart) force_client_drift_by_nds_restart ;;
+    deauth)
+      printf -- '-- FORCING STEP = deauth (ABLATION ONLY): the client leaves nodogsplash with its PAID\n'
+      printf -- '   allotment still open. Measured 2026-09-26: this state ALONE produces no close attempt\n'
+      printf -- '   at all (N_DEAUTH=0 N_UNCONF=0), so the settle assertions below are EXPECTED to fail:\n'
+      printf -- '   nothing settled because nothing TRIED. That is the ablation'"'"'s result, not a\n'
+      printf -- '   regression — re-run with FORCE_DRIFT=restart for the real reproduction.\n'
+      printf '%s\n' "$(client_leaves_nodsplash)"
+      ;;
+  esac
+}
+
+# The deliberate restart. One recorded, attributable bounce; the module must NOT move with it.
+force_client_drift_by_nds_restart() {
+  local sh out knows
+  printf -- '-- THE FORCING STEP (deliberate, attributable): restart nodogsplash on the bench, so the\n'
+  printf -- '   module finds the session of %s unreadable and has to close its gate.\n' "$CLIENT_MAC"
+
+  sh="$(mktemp "${TMPDIR:-/tmp}/forcedrift.XXXXXX")"
+  {
+    printf 'mac=%s\n' "$CLIENT_MAC"
+    cat <<'EOF'
+pid_before="$(pgrep -f '[n]odogsplash' | head -1)"
+logger -t tollgate-bench "BENCH ACTION: deliberate nodogsplash restart by the bench lane (second-purchase-e2e PHASE 5b, client $mac) — attributable to the test rig, NOT a product self-restart"
+echo "-- before: nds_pid=${pid_before:-?} nds_uptime=$(ndsctl status 2>/dev/null | sed -n 's/^Uptime: //p' | head -1) clients=$(ndsctl json 2>/dev/null | grep -c '"mac"')"
+/etc/init.d/nodogsplash restart
+sleep 4
+echo "-- restart issued. after: nds_pid=$(pgrep -f '[n]odogsplash' | head -1) nds_uptime=$(ndsctl status 2>/dev/null | sed -n 's/^Uptime: //p' | head -1) clients=$(ndsctl json 2>/dev/null | grep -c '"mac"')"
+echo "-- nodogsplash records for $mac after the restart: $(ndsctl json 2>/dev/null | grep -c "$mac")"
+logger -t tollgate-bench "BENCH ACTION: deliberate nodogsplash restart complete — the rig restarted NDS; NDS no longer knows client $mac"
+EOF
+  } > "$sh"
+  out="$(run_on_router "$sh" 2>&1)"
+  rm -f "$sh"
+  printf '%s\n' "$out"
+
+  # The module must NOT have moved with our bounce (a new tollgate-wrt pid would be a product
+  # self-restart, and everything after it uninterpretable => exit 15), and the baseline is
+  # re-pinned so the phase's own end check compares against the post-restart box.
+  box_assert_module_stable "after-the-forced-nds-restart"
+  box_record "phase5b-forced-nds-restart"
+
+  # ANTI-VACUITY: the drift exists only if nodogsplash really forgot the client.
+  knows="$(nds_knows_client)"
+  if [ "$knows" = "0" ]; then
+    printf 'ASSERT PASS  PHASE 5b precondition: nodogsplash no longer knows %s — the drift exists\n' "$CLIENT_MAC"
+  else
+    printf 'ASSERT FAIL  PHASE 5b precondition: nodogsplash still lists %s after the restart (records=%s)\n' "$CLIENT_MAC" "$knows"
+    printf '             the forcing step forced NOTHING, so whatever this phase measures is not the\n'
+    printf '             zombie-session path. Usual cause: something probed THROUGH the client after the\n'
+    printf '             restart — a single packet re-creates its NDS record within a sweep or two.\n'
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+# The state change, asserted on evidence that cannot be produced by a rotating ring buffer:
+#   * the module's OWN statement that the client is gone and nothing is left to deauthorize,
+#     NAMING the MAC, inside the window that starts at the forcing step's marker;
+#   * nodogsplash's own table still not knowing the MAC at the end of the window (the drift held);
+#   * and, in converge_assert_counters/wording_and_socket, the running total not moving and the
+#     ndsctl socket still answering.
+# $1 = label, $2 = token
+converge_assert_state_change() {
+  local label="$1" token="$2" log="" hits=0 named=0 waited=0 knows=""
+
+  while [ "$waited" -le "$SETTLE_BUDGET" ]; do
+    log="$(router_log_since "$token" "$(state_change_pattern)")"
+    hits="$(printf '%s\n' "$log" | grep 'Client already gone' 2>/dev/null | grep -c 'nothing left to deauthorize' || true)"
+    named="$(printf '%s\n' "$log" | grep 'Client already gone' 2>/dev/null | grep 'nothing left to deauthorize' | grep -c "$CLIENT_MAC" || true)"
+    if [ "${hits:-0}" -gt 0 ] && [ "${named:-0}" -gt 0 ]; then break; fi
+    sleep 10
+    waited=$((waited + 10))
+  done
+
+  printf -- '--- %s: what the module said about the address nodogsplash does not know (waited %ss of %ss; window starts at %s):\n%s\n' \
+    "$label" "$waited" "$SETTLE_BUDGET" "$token" "$log"
+  if [ "${hits:-0}" -gt 0 ] && [ "${named:-0}" -gt 0 ]; then
+    printf 'ASSERT PASS  %s: the module stated that the client is GONE and nothing is left to deauthorize (%s)\n' \
+      "$label" "$CLIENT_MAC"
+  else
+    printf 'ASSERT FAIL  %s: the module never stated that nodogsplash does not know %s\n' "$label" "$CLIENT_MAC"
+    printf '             wanted ONE line carrying both "Client already gone" and "nothing left to\n'
+    printf '             deauthorize" and naming the MAC; saw %s matching line(s), %s of them naming it.\n' \
+      "${hits:-0}" "${named:-0}"
+    printf '             Without that line a "settled" state rests on the ABSENCE of error lines, and an\n'
+    printf '             absence in a rotating ring buffer proves nothing: it is exactly why the 2026-09-26\n'
+    printf '             AFTER measurement could not prove the fix in one run (the INFO had rotated out).\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  knows="$(nds_knows_client)"
+  assert_eq "$label: nodogsplash still does not know the client at the end of the window (state, not log)" "0" "$knows"
 }
 
 # ---------------------------------------------------------------- box identity (the restart guard)
@@ -796,8 +1039,11 @@ EOF
 # PHASE 0 records the baseline; every later boundary re-reads and compares. Any change is FATAL
 # (exit 15) — everything measured after it is uninterpretable.
 #
-# NO SERVICE BOUNCE HAPPENS ANYWHERE IN THIS SCRIPT. If the bench needs one, do it in PHASE 0
-# BEFORE the baseline below is recorded — never while the run is in flight.
+# THE ONE DELIBERATE BOUNCE IS PHASE 5b'S FORCING STEP, and it is handled by RE-PINNING: the step
+# announces itself in the router's own log, box_assert_module_stable() proves the MODULE did not
+# move with nodogsplash (a module restart there would be a product self-restart, not our step), and
+# box_record() re-records the baseline so the end-of-phase check judges the post-restart box. Any
+# OTHER service bounce during the run belongs in PHASE 0, BEFORE the baseline is recorded.
 
 box_identity() {   # one ssh round-trip; the marker lines are the whole payload
   local sh out
@@ -864,6 +1110,32 @@ box_assert_stable() {   # $1 = label of the boundary being checked
       || why="$why nodogsplash-uptime-went-backwards $BOX_NDS_RAW->$nds_raw(restart);"
   fi
   [ -z "$why" ] && printf 'ASSERT PASS  the box stayed up for the whole run (through %s)\n' "$1"
+  [ -z "$why" ] || box_broken "$1" "$why"
+}
+
+# The module-only variant of the check above, for the boundary where NODOGSPLASH WAS DELIBERATELY
+# RESTARTED by PHASE 5b's forcing step. The router must not have rebooted and the MODULE must not
+# have moved — if tollgate-wrt came back on a new pid, the box restarted itself, our step is not
+# the only thing that changed and the run is invalid (exit 15), exactly as above. The nodogsplash
+# pid and uptime are EXPECTED to have moved and are printed, not judged.
+box_assert_module_stable() {   # $1 = label of the boundary being checked
+  local id up nds_raw nds_s nds_pid wrt_pid why=""
+  id="$(box_identity)"
+  up="$(box_field "$id" uptime_s)"
+  nds_raw="$(box_field "$id" nds_uptime_raw)"
+  nds_pid="$(box_field "$id" nds_pid)"
+  wrt_pid="$(box_field "$id" wrt_pid)"
+  nds_s="$(box_secs "$nds_raw")"
+  printf 'BOX CHECK     %-26s router_uptime=%ss nds_uptime=%s (%ss) nds_pid=%s (was %s: OUR deliberate restart) wrt_pid=%s\n' \
+    "$1" "${up:-?}" "${nds_raw:-<unreadable>}" "$nds_s" "${nds_pid:-?}" "${BOX_NDS_PID:-?}" "${wrt_pid:-?}"
+  [ -n "$up" ] || why="$why router-uptime-unreadable;"
+  [ -n "$nds_raw" ] || why="$why ndsctl-status-unreadable(wedged?);"
+  [ "$wrt_pid" = "$BOX_WRT_PID" ] || why="$why tollgate-wrt-pid $BOX_WRT_PID->$wrt_pid(module self-restart, NOT our step);"
+  if [ -n "$up" ] && [ -n "$BOX_UP_S" ]; then
+    awk -v a="$BOX_UP_S" -v b="$up" 'BEGIN{ exit !(b >= a) }' \
+      || why="$why router-uptime-went-backwards $BOX_UP_S->$up(reboot);"
+  fi
+  [ -z "$why" ] && printf 'ASSERT PASS  only nodogsplash moved: the deliberate restart is the single attributable change (through %s)\n' "$1"
   [ -z "$why" ] || box_broken "$1" "$why"
 }
 
@@ -1043,9 +1315,10 @@ box_assert_stable "after-phase4-deauth"
 # behaviour the exhaustion of buy#1 has already retired that session ("Removed expired session for
 # $CLIENT_MAC"), so the module holds NOTHING for the address at this point and a check here would
 # have nothing to converge on: the only way it could "pass" is by matching a line logged BEFORE it
-# started. PHASE 5b anchors its window for exactly that reason, and runs while the module holds a
-# PAID session whose client leaves — the drift state the bench measured, and the one a customer can
-# actually be stuck in.
+# started. PHASE 5b anchors its window for exactly that reason, and FORCES the drift there (a
+# deliberate nodogsplash restart, which is what makes the module attempt a close at all) while the
+# module holds the PAID session of buy#2 — the drift state the bench measured, and the one a
+# customer can actually be stuck in.
 
 # ---------------------------------------------------------------- PHASE 5
 
@@ -1075,20 +1348,39 @@ assert_eq "post-buy#2 probe 2 re-opened the gate" "open" "$(norm_probe "$P2")"
 
 # ---------------------------------------------------------------- PHASE 5b
 
-# THE DRIFT, reproduced: the client LEAVES nodogsplash while the module still holds the PAID
-# allotment of buy#2. nodogsplash drops its record for the MAC (one recorded ndsctl step — no
-# service is bounced, so the run's restart guard is untouched), the module keeps the session, and
-# the deauthorization it will attempt cannot be confirmed because nodogsplash does not know the
-# address at all. That is the state measured on this bench on 2026-09-26, and the state in which
-# the retry loop hammered ndsctl until its socket died.
-say "PHASE 5b CONVERGENCE: the client leaves with its PAID allotment still open"
+# THE DRIFT, FORCED. The client leaves nodogsplash while the module still holds the PAID allotment
+# of buy#2, and the module's sweeps now find the session's counters unreadable — so a close has to
+# happen, and `ndsctl deauth` answers `Client <mac> not found.` rc=1 for it. On the pre17 build that
+# single answer starts the retry loop within 30 s (unconfirmed_closes reached 2141 in the
+# 2026-09-26 capture); with the fix the module states that the client is gone, retires the session
+# and stops touching ndsctl.
+#
+# THE FORCING STEP IS THE WHOLE POINT OF THIS PHASE and it is recorded as OURS: FORCE_DRIFT=restart
+# (the default) restarts nodogsplash deliberately, announced in the router's own log and re-pinned
+# in the box guard. FORCE_DRIFT=deauth keeps the old ndsctl-only step for the ablation — measured to
+# produce NO close attempt at all (N_DEAUTH=0 N_UNCONF=0), so it proves nothing on its own.
+say "PHASE 5b CONVERGENCE (forcing step: $FORCE_DRIFT): the module must close a gate nodogsplash no longer knows"
 
+# The window is opened BEFORE the forcing step, so every line the step provokes is inside it. The
+# last boundary check with the PRE-restart baseline is taken here: from the next line on, the only
+# thing allowed to move a pid is the step itself.
+box_assert_stable "phase5b-before-forcing-step"
 CONVERGE_TOKEN="phase5b-$TS"
 converge_window_open "$CONVERGE_TOKEN"
-printf '%s\n' "$(client_leaves_nodsplash)"
-printf -- '--- the module still reports the session it is holding for %s: %s\n' "$CLIENT_MAC" "$(balance)"
+force_client_drift
+
+# NO probe()/balance()/egress() here when the step is a restart: any packet FROM the client
+# re-creates its nodogsplash record within a sweep or two, and the drift dissolves. The evidence is
+# read from the box (ndsctl, the box identity) and from the module's own log window.
+if [ "$FORCE_DRIFT" = deauth ]; then
+  printf -- '--- the module still reports the session it is holding for %s: %s\n' "$CLIENT_MAC" "$(balance)"
+else
+  printf -- '--- the client stays SILENT for the rest of the phase (a packet from it would re-create its\n'
+  printf -- '    nodogsplash record and dissolve the drift); evidence is read from the box and the log.\n'
+fi
 
 converge_assert_settled "PHASE 5b" "$CONVERGE_TOKEN" "$SETTLE_BUDGET"
+converge_assert_state_change "PHASE 5b" "$CONVERGE_TOKEN"
 converge_assert_counters "PHASE 5b" "$CONVERGE_TOKEN"
 converge_assert_wording_and_socket "PHASE 5b" "$CONVERGE_TOKEN"
 box_assert_stable "after-phase5b-settle"
@@ -1103,6 +1395,44 @@ box_assert_stable "after-phase5b-settle"
 # instead of over the settle phase. Keep the pair unique in this file:
 #   start: `# ---- PHASE 5b`   end: `# ---- end of PHASE 5b`
 
+# ---------------------------------------------------------------- epilogue: leave a clean pair
+#
+# PHASE 5b's forcing step restarted nodogsplash, and on a build that still retries the close the box
+# is left with the loop hammering ndsctl — the very state in which the NEXT run's purchase cannot be
+# authorised. So the lane ends by putting the bench back to a clean pair. This bounce is OURS, it is
+# announced in the router's own log exactly like the forcing step, and it happens AFTER the evidence
+# window, so it cannot contaminate the phase's evidence.
+# CLEAN_PAIR_EPILOGUE=0 leaves the box exactly as the phase left it — use it for a run whose whole
+# point is to capture the leftover state, and say so when you report the numbers.
+if [ "$CLEAN_PAIR_EPILOGUE" = 1 ]; then
+  say "EPILOGUE clean pair (nodogsplash + tollgate-wrt restart — attributable, AFTER the evidence)"
+  EPI_SH="$(mktemp "${TMPDIR:-/tmp}/cleanpair.XXXXXX")"
+  cat > "$EPI_SH" <<'EOF'
+logger -t tollgate-bench "BENCH ACTION: end-of-run clean pair (nodogsplash + tollgate-wrt restart by the bench lane) — attributable to the test rig"
+/etc/init.d/nodogsplash restart; sleep 2
+/etc/init.d/tollgate-wrt restart
+echo "clean pair: nds_pid=$(pgrep -f '[n]odogsplash' | head -1) wrt_pid=$(pgrep -f '[t]ollgate-wrt' | head -1)"
+EOF
+  run_on_router "$EPI_SH" || true
+  rm -f "$EPI_SH"
+  # The module needs 20-40 s to load its wallet before it answers again: a purchase attempted in
+  # that window returns HTTP=000 and looks like a product failure. Wait for it, visibly.
+  API_WAITED=0
+  while [ "$API_WAITED" -le 90 ]; do
+    API_CODE="$(curl -s -m 6 -o /dev/null -w '%{http_code}' "$API_BASE/" 2>/dev/null || true)"
+    printf '  %ss after the clean pair: %s/ -> HTTP %s\n' "$API_WAITED" "$API_BASE" "${API_CODE:-000}"
+    [ "$API_CODE" = "200" ] && break
+    sleep 10
+    API_WAITED=$((API_WAITED + 10))
+  done
+  if [ "$API_CODE" = "200" ]; then
+    printf 'CLEAN PAIR OK: the bench answers again (waited %ss); the next run starts from a pair that is up\n' "$API_WAITED"
+  else
+    printf 'WARNING: the bench did not answer on %s/ within 90 s of the clean pair (HTTP %s) — the next\n' "$API_BASE" "${API_CODE:-000}"
+    printf '         window must check the module itself before spending anything\n'
+  fi
+fi
+
 say "MODULE LOG (decisive greps)"
 router_log_grep 'baseline|allotment|closed gate|raced|restore|unconfirmed|grant|authoriz'
 
@@ -1113,6 +1443,12 @@ printf 'allotment#1=%s  allotment#2=%s  closed_at=%s  downloaded=%s MiB\n' \
   "${ALLOTMENT_1:-<none>}" "${ALLOTMENT_2:-<none>}" "$CLOSED_AT" "$TOTAL"
 printf 'box: pinned at PHASE 0 as router_uptime=%ss nds_pid=%s wrt_pid=%s; stable at every boundary\n' \
   "${BOX_UP_S:-?}" "${BOX_NDS_PID:-?}" "${BOX_WRT_PID:-?}"
+printf 'forcing step: FORCE_DRIFT=%s (%s)\n' "$FORCE_DRIFT" \
+  "$([ "$FORCE_DRIFT" = restart ] \
+      && printf 'the deliberate NDS restart: the phase forced the close, so a PASS here covers the zombie-session path' \
+      || printf 'the deauth-only ABLATION: measured to produce NO close attempt at all, so a PASS here does NOT cover the zombie-session path')"
+printf 'epilogue: CLEAN_PAIR_EPILOGUE=%s (%s)\n' "$CLEAN_PAIR_EPILOGUE" \
+  "$([ "$CLEAN_PAIR_EPILOGUE" = 1 ] && printf 'the bench was left as a clean pair' || printf 'the box was left exactly as PHASE 5b left it — say so in the report')"
 printf 'log=%s\n' "$LOG"
 if [ "$(norm_probe "$P1")" != "open" ]; then
   printf 'RESULT: SECOND PURCHASE DID NOT RE-OPEN THE GATE (probe=%s) — bug reproduced.\n' "$P1"

@@ -18,8 +18,9 @@
 #     ever probing the router or taking a transcript
 #   * the router-side snapshot refuses without a window, and its payload (render mode) is
 #     accepted by both `sh -n` and BusyBox `ash -n` — the router's own shell
-#   * the harness's own substring check cannot false-FAIL on a large haystack (the
-#     `printf | grep -q` / `set -o pipefail` race, driven 40x over a 51 KiB log window)
+#   * the settle phase's negative control fires in every documented direction (including the
+#     MEASURED pre17 window and the fix's own log line, replayed from fixtures) and never
+#     false-fires — and the forcing step it drives announces itself as a BENCH ACTION
 #   * the token tool mints nothing without --yes and refuses to check an absent token
 #
 # The "router" is a throw-away directory; ssh/scp/apk are PATH test doubles in
@@ -83,6 +84,7 @@ new_router() {   # fresh harness router root with both payloads mapped
 SECOND_PURCHASE="$BENCH_DIR/second-purchase-e2e.sh"
 ROUTER_SNAPSHOT="$BENCH_DIR/router-snapshot.sh"
 BENCH_TOKEN="$BENCH_DIR/bench-token.py"
+ZOMBIE_CONTROL="$HERE/zombie-settle-control.sh"
 
 deploy_in_window() {   # $1=purpose ; rest = deploy args
   local purpose="$1"; shift
@@ -397,6 +399,15 @@ fi
 run_cmd "$BENCH_TOKEN" verify --token-file "$WORK/definitely-absent.txt"
 check_rc "verify on a missing token file refused" 2 "$RC"
 check_contains "refusal names the path" "definitely-absent.txt" "$OUT"
+
+t_begin "the settle phase's negative control fires in every direction and never false-fires"
+run_cmd "$ZOMBIE_CONTROL"
+check_rc "control exits 0 (every documented direction behaved)" 0 "$RC"
+check_contains "the control reports PASS" "PASS: PHASE 5b fails in every direction it is supposed to" "$OUT"
+check_contains "the pre17 direction is driven by the MEASURED capture" "pre17, verbatim capture" "$OUT"
+check_contains "the fix direction is driven by the fix's own line" "the fix, verbatim" "$OUT"
+check_contains "the forcing step is checked for attribution" "BENCH ACTION" "$OUT"
+check_not_contains "no control direction failed" "FAIL: at least one control direction" "$OUT"
 
 t_begin "check_contains cannot false-FAIL on a large haystack (the printf|grep -q pipefail race)"
 # The settle phase EXTRACTS a long log window and asserts on a MAC that sits in its first lines —

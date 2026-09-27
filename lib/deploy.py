@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("tollgate.deploy")
@@ -313,7 +314,7 @@ def _list_workflow_runs(
         "--repo", repo,
         "--workflow", workflow,
         "--limit", str(limit),
-        "--json", "databaseId,status,conclusion,headBranch,headSha",
+        "--json", "databaseId,status,conclusion,headBranch,headSha,createdAt",
     ]
     if commit:
         cmd.extend(["--commit", commit])
@@ -383,6 +384,37 @@ def _watch_run(repo: str, run_id: str, timeout_s: int) -> bool:
     return r.returncode == 0
 
 
+def _probe_workflow_lane_dead(
+    repo: str, workflow: str, dormant_after_days: int = 3
+) -> str | None:
+    """Classify the GitHub workflow lane as dead/dormant, or None if healthy.
+
+    Returns a human-readable reason when the lane cannot produce artifacts:
+    the workflow has never run, or its newest run is older than
+    ``dormant_after_days``. Returns None when the lane looks alive (a push
+    may still trigger it), so the caller keeps waiting.
+    """
+    try:
+        runs = _list_workflow_runs(repo, workflow, limit=1)
+    except RuntimeError:
+        return f"workflow '{workflow}' is not listable for {repo}"
+    if not runs:
+        return f"workflow '{workflow}' has never run for {repo}"
+    created = str(runs[0].get("createdAt") or "")
+    if created:
+        try:
+            newest = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            return None  # unparseable timestamp — do not fail on bad data
+        age_days = (datetime.now(timezone.utc) - newest).days
+        if age_days > dormant_after_days:
+            return (
+                f"workflow '{workflow}' is dormant for {repo} "
+                f"(newest run {age_days} days old)"
+            )
+    return None
+
+
 def ensure_artifact(
     *,
     branch: str,
@@ -392,6 +424,7 @@ def ensure_artifact(
     commit: str | None = None,
     timeout_s: int = 1800,
     fmt: str = "",
+    probe_after_polls: int = 10,
 ) -> str:
     """Wait until a CI run has a downloadable artifact for arch. Never triggers builds.
 
@@ -399,6 +432,7 @@ def ensure_artifact(
     is available on Blossom via Nostr.
     """
     deadline = time.time() + timeout_s
+    empty_polls = 0
 
     while time.time() < deadline:
         # Try Blossom/Nostr first (instant if nak is available).
@@ -436,6 +470,21 @@ def ensure_artifact(
                 )]
 
         if not runs:
+            empty_polls += 1
+            if empty_polls >= probe_after_polls:
+                dead_reason = _probe_workflow_lane_dead(repo, workflow)
+                if dead_reason:
+                    ref = commit or branch
+                    raise RuntimeError(
+                        f"Artifact wait failed fast: {dead_reason}, and no "
+                        f"Blossom/Nostr artifact matched {repo}@{ref} after "
+                        f"{empty_polls} polls. The GitHub lane will not produce "
+                        f"an artifact for this branch within the timeout. If the "
+                        f"build of record is ngit/Blossom (no kind-1063 event "
+                        f"exists for this head), build the artifact locally or "
+                        f"push the branch to the mirror before submitting."
+                    )
+                empty_polls = 0  # lane alive elsewhere — keep waiting for a push
             remaining = int(deadline - time.time())
             log.info(
                 "No workflow runs yet for %s@%s (workflow=%r). Waiting... (%ds left)",
@@ -443,6 +492,8 @@ def ensure_artifact(
             )
             time.sleep(min(30, max(remaining, 1)))
             continue
+
+        empty_polls = 0
 
         for run in runs:
             run_id = str(run.get("databaseId", ""))

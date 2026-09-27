@@ -11,6 +11,7 @@ step screenshots with vision validation).
 from __future__ import annotations
 
 import logging
+import hashlib
 import os
 import subprocess
 import threading
@@ -18,6 +19,11 @@ import time
 from typing import Protocol
 
 import pytest
+
+try:
+    from PIL import Image
+except ImportError:  # size-heuristic fallback below
+    Image = None
 
 from lib.clients.ssid import get_router_host, resolve_ssid
 
@@ -104,6 +110,24 @@ class ADBClientDevice:
         # On WiFi without internet = behind a captive portal
         wifi = self._shell("dumpsys wifi | grep -c 'mWifiInfo SSID: \"TollGate'")
         return wifi.strip() != "0"
+
+    def state_text(self) -> str:
+        """Non-visual device truth: association + OS validation verdict."""
+        wifi = self._shell("dumpsys wifi | grep mWifiInfo | head -1")
+        agent = ""
+        out = self._shell("dumpsys connectivity", timeout=20)
+        for line in out.splitlines():
+            if "NetworkAgentInfo{" in line and "ni{WIFI" in line:
+                agent = line
+                break
+        if "VALIDATED" in agent and "CAPTIVE_PORTAL" not in agent:
+            verdict = "VALIDATED"
+        elif "CAPTIVE_PORTAL" in agent:
+            verdict = "CAPTIVE_PORTAL"
+        else:
+            verdict = "unknown"
+        return (f"validation: {verdict}\nwifi: {wifi}\n"
+                f"agent: {agent[:400]}\n")
 
     def os_validated(self) -> bool:
         """True when the active WIFI network agent carries the Android
@@ -199,6 +223,11 @@ class SSHClientDevice:
         with open(path.replace(".png", ".txt"), "w") as f:
             f.write(proof)
         return len(proof) > 0
+
+    def state_text(self) -> str:
+        external = self._ssh("curl -s -m 5 http://ifconfig.me")
+        route = self._ssh("ip route | grep default | head -1")
+        return f"external_ip: {external}\nroute: {route}\n"
 
     def submit_token(self, token: str) -> bool:
         gateway = self._ssh(
@@ -330,43 +359,96 @@ def tollgate_ssid():
 # Evidence Recording (video + screenshots)
 # ═══════════════════════════════════════════════════════════════════════
 
+class StoryRecorder:
+    """Step-screenshot evidence with visual truth-assessment.
+
+    Each shot is classified: a blank or byte-identical frame cannot
+    substantiate its claim and is marked degraded in the manifest with a
+    loud warning (sentinel-garbage lesson — never accept empty evidence
+    silently). Devices that implement ``state_text()`` get a non-visual
+    sidecar per step, so proof survives display-render faults.
+    """
+
+    def __init__(self, art_dir: str):
+        self.steps: list[dict] = []
+        self.device = None  # set by the test via attach()
+        self.art_dir = art_dir
+        self._hashes: set[str] = set()
+
+    def attach(self, device):
+        self.device = device
+        if os.path.basename(self.art_dir) == "unknown":
+            renamed = os.path.join(
+                os.path.dirname(self.art_dir), device.name)
+            os.rename(self.art_dir, renamed)
+            self.art_dir = renamed
+
+    def _assess_visual(self, path: str) -> str:
+        with open(path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if digest in self._hashes:
+            return "degraded:duplicate"
+        self._hashes.add(digest)
+        if Image is not None:
+            with Image.open(path) as img:
+                rgb = img.convert("RGB")
+                colors = rgb.getcolors(maxcolors=1 << 24) or []
+                total = rgb.width * rgb.height
+            dominant = max((c for c, _ in colors), default=0) / total
+            blank = dominant > 0.995
+        else:
+            blank = os.path.getsize(path) < 12288
+        return "degraded:blank" if blank else "ok"
+
+    def _write_state(self, step: str) -> str | None:
+        state = getattr(self.device, "state_text", None)
+        if not callable(state):
+            return None
+        path = os.path.join(self.art_dir, f"{step}.state.txt")
+        with open(path, "w") as f:
+            f.write(state())
+        return path
+
+    def shot(self, step: str, claim: str):
+        path = os.path.join(self.art_dir, f"{step}.png")
+        if self.device and self.device.screenshot(path):
+            entry = {
+                "step": step, "file": path, "claim": claim,
+                "timestamp": time.strftime("%H:%M:%S"),
+            }
+            visual = self._assess_visual(path)
+            entry["visual"] = visual
+            entry["evidence_ok"] = visual == "ok"
+            if visual != "ok":
+                log.warning(
+                    "EVIDENCE DEGRADED [%s]: %s — screenshot cannot "
+                    "substantiate '%s' (see %s.state.txt)",
+                    step, visual, claim, step)
+            state_path = self._write_state(step)
+            if state_path:
+                entry["state"] = state_path
+            self.steps.append(entry)
+            log.info("evidence: %s (%s, visual=%s)",
+                     step, claim, visual)
+            return path
+        return None
+
+    def write_manifest(self):
+        import json
+        manifest = os.path.join(self.art_dir, "evidence-steps.json")
+        with open(manifest, "w") as f:
+            json.dump({"steps": self.steps}, f, indent=2)
+
+
 @pytest.fixture(scope="function")
 def story_evidence(request, results_dir):
-    """Evidence recorder for user-story tests.
-
-    Wraps lib/clients/evidence.py to produce video + step screenshots.
-    Works with any ClientDevice that has a screenshot() method.
+    """Evidence recorder for user-story tests (video + assessed
+    screenshots + state sidecars). Works with any ClientDevice that has
+    a screenshot() method.
     """
-    device_name = getattr(request, "param", "unknown")
-    art_dir = os.path.join(results_dir, "artifacts", device_name)
+    art_dir = os.path.join(results_dir, "artifacts", "unknown")
     os.makedirs(art_dir, exist_ok=True)
-
-    class StoryRecorder:
-        def __init__(self):
-            self.steps: list[dict] = []
-            self.device = None  # set by the test
-
-        def attach(self, device):
-            self.device = device
-
-        def shot(self, step: str, claim: str):
-            path = os.path.join(art_dir, f"{step}.png")
-            if self.device and self.device.screenshot(path):
-                self.steps.append({
-                    "step": step, "file": path, "claim": claim,
-                    "timestamp": time.strftime("%H:%M:%S"),
-                })
-                log.info("evidence: %s (%s)", step, claim)
-                return path
-            return None
-
-        def write_manifest(self):
-            import json
-            manifest = os.path.join(art_dir, "evidence-steps.json")
-            with open(manifest, "w") as f:
-                json.dump({"steps": self.steps}, f, indent=2)
-
-    rec = StoryRecorder()
+    rec = StoryRecorder(art_dir)
     yield rec
     rec.write_manifest()
 

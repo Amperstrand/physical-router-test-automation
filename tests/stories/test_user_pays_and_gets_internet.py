@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from lib.contract import min_token_sats, probe_host
+from lib.contract import min_token_sats, probe_host, revalidation_policy
 from lib.cashu import HttpMinter
 
 log = logging.getLogger("tollgate.story.pay_internet")
@@ -61,6 +61,10 @@ def test_user_pays_and_gets_internet(story_video, no_session, tollgate_ssid,
     # Chrome keeps fleeing the network. The contract claims
     # internet.validation == "Android VALIDATED network capability";
     # nudge, then hold the story to that claim.
+    policy = revalidation_policy()
+    log.info("[%s] contract revalidation policy: organic=%s forced=%s",
+             device.name, policy["organic_browser_activity"],
+             policy["forced_reprobe"])
     if not device.os_validated():
         log.info("[%s] OS verdict stale — browser nudge (example.com)",
                  device.name)

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TollGate Behavior Contract",
   "description": "Expected behavior for all TollGate implementations. When an implementation changes behavior, this contract changes in the same PR. Drift = test failure = blocked PR.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "portal": {
     "entry_path": "/splash.html",
     "ports": {
@@ -39,6 +39,11 @@
   },
   "internet": {
     "validation": "Android VALIDATED network capability",
+    "revalidation": {
+      "organic_browser_activity": "insufficient (NetworkMonitor probe backoff after portal verdict)",
+      "forced_reprobe": "required — network reassociation flips CAPTIVE_PORTAL to VALIDATED within seconds",
+      "verified_on": "2026-09-27 NR7101 + moto g(7) Android 15: browser activity did not flip the verdict within 6s of auth; wifi-cycle reassociation did"
+    },
     "probe_host": "8.8.8.8",
     "external_ip_service": "ifconfig.me",
     "dns": "router-provided (dnsmasq)"

@@ -43,5 +43,9 @@ def probe_host() -> str:
     return get_contract()["internet"]["probe_host"]
 
 
+def revalidation_policy() -> dict:
+    return get_contract()["internet"]["revalidation"]
+
+
 def min_token_sats() -> int:
     return get_contract()["payment"]["min_token_sats"]

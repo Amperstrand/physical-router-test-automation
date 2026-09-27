@@ -1210,3 +1210,19 @@ clean:
 	rm -rf $(RESULTS_DIR)/*
 	rm -f report.html
 	rm -rf .pytest_cache __pycache__
+
+# ─── User-story tests (device-agnostic, labgrid-integrated) ─────────────
+
+.PHONY: pytest-stories pytest-story-pay pytest-story-expiry pytest-story-degraded
+
+pytest-stories:
+	pytest tests/stories/ --no-deploy --timeout-method=signal -v
+
+pytest-story-pay:
+	pytest tests/stories/test_user_pays_and_gets_internet.py --no-deploy --timeout-method=signal -v
+
+pytest-story-expiry:
+	pytest tests/stories/test_session_expiry_and_repayment.py --no-deploy --timeout-method=signal -v
+
+pytest-story-degraded:
+	pytest tests/stories/test_degraded_mode.py --no-deploy --timeout-method=signal -v

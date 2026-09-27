@@ -44,7 +44,7 @@ def test_backend_responds_with_valid_event(device_place):
     """The backend always responds with a discovery event (healthy or degraded)."""
     event = _backend_event()
     assert event.get("kind") in (10021, 21023, 1022), \
-        f"unexpected backend response kind: {event.get('kind')}"
+        f"unexpected backend response kind: {event.get('kind')} (raw: {str(event)[:200]})"
     log.info("backend kind=%s, tags=%s",
              event.get("kind"),
              [t[0] for t in event.get("tags", [])[:5]])

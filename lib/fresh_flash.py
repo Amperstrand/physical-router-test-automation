@@ -15,6 +15,9 @@ Flashing is destructive, so this module is deliberately paranoid:
   ecash, and ``sysupgrade -n`` wipes it.  Draining is the *operator's* step
   (``tollgate wallet drain cashu --yes``); the harness refuses to flash a
   non-empty wallet unless ``--allow-nonempty-wallet`` is passed explicitly.
+  The gate **fails closed**: a wallet the probe did not answer for (unreachable
+  router, no ``tollgate`` CLI, service down) is *unknown*, which is not the same
+  as empty, and it refuses too.
 
 The module is pure logic + shell builders so it can be unit-tested without a
 router; :mod:`scripts.fresh_flash` wires it to SSH under the bench lock.
@@ -142,6 +145,17 @@ DRAIN_COMMAND = "tollgate wallet drain cashu --yes"
 WALLET_BALANCE_COMMAND = "tollgate --json wallet balance 2>/dev/null || tollgate wallet balance 2>/dev/null"
 ECASH_LISTING_COMMAND = f"find {ECASH_DIR} -type f -size +0c 2>/dev/null; ls -la {ECASH_DIR} 2>/dev/null"
 
+#: The Go CLI answers ``--json`` with an *error document* and **exit code 0**
+#: when the service behind it is down (``Success: false``), and the SSH helpers
+#: merge stderr into the probe output.  A payload like that parses to "0 sats",
+#: which must not be read as "empty wallet": it is no evidence at all.  These
+#: markers (matched case-insensitively) force ``probed=False``.
+PROBE_FAILURE_MARKERS = (
+    '"success": false',
+    "failed to communicate with tollgate service",
+    "merchant not available",
+)
+
 
 @dataclass
 class WalletState:
@@ -199,6 +213,13 @@ def parse_ecash_listing(text: str) -> list[str]:
 
 
 def parse_wallet_state(balance_output: str, listing_output: str) -> WalletState:
+    """Parse a probe that is *known to have answered* (``probed=True``).
+
+    Only for callers holding an answer already (tests, re-parsing a recorded
+    transcript).  Anything that runs the probe itself must use
+    :func:`parse_probed_wallet_state`, so a probe that never answered cannot be
+    mistaken for an empty wallet.
+    """
     return WalletState(
         total_sats=parse_wallet_balance(balance_output),
         nonempty_files=parse_ecash_listing(listing_output),
@@ -207,18 +228,62 @@ def parse_wallet_state(balance_output: str, listing_output: str) -> WalletState:
     )
 
 
+def probe_reports_failure(balance_output: str) -> bool:
+    """Did the CLI answer with a *service* error instead of a balance?"""
+    text = (balance_output or "").lower()
+    return any(marker in text for marker in PROBE_FAILURE_MARKERS)
+
+
+def parse_probed_wallet_state(
+    balance_output: str, listing_output: str, *, balance_exit_code: int
+) -> WalletState:
+    """Parse a wallet probe, recording whether the probe actually answered.
+
+    FAIL CLOSED: an unreachable router, a missing ``tollgate`` CLI or a failed
+    SSH session produce *empty* output — which would otherwise read as "empty
+    wallet, safe to flash".  That is the one false negative that costs real
+    money, so the exit code decides ``probed``, and an unprobed wallet refuses.
+
+    The Go CLI also exits **0** with an error document when its service is down
+    (see :data:`PROBE_FAILURE_MARKERS`), so a payload that names a failed
+    service is not an answer either.
+    """
+    probed = (
+        balance_exit_code == 0
+        and bool((balance_output or "").strip())
+        and not probe_reports_failure(balance_output)
+    )
+    state = parse_wallet_state(balance_output, listing_output)
+    return WalletState(
+        total_sats=state.total_sats,
+        nonempty_files=state.nonempty_files,
+        raw_balance=state.raw_balance,
+        raw_listing=state.raw_listing,
+        probed=probed,
+    )
+
+
 def flash_guard(state: WalletState, *, allow_nonempty: bool) -> None:
     """Refuse to flash a router that still holds money (unless told explicitly)."""
-    if state.empty:
+    if state.empty and state.probed:
         return
     if allow_nonempty:
         return
+    if not state.empty:
+        raise FlashRefused(
+            "REFUSING TO FLASH: the router wallet is NOT empty "
+            f"({state.summary()}). `sysupgrade -n` wipes {TOLLGATE_DIR} — including real ecash. "
+            f"Drain first (operator step): `{DRAIN_COMMAND}` "
+            f"(prints the Cashu tokens; exit 2 = cancelled and nothing moved), "
+            f"then re-run. Pass {ALLOW_NONEMPTY_FLAG} only if you accept losing the funds."
+        )
     raise FlashRefused(
-        "REFUSING TO FLASH: the router wallet is NOT empty "
-        f"({state.summary()}). `sysupgrade -n` wipes {TOLLGATE_DIR} — including real ecash. "
-        f"Drain first (operator step): `{DRAIN_COMMAND}` "
-        f"(prints the Cashu tokens; exit 2 = cancelled and nothing moved), "
-        f"then re-run. Pass {ALLOW_NONEMPTY_FLAG} only if you accept losing the funds."
+        "REFUSING TO FLASH: the router wallet could NOT be read "
+        f"({state.summary()}): the probe did not answer. An unreachable router, a missing "
+        "`tollgate` CLI or a stopped service produce empty output, which must NOT be mistaken "
+        "for 'empty wallet, safe to flash' — this gate fails closed. Prove the wallet is empty "
+        f"by hand (or fix the probe), then re-run; {ALLOW_NONEMPTY_FLAG} also accepts an "
+        "unverified wallet (you accept the risk)."
     )
 
 
@@ -248,6 +313,11 @@ def flash_preconditions(state: WalletState, *, allow_nonempty: bool = False) -> 
 
     Returns the refusals as strings so callers can report *all* of them at once
     (the pytest gate prints every blocker instead of the first one).
+
+    A wallet that was never successfully probed blocks the flash as firmly as a
+    non-empty one: unknown is not empty.  When there *is* hard evidence of money
+    (non-empty files under ``/etc/tollgate/ecash``) that blocker is reported,
+    because it is the actionable one.
     """
     problems: list[str] = []
     if not flashing_enabled():
@@ -258,6 +328,12 @@ def flash_preconditions(state: WalletState, *, allow_nonempty: bool = False) -> 
         problems.append(
             f"router wallet is NOT empty ({state.summary()}) — `sysupgrade -n` wipes "
             f"{TOLLGATE_DIR}, including real ecash; drain first with `{DRAIN_COMMAND}`"
+        )
+    elif not state.probed and not allow_nonempty:
+        problems.append(
+            "the router wallet could NOT be read (unknown state) — refusing to flash, because "
+            "empty output must never read as 'empty wallet'; prove it by hand (or pass "
+            f"{ALLOW_NONEMPTY_FLAG})"
         )
     return problems
 

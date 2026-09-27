@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 import hashlib
 import os
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from typing import Protocol
@@ -116,7 +118,15 @@ class ADBClientDevice:
         return wifi.strip() != "0"
 
     def state_text(self) -> str:
-        """Non-visual device truth: association + OS validation verdict."""
+        """Non-visual device truth: association, OS validation verdict,
+        and the unlock/storage state that gates screen evidence.
+
+        The 2026-09-27 phone wall (black captures + unwritable /sdcard)
+        was FallbackHome limbo: user 0 never unlocked after reboot. A
+        resumed activity of com.android.settings/.FallbackHome or a
+        locked user_storage line in this sidecar names that state
+        instantly on every future run.
+        """
         wifi = self._shell("dumpsys wifi | grep mWifiInfo | head -1")
         agent = ""
         out = self._shell("dumpsys connectivity", timeout=20)
@@ -130,8 +140,22 @@ class ADBClientDevice:
             verdict = "CAPTIVE_PORTAL"
         else:
             verdict = "unknown"
-        return (f"validation: {verdict}\nwifi: {wifi}\n"
-                f"agent: {agent[:400]}\n")
+        resumed = self._shell(
+            "dumpsys activity activities 2>/dev/null "
+            "| grep -m1 ResumedActivity")
+        storage = "writable" if "ok" in self._shell(
+            "touch /sdcard/.tg-probe && rm -f /sdcard/.tg-probe && echo ok"
+        ) else "locked"
+        lockscreen = self._shell("locksettings get-disabled")
+        return "\n".join([
+            f"validation: {verdict}",
+            f"user_storage: {storage}",
+            f"lockscreen_disabled: {lockscreen}",
+            f"resumed: {resumed}",
+            f"wifi: {wifi}",
+            f"agent: {agent[:400]}",
+            "",
+        ])
 
     def os_validated(self) -> bool:
         """True when the active WIFI network agent carries the Android
@@ -268,16 +292,47 @@ def get_client_device(place_name: str) -> ClientDevice:
     return factory()
 
 
+def story_client_name() -> str:
+    """Active story client place (env-driven, default android-phone).
+
+    Set TOLLGATE_STORY_CLIENT=debian-vm (or omarchy-vm) when running the
+    story suite against a VM DUT — routes the state fixtures and any
+    env-parametrized test away from the physical phone.
+    """
+    return os.environ.get("TOLLGATE_STORY_CLIENT", "android-phone")
+
+
+def pytest_collection_modifyitems(items):
+    """Give every story test the phone-tier timeout (300s).
+
+    Story tests drive the physical phone like phone-tier tests do, but
+    carry only `slow` markers — the global 60s cap from pytest.ini kills
+    them mid-flow (wifi-cycle nudge is 40s alone; cdk-cli V4 minting up
+    to 120s). A mid-cycle kill leaves the phone disconnected and
+    contaminates the next test, so the cap must not apply here.
+    """
+    for item in items:
+        item.add_marker(pytest.mark.timeout(300))
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Labgrid Place Mutex (acquire/release around test runs)
 # ═══════════════════════════════════════════════════════════════════════
 
 LABGRID_COORDINATOR = os.environ.get(
     "LG_COORDINATOR", "192.168.13.208:20408")
-LABGRID_CLIENT = os.path.join(
-    os.path.dirname(subprocess.run(["which", "python3"],
-                                    capture_output=True, text=True).stdout.strip()),
-    "labgrid-client")
+
+
+def _resolve_labgrid_client() -> str:
+    found = shutil.which("labgrid-client")
+    if found:
+        return found
+    sibling = os.path.join(os.path.dirname(sys.executable),
+                           "labgrid-client")
+    return sibling if os.path.exists(sibling) else "labgrid-client"
+
+
+LABGRID_CLIENT = _resolve_labgrid_client()
 
 
 def _labgrid_client(*args, place: str | None = None) -> subprocess.CompletedProcess:
@@ -573,6 +628,70 @@ def story_video(results_dir):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Run logs — phone logcat + router logread + labgrid topology snapshot
+# ═══════════════════════════════════════════════════════════════════════
+
+def _capture(cmd: list[str], path: str) -> None:
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=30)
+        with open(path, "wb") as f:
+            f.write(r.stdout or b"(no output)\n")
+    except Exception as exc:  # noqa: BLE001 — logging glue must not fail runs
+        with open(path, "w") as f:
+            f.write(f"(capture failed: {exc})\n")
+
+
+@pytest.fixture(scope="function")
+def story_logs(results_dir):
+    """Ship phone logcat, router logread and the labgrid topology with
+    every story run.
+
+    The 2026-09-27 walls (phone FallbackHome limbo, DUT br-lan collapse)
+    were diagnosed from ad-hoc probes after the fact; this fixture makes
+    that evidence automatic — teardown captures the logcat ring covering
+    the run window plus a filtered key slice (window manager,
+    connectivity, capture errors) and the router's logread tail
+    (tollgate/nds/dnsmasq/hostapd/netifd).
+    """
+    out_dir = os.path.join(results_dir, "artifacts", "logs")
+    os.makedirs(out_dir, exist_ok=True)
+    serial = os.environ.get("PHONE_SERIAL", "")
+    router = os.environ.get("TOLLGATE_SSH_HOST", "")
+
+    def collect():
+        ts = time.strftime("%H%M%S")
+        if serial:
+            base = ["adb", "-s", serial, "shell"]
+            _capture(base + ["logcat -d -t 1500 -v time"],
+                     os.path.join(out_dir, f"phone-logcat-{ts}.txt"))
+            _capture(base + [
+                "logcat -d -t 1500 -v time WindowManager:I "
+                "ConnectivityService:I NetworkMonitor:I "
+                "screencap:S screenrecord:S *:S"],
+                os.path.join(out_dir, f"phone-key-slice-{ts}.txt"))
+        if router:
+            _capture(["ssh", "-o", "ConnectTimeout=5",
+                      "-o", "StrictHostKeyChecking=no",
+                      f"root@{router}", "logread | tail -400"],
+                     os.path.join(out_dir, f"router-logread-{ts}.txt"))
+        _capture(
+            [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR, "places"],
+            os.path.join(out_dir, f"labgrid-places-{ts}.txt"))
+        _capture(
+            [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR, "who"],
+            os.path.join(out_dir, f"labgrid-who-{ts}.txt"))
+        for place in ("android-test", "nr7101-router"):
+            _capture(
+                [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR,
+                 "-p", place, "resources"],
+                os.path.join(out_dir, f"labgrid-{place}-{ts}.txt"))
+        log.info("story_logs: captured to %s", out_dir)
+
+    yield collect
+    collect()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Session State Management (labgrid Strategy pattern)
 #
 # Tests declare the state they need via fixtures. Each fixture guarantees
@@ -595,8 +714,49 @@ def _router_ssh(cmd: str) -> str:
         capture_output=True, text=True, timeout=15).stdout.strip()
 
 
-def _deauth_device():
-    _router_ssh(f"ndsctl deauth {PHONE_MAC} 2>/dev/null || true")
+def _device_mac(device) -> str:
+    """Resolve the client's LAN interface MAC (ADB + SSH devices).
+
+    Prefers wireless interfaces (wl*), skips loopback. Reads sysfs so
+    it works on Android toybox and Debian alike.
+    """
+    shell = getattr(device, "_shell", None) or getattr(device, "_ssh", None)
+    if shell is None:
+        return ""
+    out = shell(
+        "for f in /sys/class/net/*/address; do echo $f $(cat $f); done")
+    best = ""
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        path, mac = parts
+        name = path.split("/")[-2]
+        if name == "lo" or mac.count(":") != 5 or set(mac) == {"0", ":"}:
+            continue
+        if name.startswith("wl"):
+            return mac
+        if not best:
+            best = mac
+    return best
+
+
+def _deauth_device(device=None):
+    """Deauth the client on the router (ndsctl).
+
+    Resolves the client MAC from the device itself so any story client
+    (phone or VM) is handled; falls back to the known phone MAC.
+    """
+    if device is None:
+        device = get_client_device(story_client_name())
+    mac = _device_mac(device)
+    if not mac:
+        mac = PHONE_MAC
+        if getattr(device, "name", "android-phone") != "android-phone":
+            log.warning(
+                "could not resolve MAC for %s — deauth falls back to the "
+                "phone MAC and may target the wrong client", device.name)
+    _router_ssh(f"ndsctl deauth {mac} 2>/dev/null || true")
     time.sleep(2)
 
 
@@ -631,13 +791,29 @@ def rate_limiter():
 def no_session(tollgate_ssid, rate_limiter):
     """Guarantee the device is NOT authenticated (portal visible).
 
-    Setup: deauth the device's MAC on the router.
+    Setup: deauth the device's MAC on the router, then VERIFY the gate
+    stays closed through a backend session-keeper tick — the keeper
+    re-authenticates MACs with live paid sessions (observed 2026-09-27,
+    NR7101/tollgate-wrt v0.6.0-alpha4: deauth -> "Authenticating" 9s
+    later from upstream_session_manager). A deauth alone cannot
+    manufacture no_session while a session lives, so the fixture skips
+    loudly instead of letting the test fail on a phantom precondition.
+
     Teardown: none (next fixture sets its own state).
     """
     device = get_client_device("android-phone")
     if not device.join_wifi(tollgate_ssid):
         pytest.skip(f"device could not join {tollgate_ssid}")
     _deauth_device()
+    deadline = time.time() + 40
+    while time.time() < deadline:
+        if device.has_internet():
+            pytest.skip(
+                "no_session unreachable: the backend session-keeper "
+                "re-authenticated the client (live paid session) — "
+                "expire or clear that session before requesting "
+                "no_session")
+        time.sleep(2)
     yield device
 
 
@@ -648,11 +824,11 @@ def fresh_session(tollgate_ssid, rate_limiter):
     Setup: deauth (reset), then mint token and pay.
     Teardown: deauth (clean state for next test).
     """
-    device = get_client_device("android-phone")
+    device = get_client_device(story_client_name())
     if not device.join_wifi(tollgate_ssid):
         pytest.skip(f"device could not join {tollgate_ssid}")
 
-    _deauth_device()
+    _deauth_device(device)
     rate_limiter()
 
     if not _mint_and_pay(device):
@@ -661,4 +837,4 @@ def fresh_session(tollgate_ssid, rate_limiter):
 
     yield device
 
-    _deauth_device()
+    _deauth_device(device)

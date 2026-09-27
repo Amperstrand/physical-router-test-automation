@@ -19,7 +19,8 @@ pytestmark = [pytest.mark.slow]
 
 
 def test_user_pays_and_gets_internet(story_video, no_session, tollgate_ssid,
-                                     story_evidence, rate_limiter):
+                                     story_evidence, rate_limiter,
+                                     story_logs):
     device = no_session
     story_evidence.attach(device)
 

@@ -95,3 +95,36 @@ force-push is still open.
   contract against a real cdk-mintd), #425 clientd battery S2–S4 full PASS
   at head.
 - PRTA improvements: artifact-wait fail-fast (+6 unit tests), this document.
+
+## Fix batch + forensics addendum (2026-09-27 evening)
+
+- **Root cause of the contamination, confirmed by remote-tracking reflogs**
+  (`update by push` entries in the shared clone): a local session on
+  2026-09-24 pushed the wallet-recover tip to four unrelated PR branches in
+  two bursts (14:26 local `c0c8555a`→rootfs-validation-tier; 22:37–22:41
+  local: the #549 tip to docs/tests-readme-map 18 s after creating the
+  real map commit, the same SHA to feat/cloud-lab-runner, and `5f2201e4`
+  to test/crash-injection-lane). Failure mode: an agent pushing HEAD to
+  every branch it touched. All four branches were restored from dangling
+  SHAs, rebased, pushed, and commented.
+- **Guardrails landed:** worktree-scoped pre-push hook (only the branch in
+  `.pr-branch` may be pushed — verified in both directions) + series sanity
+  rule in the fix template. Runner cleanup now diffs before/after branch
+  lists instead of globbing (`pr/[0-9]*`-style names leak through
+  `pr-[0-9]*` globs).
+- **Fix batch:** 7/8 PRs fixed+rebased+pushed and MERGEABLE; #531 correctly
+  stopped by the no-improvisation rule (#605 reversed its policy —
+  maintainer decision framed in the PR thread). #549 merge-prep done
+  (dropped redundant tidy commit, fixed stale PENDING header, suites
+  green). #391/#511 closed with evidence-based rationale.
+- **Two PRs opened mid-marathon (#611, #612) were reviewed in the closing
+  sweep** — both land-with-followups. Lesson: refresh `gh pr list` in the
+  closing sweep, not just at the start.
+- **Ops notes:** `gh pr edit --add-reviewer` is broken by the Projects
+  (classic) GraphQL deprecation — use
+  `gh api -X POST repos/…/pulls/N/requested_reviewers -f 'reviewers[]=…'`.
+  herdr settle-detection killed one agent between turns before its push;
+  the runner now verifies the GitHub side-effect before shutdown and
+  re-prompts once. opencode can hit approval dialogs mid-review (one
+  `blocked` state) — read the dialog and answer it; do not let the runner
+  kill a blocked agent.

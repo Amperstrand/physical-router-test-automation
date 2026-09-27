@@ -15,7 +15,7 @@ LOG="/tmp/opencode/${NAME}.log"
 : > "$LOG"
 fail() { echo "RUN FAILED: $1" | tee -a "$LOG"; exit 1; }
 
-branch_count_before=$(git -C "$WT" branch | wc -l)
+branch_count_before=$(git -C "$WT" branch --format='%(refname:short)' | sort > /tmp/opencode/${NAME}.branches-before; wc -l < /tmp/opencode/${NAME}.branches-before)
 
 pane_state=$(herdr pane read "$PANE" --source detection --lines 3 2>&1 | tail -3)
 echo "$pane_state" >> "$LOG"
@@ -66,6 +66,10 @@ git -C "$WT" branch --list 'pr-[0-9]*' --format='%(refname:short)' | while read 
 done 2>>"$LOG"
 git -C "$WT" reset --hard origin/main --quiet >>"$LOG" 2>&1
 git -C "$WT" clean -fdq >>"$LOG" 2>&1
+git -C "$WT" branch --format='%(refname:short)' | sort > /tmp/opencode/${NAME}.branches-after
+comm -13 /tmp/opencode/${NAME}.branches-before /tmp/opencode/${NAME}.branches-after \
+  | grep -vx 'pr-review-base' \
+  | while read -r b; do git -C "$WT" branch -D "$b" --quiet; done 2>>"$LOG"
 branch_count_after=$(git -C "$WT" branch | wc -l)
 [ "$branch_count_after" -le "$branch_count_before" ] || echo "WARN: branch count grew ($branch_count_before -> $branch_count_after)" | tee -a "$LOG"
 

@@ -408,28 +408,37 @@ echo "package under test: $APK_NAME (sha256=$APK_SHA)"
 # =============================================================== 2. deps by path
 echo ""
 echo "=== (2) dependency packages (BY PATH, --no-network --allow-untrusted --force-missing-repositories) ==="
+# --- full-closure offer (added by the offline bundle builder) ----------------
+# apk-tools 3 resolves a transaction from the files NAMED here plus the installed
+# DB, and from nothing else. With --no-network there is no feed index to fall
+# back on, so a dependency of a named package that is NOT itself named is
+# `(no such package)` and apk refuses the whole transaction — which is how a
+# fresh box got `REFUSED(7): the offline dependency install failed.` while the
+# bundle carried every package it needed. Naming only REQUIRED_DEPS+STUB_OK_DEPS
+# requires each of THEM to be base-image-complete, and nodogsplash is not
+# (iptables-nft, iptables-mod-conntrack-extra, iptables-mod-ipopt,
+# iptables-mod-nat-extra). An upgrade box already had those installed, so only a
+# fresh flash ever saw it. Offer the WHOLE staged closure in one transaction; the
+# package under test is excluded on purpose because stage (3) installs it on its
+# own, after the keepalive assertion, so the no-brick ordering is unchanged.
 dep_files=""
-for dep in $REQUIRED_DEPS; do
-    for f in $STAGED_APKS; do
-        case "$(basename "$f")" in
-            "$dep-"*) dep_files="$dep_files $f" ;;
-        esac
-    done
-done
-for dep in $STUB_OK_DEPS; do
-    for f in $STAGED_APKS; do
-        case "$(basename "$f")" in
-            "$dep-"*) dep_files="$dep_files $f" ;;
-        esac
-    done
+for f in $STAGED_APKS; do
+    if [ "$f" != "$PKG_APK" ]; then
+        dep_files="$dep_files $f"
+    fi
 done
 # shellcheck disable=SC2086
 apk_deps_cmd="apk add --no-network --allow-untrusted --force-missing-repositories$dep_files"
 fact apk_deps_cmd "$apk_deps_cmd"
 # shellcheck disable=SC2086  # the dependency files must be passed BY PATH, one arg each
 echo "+ $apk_deps_cmd"
-if ! apk add --no-network --allow-untrusted --force-missing-repositories $dep_files; then
-    gate_fail deps_installed "apk add of the dependency files failed rc=$?"
+# `$?` read inside `if ! cmd; then` is the NEGATION's status (0), so this gate
+# once reported a REFUSED(7) as "failed rc=0". Capture apk's own status and
+# report that; the verdict and the fail-closed behaviour are unchanged.
+apk_deps_rc=0
+apk add --no-network --allow-untrusted --force-missing-repositories $dep_files || apk_deps_rc=$?
+if [ "$apk_deps_rc" != 0 ]; then
+    gate_fail deps_installed "apk add of the dependency files failed rc=$apk_deps_rc"
     fail_now 7 "the offline dependency install failed. On a WAN-less router this is usually a missing --force-missing-repositories, a package missing from the bundle's closure, or a package built for another arch."
 fi
 gate_pass deps_installed "installed:$REQUIRED_DEPS (stubs:$STUB_OK_DEPS)"
@@ -479,8 +488,11 @@ assert_keepalive_live || {
 }
 gate_pass keepalive_live "trust live immediately before the package install"
 
-if ! apk add --no-network --allow-untrusted --force-missing-repositories "$PKG_APK"; then
-    gate_fail package_installed "apk add $APK_NAME failed rc=$?"
+# same `$?`-inside-`if !` accounting as the dependency stage above.
+apk_pkg_rc=0
+apk add --no-network --allow-untrusted --force-missing-repositories "$PKG_APK" || apk_pkg_rc=$?
+if [ "$apk_pkg_rc" != 0 ]; then
+    gate_fail package_installed "apk add $APK_NAME failed rc=$apk_pkg_rc"
     fail_now 7 "installing $APK_NAME failed."
 fi
 gate_pass package_installed "installed $APK_NAME"

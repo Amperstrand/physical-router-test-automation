@@ -207,12 +207,46 @@ class Router:
             env["SSHPASS"] = self._ssh_pw
         return env
 
+    def _kill_control_master(self):
+        """Tear down a (possibly wedged) SSH control master.
+
+        A hung ControlMaster blocks every multiplexed client until each
+        client's own timeout fires — one wedged master cascaded into 225
+        suite errors on 2026-09-05 (integ/local-lab-green run 1) while the
+        router itself stayed healthy and fresh connections worked.
+        ``ssh -O exit`` is the polite teardown; removing the socket covers
+        a master that ignores it.
+        """
+        try:
+            subprocess.run(
+                ["ssh", "-o", f"ControlPath={self._control_path}", "-O", "exit",
+                 f"root@{self.host}"],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+        try:
+            os.remove(self._control_path)
+        except OSError:
+            pass
+        log.warning("SSH control master torn down after timeout; retrying on a fresh connection")
+
     def ssh(self, cmd: str, timeout: int = 30) -> str:
-        r = subprocess.run(
-            self._ssh_base + [cmd],
-            capture_output=True, text=True, timeout=timeout,
-            env=self._ssh_env(),
-        )
+        try:
+            r = subprocess.run(
+                self._ssh_base + [cmd],
+                capture_output=True, text=True, timeout=timeout,
+                env=self._ssh_env(),
+            )
+        except subprocess.TimeoutExpired:
+            # The client timed out, but the wedged ControlMaster is the
+            # culprit: kill it and retry once on a fresh connection.
+            self._kill_control_master()
+            r = subprocess.run(
+                self._ssh_base + [cmd],
+                capture_output=True, text=True, timeout=timeout,
+                env=self._ssh_env(),
+            )
         if r.returncode != 0:
             noise = re.compile(r"Warning:.*Permanently added[^\n]*")
             cleaned = noise.sub("", r.stderr).strip()
@@ -235,11 +269,19 @@ class Router:
         self.write_remote_text(remote_path, json.dumps(payload, indent=indent), timeout=timeout)
 
     def ssh_stdin(self, cmd: str, data: str, timeout: int = 15):
-        return subprocess.run(
-            self._ssh_base + [cmd],
-            input=data, capture_output=True, text=True, timeout=timeout,
-            env=self._ssh_env(),
-        )
+        try:
+            return subprocess.run(
+                self._ssh_base + [cmd],
+                input=data, capture_output=True, text=True, timeout=timeout,
+                env=self._ssh_env(),
+            )
+        except subprocess.TimeoutExpired:
+            self._kill_control_master()
+            return subprocess.run(
+                self._ssh_base + [cmd],
+                input=data, capture_output=True, text=True, timeout=timeout,
+                env=self._ssh_env(),
+            )
 
     def scp_to(self, local_path: str, remote_path: str, timeout: int = 120):
         ssh_opts = [
@@ -300,6 +342,59 @@ class Router:
             log.info("Inserted DHCP bypass rules in ndsRTR chain")
         except Exception as e:
             log.warning(f"Could not fix nodogsplash DHCP: {e}")
+
+    def fix_nodogsplash_auth_marks(self, ip: str | None = None, mac: str | None = None):
+        """Repair NDS 5.0.2 auth-mark gating so authenticated clients can open
+        NEW connections.
+
+        On `ndsctl auth`, nodogsplash 5.0.2 marks the client's packets 0x30000
+        (both the 0x10000 preauth and 0x20000 auth bits), but the accept rule
+        in `filter ndsNET` tests `--mark 0x20000/0x30000` — a 0x30000-marked
+        packet can never match, so it falls through ndsAUT to the catch-all
+        REJECT. Payments succeed, `ndsctl status` shows Authenticated, and
+        the client still cannot open new connections.
+
+        Fix: insert one client-agnostic accept rule at the top of ndsNET
+        matching the auth bit (`--mark 0x20000/0x20000`). Rewriting the
+        per-client ndsOUT rule instead leaks: NDS cannot delete a rule it
+        did not insert, so `ndsctl deauth` leaves the corrected mark in
+        place and the client keeps internet access forever. With the
+        ndsNET rule, NDS's own insert/remove lifecycle is untouched — when
+        deauth removes the client's mark rule, packets lose the auth bit
+        and are gated again.
+
+        `ip`/`mac` are accepted for signature compatibility and restrict the
+        0x30000 bug detection to one client; the inserted accept rule is
+        always client-agnostic (it only matches packets NDS itself marked).
+        """
+        accept_rule = "-m mark --mark 0x20000/0x20000 -j ACCEPT"
+        try:
+            net = self.ssh("iptables -S ndsNET 2>/dev/null", timeout=10)
+            if accept_rule in net:
+                log.debug("ndsNET auth-bit accept rule already present")
+                return
+            out = self.ssh("iptables -t mangle -S ndsOUT 2>/dev/null", timeout=10)
+            rules = [
+                line.strip()
+                for line in out.split("\n")
+                if line.strip().startswith("-A ndsOUT") and "0x30000" in line
+            ]
+            if ip or mac:
+                rules = [
+                    r for r in rules
+                    if (ip is None or f"-s {ip}" in r)
+                    and (mac is None or f"--mac-source {mac}" in r)
+                ]
+            if not rules:
+                log.debug("ndsOUT has no 0x30000-marked auth rules (fixed or NDS < 5.0.2)")
+                return
+            self.ssh(f"iptables -I ndsNET 1 {accept_rule}", timeout=10)
+            log.info(
+                "Inserted ndsNET auth-bit accept rule (%d 0x30000-marked client rule(s) present)",
+                len(rules),
+            )
+        except Exception as e:
+            log.warning(f"Could not fix nodogsplash auth marks: {e}")
 
     def disable_ipv6_on_lan(self):
         """Disable IPv6 on the LAN interface to prevent captive portal bypass.
@@ -497,12 +592,16 @@ class Router:
         start = time.time()
         while time.time() - start < timeout:
             if self.get_nds_state(mac) == "Authenticated":
+                self.fix_nodogsplash_auth_marks()
                 return True
             # Fallback: if backend delayed auth didn't fire, trigger manually
             if time.time() - start > 10:
                 self.ssh(f"ndsctl auth {mac or self.phone_mac} 2>&1", timeout=5)
             time.sleep(1)
-        return self.get_nds_state(mac) == "Authenticated"
+        authed = self.get_nds_state(mac) == "Authenticated"
+        if authed:
+            self.fix_nodogsplash_auth_marks()
+        return authed
 
     def ensure_dhcp_lease(self, ip: str | None = None, mac: str | None = None) -> None:
         """Ensure the client IP/MAC pair exists in /tmp/dhcp.leases.

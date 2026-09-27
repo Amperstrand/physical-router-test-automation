@@ -28,7 +28,7 @@ import os
 
 import pytest
 
-from lib.cashu import CashuMint, CdkCliWallet, create_minter
+from lib.cashu import CashuMint, CdkCliWallet, create_minter, mint_reachable
 from lib.constants import TEST_MINT_URL, V2_MINT_URL
 from lib.helpers import require_client_identity
 
@@ -215,6 +215,11 @@ def test_cdk_wallet_v1_mint_compat(router):
 def test_nutshell_wallet_v2_mint_token(router):
     require_client_identity(router)
     v2_url = os.environ.get("TOLLGATE_V2_MINT_URL", V2_MINT_URL)
+    if not mint_reachable(v2_url):
+        pytest.skip(
+            f"V2 mint unreachable at {v2_url} — the cashu CLI blocks for minutes "
+            "against an absent mint, tripping pytest-timeout's os._exit"
+        )
     wallet = CashuMint(mint_url=v2_url)
     if not wallet.is_available():
         pytest.skip("cashu CLI not available for V2 mint test")

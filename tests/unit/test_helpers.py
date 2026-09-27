@@ -257,3 +257,29 @@ class TestIsPaymentSwapSucceeded:
         assert is_payment_swap_succeeded(
             {"kind": 21023, "content": body}
         ) is False
+
+
+class TestMintUrlPort:
+    """block_mints must block the port a mint actually listens on —
+    blocking only 443 was a no-op for plain-http lab mints, so degraded
+    mode never triggered locally (2026-09-03 finding)."""
+
+    def test_https_default_port(self):
+        from lib.helpers import _mint_url_port
+        assert _mint_url_port("https://testnut.cashu.exchange") == 443
+
+    def test_http_default_port(self):
+        from lib.helpers import _mint_url_port
+        assert _mint_url_port("http://mint.example") == 80
+
+    def test_explicit_port_wins(self):
+        from lib.helpers import _mint_url_port
+        assert _mint_url_port("http://10.99.99.2:8383") == 8383
+
+    def test_https_explicit_port(self):
+        from lib.helpers import _mint_url_port
+        assert _mint_url_port("https://mint.example:7443") == 7443
+
+    def test_bare_ip_with_port(self):
+        from lib.helpers import _mint_url_port
+        assert _mint_url_port("http://10.99.99.2:8385") == 8385

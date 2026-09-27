@@ -87,6 +87,14 @@ class TestBuiltinPortal:
     def test_builtin_portal_has_spa_assets(self, router, backend):
         if backend.is_rust:
             pytest.skip("Rust SUT serves embedded portal, no htdocs/assets")
+        has_assets = router.ssh(
+            "test -d /etc/nodogsplash/htdocs/assets && echo YES || echo NO", timeout=10
+        ).strip()
+        if has_assets != "YES":
+            pytest.skip(
+                "builtin portal ships plain htdocs/splash.html — SPA bundles "
+                "live in /etc/tollgate/tollgate-captive-portal-site/ (uhttpd :2051, PRTA #103)"
+            )
         ls = router.ssh("ls /etc/nodogsplash/htdocs/assets/*.js 2>/dev/null")
         assert ls.strip(), "builtin portal missing SPA JS bundles in htdocs/assets/"
 

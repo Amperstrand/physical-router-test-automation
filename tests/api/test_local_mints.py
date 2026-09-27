@@ -72,6 +72,8 @@ def test_cdk_v2_mint_info():
 def test_local_mints_reachable_from_openwrt(router):
     _skip_if_no_local_mints()
     v1_url = os.environ.get("TOLLGATE_NUTSHELL_V1_MINT_URL", "http://10.99.99.2:8385")
+    if not _mint_available(v1_url):
+        pytest.skip(f"Nutshell V1 mint not running at {v1_url} (single-mint local topology)")
     result = ""
     for attempt in range(3):
         try:

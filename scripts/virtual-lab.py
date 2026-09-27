@@ -1076,7 +1076,7 @@ def provision_debian(args: argparse.Namespace) -> int:
 set +e
 sshpass -p {POC_PASSWORD} ssh {ssh_opts} root@{client_ip} '
   apt update -qq && apt install -y -qq curl iputils-ping iproute2 chromium python3-pip
-  pip3 install playwright && playwright install chromium --with-deps
+  pip3 install --break-system-packages playwright && playwright install chromium --with-deps
   chromium --version
   python3 -c "from playwright.sync_api import sync_playwright; print(\\"ok\\")"
 '

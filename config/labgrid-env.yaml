@@ -1,0 +1,117 @@
+# Labgrid environment — TollGate test rig on ai-legion
+#
+# Defines all devices (physical + virtual) as labgrid targets.
+# Usage: pytest --lg-env config/labgrid-env.yaml tests/stories/
+#
+# Topology:
+#   ┌─────────────────────────────────────────────────────┐
+#   │ ai-legion host                                      │
+#   │                                                     │
+#   │  ┌─ openwrt-alpha (QEMU VM) ──────────────────┐   │
+#   │  │  TollGate under test (br-lan: 10.99.99.1)  │   │
+#   │  │  mac80211_hwsim radio0/radio1              │   │
+#   │  └──────────────┬──────────────────────────────┘   │
+#   │                 │ tg-poc-br bridge                   │
+#   │  ┌─ debian-client (QEMU VM) ───┐                   │
+#   │  │  Test client (10.99.99.100)│                   │
+#   │  │  mac80211_hwsim wlan0       │   │
+#   │  └──────────────┬──────────────┘   │
+#   │                 │                      │
+#   │  ┌─ Cashu mints (Docker) ──────┐   │
+#   │  │  CDK V2 :8383  Nutshell :8385│  │
+#   │  └───────────────────────────────┘   │
+#   │                                                     │
+#   │  ┌─ Android phone (USB ADB) ─────────────────┐   │
+#   │  │  Physical test client (ZY326DPC7R)        │   │
+#   │  └─────────────────────────────────────────────┘   │
+#   │                                                     │
+#   │  ┌─ ESP32 S3 (USB JTAG) ─────────────────────┐   │
+#   │  │  Physical radio test target                │   │
+#   │  └─────────────────────────────────────────────┘   │
+#   └─────────────────────────────────────────────────────┘
+
+targets:
+  # ─── OpenWrt router VM (the DUT) ─────────────────────
+  openwrt-alpha:
+    resources:
+      NetworkSSHDevice:
+        address: "10.99.99.1"
+        username: "root"
+    drivers:
+      SSHDriver:
+        keyfile: "~/.ssh/id_ed25519"
+        stderr_merge: true
+
+  # ─── Debian client VM ─────────────────────────────────
+  debian-client:
+    resources:
+      NetworkSSHDevice:
+        address: "10.99.99.100"
+        username: "debian"
+    drivers:
+      SSHDriver:
+        keyfile: "~/.ssh/id_ed25519"
+        stderr_merge: true
+
+  # ─── Android phone (physical, via USB ADB) ────────────
+  android-phone:
+    resources:
+      NetworkAndroidDevice:
+        # Direct ADB via USB — the address is the serial
+        # For network ADB, use the IP:port
+        name: "ZY326DPC7R"
+        address: "ZY326DPC7R"
+    drivers:
+      # AndroidADBDriver is available in labgrid >= 26.0
+      # For older versions, use ShellDriver with adb commands
+      ShellDriver:
+        prompt: "[$#] "
+        login_prompt: ""
+        username: ""
+        adb_serial: "ZY326DPC7R"
+
+  # ─── ESP32 S3 (physical, via USB JTAG serial) ─────────
+  esp32-s3:
+    resources:
+      RawSerialPort:
+        port: "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_F4:12:FA:CF:03:84-if00"
+        speed: 115200
+    drivers:
+      SerialDriver: {}
+      ShellDriver:
+        prompt: "> "
+        login_prompt: ""
+        username: ""
+
+  # ─── NR7101 physical router ────────────────────────────
+  nr7101:
+    resources:
+      NetworkSSHDevice:
+        address: "192.168.13.124"
+        username: "root"
+    drivers:
+      SSHDriver:
+        keyfile: "~/.ssh/id_ed25519"
+        stderr_merge: true
+
+  # ─── Cashu mint (Docker service, not a labgrid target) ─
+  # Mints are infrastructure services managed by docker-compose,
+  # not labgrid targets. See docker-compose.mints.yaml.
+  # However, we can register them as NetworkService resources
+  # for health-checking from tests.
+  cdk-mint:
+    resources:
+      NetworkService:
+        address: "10.99.99.2"
+        port: 8383
+    drivers:
+      # No driver needed — just a reachable-service resource
+      DummyDriver: {}
+
+  signet-mint:
+    resources:
+      NetworkService:
+        address: "192.168.13.221"
+        port: 8190
+    drivers:
+      DummyDriver: {}

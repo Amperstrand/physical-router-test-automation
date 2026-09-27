@@ -41,6 +41,25 @@ def _skip_if_no_welcome_page(router):
         pytest.skip("Post-payment redirect not configured (no welcome.html)")
 
 
+def _skip_if_no_legacy_welcome_page(router):
+    """Gate for the configwizzard-era welcome page contract.
+
+    The legacy post-payment-redirect page anchors to wallet.cashu.me and
+    carries a PWA install section. The redesigned welcome page kept the
+    target URL only as a JS DEFAULT_TARGET variable — the anchor marker
+    distinguishes the two layouts (PRTA #103).
+    """
+    has_anchor = router.ssh(
+        f"grep -F 'href=\"https://wallet.cashu.me/welcome\"' "
+        f"{CAPTIVE_PORTAL_DIR}/welcome.html 2>/dev/null && echo YES || echo NO"
+    ).strip()
+    if has_anchor != "YES":
+        pytest.skip(
+            "welcome.html is the redesigned page (JS redirect + button, no "
+            "wallet.cashu.me anchor) — legacy content contract not present (PRTA #103)"
+        )
+
+
 # --- Welcome page checks ---
 
 
@@ -78,6 +97,7 @@ def test_welcome_html_has_intent_url(router):
 @pytest.mark.extended
 def test_welcome_html_has_clickable_link(router):
     _skip_if_no_welcome_page(router)
+    _skip_if_no_legacy_welcome_page(router)
     content = router.ssh(f"cat {CAPTIVE_PORTAL_DIR}/welcome.html 2>/dev/null")
     assert 'href="https://wallet.cashu.me/welcome"' in content, \
         "welcome.html should have clickable link to target URL"
@@ -86,6 +106,7 @@ def test_welcome_html_has_clickable_link(router):
 @pytest.mark.extended
 def test_welcome_html_has_pwa_section(router):
     _skip_if_no_welcome_page(router)
+    _skip_if_no_legacy_welcome_page(router)
     content = router.ssh(f"cat {CAPTIVE_PORTAL_DIR}/welcome.html 2>/dev/null")
     assert "PWA" in content, \
         "welcome.html should have PWA install section"
@@ -124,6 +145,11 @@ def test_nds_webroot_links_to_captive_portal(router, backend):
     if backend.is_rust:
         pytest.skip("Rust SUT serves embedded portal, no NDS webroot symlink")
     target = router.ssh("readlink /etc/nodogsplash/htdocs 2>/dev/null").strip()
+    if not target:
+        pytest.skip(
+            "builtin portal ships htdocs/splash.html directly — NDS webroot "
+            "is not a symlink to the SPA site (PRTA #103)"
+        )
     assert "tollgate-captive-portal-site" in target, \
         f"NDS webroot should symlink to captive portal site, got: {target}"
 

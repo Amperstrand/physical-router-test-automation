@@ -373,19 +373,32 @@ def get_mint_ip_map(router):
     return ip_map
 
 
+def _mint_url_port(url: str) -> int:
+    """Port a mint actually listens on — blocking only 443 is a no-op for
+    plain-http lab mints (e.g. http://10.99.99.2:8383)."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.port:
+        return parsed.port
+    return 443 if parsed.scheme == "https" else 80
+
+
 def block_mints(router, mint_ip_map):
-    """Block all mint IPs via iptables OUTPUT REJECT. Returns list of (url, ip) rules."""
+    """Block all mint IPs via iptables OUTPUT REJECT on the mint's real port.
+    Returns list of (url, ip, port) rules."""
     rules = []
     for url, ip in mint_ip_map.items():
-        router.ssh(f"iptables -I OUTPUT -d {ip} -p tcp --dport 443 -j REJECT")
-        rules.append((url, ip))
+        port = _mint_url_port(url)
+        router.ssh(f"iptables -I OUTPUT -d {ip} -p tcp --dport {port} -j REJECT")
+        rules.append((url, ip, port))
     return rules
 
 
 def unblock_mints(router, rules):
-    """Remove iptables OUTPUT REJECT rules created by block_mints()."""
-    for url, ip in rules:
-        router.ssh(f"iptables -D OUTPUT -d {ip} -p tcp --dport 443 -j REJECT"
+    """Remove the OUTPUT REJECT rules created by block_mints()."""
+    for url, ip, port in rules:
+        router.ssh(f"iptables -D OUTPUT -d {ip} -p tcp --dport {port} -j REJECT"
                    f" 2>/dev/null || true")
 
 

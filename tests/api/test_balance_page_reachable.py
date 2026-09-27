@@ -27,6 +27,27 @@ import re
 pytestmark = [pytest.mark.go_only, pytest.mark.api]
 
 
+def _net4sats_layout_present(router) -> bool:
+    """True iff the net4sats (configwizzard) deployment layout is installed.
+
+    /www/net4sats/balance.html plus its :8090 uhttpd instance come from the
+    configwizzard deployment (scripts/deploy-configwizzard.sh, cloud lab
+    --portal net4sats) — not from the ipk, which ships the portal SPA to
+    /etc/tollgate/tollgate-captive-portal-site/ served by uhttpd :2051.
+    """
+    result = router.ssh("test -f /www/net4sats/balance.html && echo YES || echo NO", timeout=10)
+    return result.strip() == "YES"
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_no_net4sats_portal(router):
+    if not _net4sats_layout_present(router):
+        pytest.skip(
+            "net4sats (configwizzard) portal layout not deployed — "
+            "builtin portal serves the SPA from uhttpd :2051 (PRTA #103)"
+        )
+
+
 @pytest.mark.api
 class TestBalancePageReachable:
     """Verify the balance page is reachable at the URL the SPA redirects to."""

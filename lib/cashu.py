@@ -6,6 +6,7 @@ import logging
 import secrets as _secrets_mod
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import os
@@ -18,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 from urllib import error, request
+from urllib.parse import urlparse
 
 from lib.constants import TEST_MINT_URL
 
@@ -33,6 +35,19 @@ class MintUnavailableError(Exception):
 
 class _MintTimeoutError(Exception):
     pass
+
+
+def mint_reachable(mint_url: str, timeout: float = 3.0) -> bool:
+    """TCP-probe a mint URL. The cashu CLI can block for minutes against an
+    absent mint, so tests should skip via this probe before driving the CLI."""
+    try:
+        parsed = urlparse(mint_url)
+        host = parsed.hostname or mint_url
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 class CashuMint:

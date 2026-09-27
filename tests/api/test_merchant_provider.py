@@ -33,10 +33,15 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.merchant_provider")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.go_only, pytest.mark.complete]
+# timeout(900): a test can wait for two full health transitions
+# (block→degraded + unblock→full) of up to HEALTH_POLL_TIMEOUT each.
+pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(900), pytest.mark.go_only, pytest.mark.complete]
 
 HEALTH_POLL_INTERVAL = 5
-HEALTH_POLL_TIMEOUT = 180
+# The backend flips mint health on a 300s proactive probe cadence, so a
+# block→degraded or unblock→full transition can legally take up to ~5min
+# before the prober notices. 180s expired before the first probe fired.
+HEALTH_POLL_TIMEOUT = 420
 
 
 @pytest.fixture(scope="module")
@@ -241,6 +246,7 @@ def test_concurrent_requests_during_swap(router, mint_ip_map):
 
         errors = []
         stop_event = threading.Event()
+        stop_reason = []
 
         def requester():
             while not stop_event.is_set():
@@ -255,17 +261,38 @@ def test_concurrent_requests_during_swap(router, mint_ip_map):
         t = threading.Thread(target=requester, daemon=True)
         t.start()
 
-        unblock_mints(router, rules)
-        log.info("Unblocked mints, concurrent requests running during recovery")
+        # Overall deadline: recovery polling + requester loop are each
+        # bounded, but their sum is not — a stalled recovery must end the
+        # concurrent window deterministically instead of hanging the suite.
+        def _set(reason):
+            stop_reason.append(reason)
+            stop_event.set()
 
-        recovered = wait_for_full_merchant(router, timeout=HEALTH_POLL_TIMEOUT)
-        stop_event.set()
-        t.join(timeout=10)
+        recovery_deadline = threading.Timer(
+            HEALTH_POLL_TIMEOUT * 2 + 60, _set, args=("overall deadline",)
+        )
+        recovery_deadline.start()
+        try:
+            unblock_mints(router, rules)
+            log.info("Unblocked mints, concurrent requests running during recovery")
+
+            recovered = wait_for_full_merchant(router, timeout=HEALTH_POLL_TIMEOUT)
+        finally:
+            recovery_deadline.cancel()
+            _set("test window ended")
+            t.join(timeout=20)
 
         assert not errors, (
             f"Errors during concurrent requests: {errors[:5]}"
         )
-        assert recovered, "Service did not recover during concurrent test"
+        assert recovered or ("overall deadline" in stop_reason), (
+            "Service did not recover during concurrent test"
+        )
+        if "overall deadline" in stop_reason:
+            pytest.fail(
+                "Recovery did not complete within the overall deadline; "
+                "concurrent window ended without a verdict"
+            )
     finally:
         unblock_mints(router, rules)
 

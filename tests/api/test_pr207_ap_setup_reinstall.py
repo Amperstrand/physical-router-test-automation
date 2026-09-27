@@ -105,16 +105,17 @@ def setup_script(router):
 
 
 @pytest.mark.extended
-def test_setup_script_bails_on_existing_flag(setup_script):
-    """CONFIRMS the bug on main: the script exits when setup-done flag exists.
+def test_setup_script_is_setup_version_aware(setup_script):
+    """After PR #216/#173 the setup script must be SETUP_VERSION-aware — a
+    blind early-exit on the setup-done flag resurrects the #103 reinstall
+    bug (APs never recreated after reinstall/upgrade).
 
-    On buggy main this passes (bug present). On PR #216 (fixed), the script
-    uses SETUP_VERSION-aware logic instead of bailing — this test FAILS,
-    which is the signal that the fix landed.
+    This replaces test_setup_script_bails_on_existing_flag, which asserted
+    the buggy behavior and failed by design once the fix landed.
     """
-    assert _script_bails_on_flag(setup_script), (
-        "Expected the early-exit-on-flag bug. "
-        "If SETUP_VERSION is present, the fix (PR #216/#173) has landed."
+    assert _script_has_ap_recovery_fix(setup_script), (
+        "99-tollgate-setup lost its SETUP_VERSION-aware logic — the blind "
+        "early-exit on the setup flag is back (#103 regression)"
     )
 
 
@@ -170,9 +171,13 @@ def test_ap_setup_recovers_after_reinstall(router):
 
 
 @pytest.mark.extended
-def test_reinstall_setup_log_confirms_skip(router, backend):
+def test_reinstall_setup_log_confirms_skip(router, backend, setup_script):
     """When the flag exists, re-running the setup script must log that it skipped
-    (or exit silently). This documents the reinstall behavior operators see."""
+    (or exit silently). This documents the reinstall behavior operators see.
+
+    Takes the setup_script fixture purely for its presence guard — OpenWrt
+    deletes uci-defaults scripts after successful execution, so post-boot
+    firmware legitimately no longer carries the file."""
     if backend.is_rust:
         pytest.skip("Rust SUT uses different init script layout")
     router.ssh(f"touch {SETUP_FLAG} 2>/dev/null || true", timeout=5)

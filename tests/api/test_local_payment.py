@@ -26,15 +26,27 @@ import pytest
 import requests
 
 import socket as _socket
+from urllib.parse import urlparse
 
 PRTA_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 BACKEND_URL = os.environ.get("TOLLGATE_BACKEND_URL", "http://127.0.0.1:2121")
 MINT_URL = os.environ.get("TOLLGATE_MINT_URL", "http://127.0.0.1:3338")
+_BACKEND_HOSTPORT = urlparse(BACKEND_URL)
 
 
 def _local_mint_available() -> bool:
     try:
         with _socket.create_connection(("127.0.0.1", 3338), timeout=1):
+            return True
+    except (ConnectionRefusedError, OSError, TimeoutError):
+        return False
+
+
+def _local_backend_available() -> bool:
+    try:
+        with _socket.create_connection(
+            (_BACKEND_HOSTPORT.hostname, _BACKEND_HOSTPORT.port or 80), timeout=1
+        ):
             return True
     except (ConnectionRefusedError, OSError, TimeoutError):
         return False
@@ -144,6 +156,8 @@ def test_s4_malformed_tokens(token, expected_code):
 # ─── S5: GET / → advertisement ───────────────────────────────────
 
 def test_s5_advertisement():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     r = requests.get(f"{BACKEND_URL}/", timeout=5)
     d = r.json()
     assert d["kind"] == 10021, f"Expected kind=10021, got {d['kind']}"
@@ -155,6 +169,8 @@ def test_s5_advertisement():
 # ─── S6: GET /whoami → MAC address ───────────────────────────────
 
 def test_s6_whoami():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     r = requests.get(f"{BACKEND_URL}/whoami", timeout=5)
     body = r.text.strip()
     assert "mac=" in body or len(body) > 0, f"/whoami returned empty: status={r.status_code}"
@@ -163,6 +179,8 @@ def test_s6_whoami():
 # ─── S7: GET /usage → usage string ───────────────────────────────
 
 def test_s7_usage():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     r = requests.get(f"{BACKEND_URL}/usage", timeout=5)
     body = r.text.strip()
     assert len(body) > 0, f"/usage returned empty: status={r.status_code}"
@@ -171,6 +189,8 @@ def test_s7_usage():
 # ─── S8: /usage returns 200 not 500 (regression for #316) ────────
 
 def test_s8_usage_status_code():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     r = requests.get(f"{BACKEND_URL}/usage", timeout=5)
     assert r.status_code == 200, f"/usage should return 200, got {r.status_code}"
 
@@ -178,6 +198,8 @@ def test_s8_usage_status_code():
 # ─── S9: Advertisement unit is "sat" not "sats" (regression #310) ─
 
 def test_s9_advertisement_unit():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     r = requests.get(f"{BACKEND_URL}/", timeout=5)
     d = r.json()
     tags = {t[0]: t[1:] for t in d.get("tags", [])}
@@ -190,6 +212,8 @@ def test_s9_advertisement_unit():
 # ─── S10: Large POST body rejected (regression for #321) ─────────
 
 def test_s10_body_size_limit():
+    if not _local_backend_available():
+        pytest.skip("Local dry backend not available at BACKEND_URL")
     large_body = "x" * (2 * 1024 * 1024)
     try:
         r = requests.post(

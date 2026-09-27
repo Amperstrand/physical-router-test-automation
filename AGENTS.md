@@ -1859,3 +1859,55 @@ router's dnsmasq is unreliable during provisioning — see the fast-start
 notes above). Natural follow-up: fold the NDS mark workaround into the
 lab runner / `lib/router.py` as a `fix_nodogsplash_auth_marks()` helper
 in the spirit of `fix_nodogsplash_dhcp()`.
+
+## Lessons Learned — Local-Lab-Green Campaign (2026-09-05/06)
+
+Three suite-poisoning cascade classes root-caused on the local virtual lab
+(branch `integ/local-lab-green`, PR #101; full suite 229E → 4E, zero cascade):
+
+1. **Wedged SSH ControlMaster**: one hung mux makes every `Router.ssh` client
+   time out while the router stays healthy and fresh connections work.
+   `Router.ssh`/`ssh_stdin` now tear the master down and retry once. Evidence
+   pattern: mass `subprocess.TimeoutExpired` on `ndsctl deauth` in
+   `container_nds_preflight` with a healthy `/v1/info` + `ndsctl json`.
+2. **Wedged NDS** (SIGKILL trap re-confirmed): kill -9 on a pytest mid-test
+   wedges `ndsctl` (first deauth-only, then the socket goes EBADF; restarts
+   cannot clear an init-time hang — a VM reboot was required once). The
+   runner gates on `ndsctl json` (host-side `timeout 15` — **OpenWrt has no
+   `timeout` binary**; `timeout 6 ndsctl …` inside ssh returns 127 and fakes
+   a "wedge"), restarts NDS+backend once, aborts with a reboot hint.
+3. **NDS 5.0.2 auth-mark gating**: rewriting the per-client ndsOUT rule LEAKS
+   (NDS cannot delete a foreign rule at deauth → permanent internet; NDS also
+   removes its rule asynchronously and the backend's 5s session valve
+   re-asserts auth while a session lives — poll for the rule to actually
+   disappear). The repair is one client-agnostic `ndsNET` accept rule for the
+   auth bit (`--mark 0x20000/0x20000`), idempotent, wired into `wait_for_auth`.
+
+Environment traps found while verifying:
+- **neverssl.com is TCP-blocked from this network** (ICMP passes) — a
+  connectivity probe must be IP-literal (1.1.1.1 serves HTTP 301) and must
+  NOT use `-L`: its redirect target needs DNS, and DNS-through-NDS is
+  governed by `users_to_router`, which allows **tcp/53 only** — UDP DNS from
+  a gated client fails. The Debian client's steady-state resolver must be
+  the router (cloud-init's 10.99.99.2 default only answers during
+  provisioning; its resolv.conf is a symlink — `rm` it before writing).
+- **Backend rate limit (tmbg#88)**: post-merge-14 wraps the payment root in
+  `RateLimitMiddleware` — 10 req/min per client IP. Suite payment cadence +
+  reruns trip it (`kind 21023` / `rate limit exceeded`); absent in
+  post-merge-12. Env knob `TOLLGATE_RATE_LIMIT_RPM` exists but is not
+  persistable through the init script.
+- **reveal-seed is a derivation oracle now** (recontracted 2026-09-06, PRTA
+  #102): `POST /identity/reveal-seed` takes a raw 12-word BIP39 mnemonic as
+  the body (not JSON) and returns the identity derived from it — it no longer
+  reveals the stored seed. Empty/garbage body → 400 `invalid mnemonic`;
+  GET → 405; non-loopback → 403. Passwords are v2-format: six lowercase
+  BIP39 words hyphen-joined (the Nato-Nato-Nato-NN regexes are stale).
+  `tests/api/test_pr193_identity_endpoints.py` pins the full contract. (Also:
+  CORS hardening 415s busybox wget's form content-type on the payment root —
+  use curl with an explicit content-type.)
+- **OpenWrt deletes uci-defaults scripts after execution** — post-boot
+  firmware legitimately has no `/etc/uci-defaults/99-tollgate-setup`; tests
+  must presence-guard.
+- The documented signal-timeout hang class struck again
+  (`test_startup_mint_recovery_latency` >10 min past `--timeout=180`); kill
+  + rerun the remainder is still the only recourse.

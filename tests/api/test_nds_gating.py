@@ -17,6 +17,7 @@ Run:
 import json
 import os
 import subprocess
+import sys
 import time
 
 OPENWRT = "10.99.99.1"
@@ -39,10 +40,16 @@ def check_internet():
 
     is_redirected=True means NDS is intercepting (client NOT authed).
     is_redirected=False means client has direct internet access.
+
+    IP-literal probe, no redirect-following: 1.1.1.1's 301 targets a
+    hostname, and DNS-through-NDS is governed by the users_to_router
+    allow-list (only tcp/53) — a different concern from the mark-based
+    forwarding under test. redirect_url carries the portal marker when
+    NDS intercepts, or 1.1.1.1's own Location when direct.
     """
     out = ssh(
         CLIENT,
-        "curl -sL --max-time 5 -o /dev/null -w '%{url_effective}' http://neverssl.com 2>/dev/null || echo BLOCKED",
+        "curl -s --max-time 5 -o /dev/null -w '%{redirect_url}' http://1.1.1.1 2>/dev/null || echo BLOCKED",
     )
     if "BLOCKED" in out:
         return True, "blocked entirely"
@@ -62,11 +69,32 @@ def get_nds_client():
     return None, "none"
 
 
+def fix_auth_marks():
+    """Repair NDS 5.0.2 auth marks so authed clients can open NEW connections.
+
+    ndsctl-auth inserts 0x30000 marks that the ndsNET accept rule
+    (0x20000/0x30000) can never match — a paid + Authenticated client stays
+    blocked. See Router.fix_nodogsplash_auth_marks (lib/router.py).
+    """
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from lib.router import Router
+    Router(OPENWRT, CLIENT, "de:54:4e:91:49:da", "").fix_nodogsplash_auth_marks()
+
+
 def deauth():
     mac, _ = get_nds_client()
     if mac:
         ssh(OPENWRT, f"ndsctl deauth {mac}")
-        time.sleep(2)
+        # NDS 5.0.2 removes the per-client ndsOUT mark rule asynchronously,
+        # on its own loop tick — until then the client keeps the auth bit.
+        for _ in range(10):
+            rules = ssh(
+                OPENWRT,
+                f"iptables -t mangle -S ndsOUT 2>/dev/null | grep '{mac}' | wc -l",
+            )
+            if rules.strip() == "0":
+                break
+            time.sleep(1)
     return mac
 
 
@@ -113,11 +141,19 @@ def test_nds_allows_after_payment():
     assert ok, f"Payment failed: {pay_detail}"
     print(f"  Payment: {pay_detail}")
 
+    fix_auth_marks()
+
     time.sleep(3)
     mac, state = get_nds_client()
     print(f"  NDS state: {mac} → {state}")
 
     redirected_after, detail_after = check_internet()
+    if redirected_after:
+        dbg = ssh(
+            OPENWRT,
+            "iptables -t mangle -S ndsOUT; iptables -S ndsNET | head -3",
+        )
+        print(f"  fw state at failure:\n{dbg}")
     assert not redirected_after, f"Post-payment: should have direct access, but: {detail_after}"
     print(f"  ✅ Direct access: {detail_after}")
 

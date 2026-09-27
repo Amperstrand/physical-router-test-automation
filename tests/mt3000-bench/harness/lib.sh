@@ -45,17 +45,19 @@ check_rc() {   # $1 desc, $2 expected rc, $3 actual rc
   if [ "$2" = "$3" ]; then pass "$1 (rc=$3)"; else fail "$1: expected rc=$2, got rc=$3"; fi
 }
 
-# check_contains / check_not_contains are pure-bash literal substring matches ON PURPOSE.
+# check_contains / check_not_contains do a pure-bash LITERAL substring match on purpose.
 #
-# They used to be `printf '%s' "$haystack" | grep -qF -- "$needle"`, which is a RACE under
-# `set -o pipefail`: `grep -q` exits at the FIRST match, the writer is then killed by SIGPIPE
-# (rc 141), and pipefail reports the pipeline as FAILED even though the match succeeded — so the
-# failure message prints a haystack that visibly CONTAINS the needle. Measured on the frozen
-# suite: 30 spurious failures in 20000 iterations of that exact pipeline (0.15% per check), i.e.
-# roughly one spurious FAIL per five suite runs across this suite's ~150 assertions. That is the
-# same "cannot trust the suite" trap as an unbounded lock wait, one layer down. The `case` forms
-# below fork nothing, cannot be raced, and are 0/20000. (They are also stricter for a multi-line
-# needle: grep -F would treat it as several alternative patterns.)
+# `printf '%s' "$haystack" | grep -qF -- "$needle"` is a false-FAIL generator under this file's
+# `set -o pipefail`: `grep -q` exits at the FIRST match, the still-writing printf is then killed
+# by SIGPIPE (141), and pipefail reports the pipeline as failed — so a FAIL prints a haystack that
+# visibly CONTAINS the needle. The rate is not small once the haystack is a real log window:
+# measured 2026-09-26 on the settle phase's shape (bash 5.3, 51 343-byte haystack, needle at byte
+# 10 — a MAC in the first line of a window), 166 of 300 calls false-FAILed (55%), which is how this
+# suite lost two assertions while dumping its own counter-evidence. The `case` form forks nothing,
+# so there is no second process to lose a race (0 of 300), and it is stricter for a multi-line
+# needle, where grep -F would treat the lines as alternatives. The same fix is in flight
+# independently in PR #173 — whichever lands second keeps one copy; #173 landed here, so this
+# merge keeps ONE copy of the comment and one copy of the code (`case` form, unchanged).
 check_contains() {   # $1 desc, $2 needle, $3 haystack
   case "$3" in
     *"$2"*) pass "$1" ;;

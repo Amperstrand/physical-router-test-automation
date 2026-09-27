@@ -247,7 +247,14 @@ flash takes it.  Therefore:
   non-empty files under `/etc/tollgate/ecash`;
 * if either says "money", it **refuses** to flash and prints the drain command:
   `tollgate wallet drain cashu --yes` (exit 2 = cancelled, nothing moved);
-* `--allow-nonempty-wallet` is the only way past, and it is explicit;
+* a probe that does **not answer** — unreachable router, no `tollgate` CLI, the
+  service down (the CLI then prints a `{"Success": false}` document *and exits
+  0*), or a failed SSH session — is **unknown**, which is not "empty": the gate
+  fails closed and refuses too.  `scripts/fresh-flash.py --check` reports that as
+  exit bit `4` instead of `2`, so an operator can tell "drain it" from "I could
+  not read it";
+* `--allow-nonempty-wallet` is the only way past, and it is explicit (it accepts
+  an unverified wallet as well — you take the risk);
 * the same gate runs as `TestFreshFlashPrerequisite::test_02`, and
   `scripts/install-path-e2e.py --flash-and-run` refuses *before* pytest starts;
 * `lib.fresh_flash.flash_preconditions()` returns **every** blocker at once (the

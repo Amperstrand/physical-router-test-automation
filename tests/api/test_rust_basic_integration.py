@@ -70,7 +70,12 @@ def test_config_set_invalid_step_size(rust_basic_server):
 
 
 def test_ln_invoice_creates_real_quote(rust_basic_server):
-    """POST /ln-invoice creates a real mint quote via CDK wallet."""
+    """POST /ln-invoice creates a real mint quote via CDK wallet.
+
+    Response schema (rust-basic LightningInvoiceResponse): `quote` (ID) and
+    `invoice` (BOLT11). When the mint is unreachable the backend degrades to
+    `quote="stub-quote-N"` / `invoice="stub-invoice"` with HTTP 200 — skip.
+    """
     base = rust_basic_server["http_url"]
 
     resp = requests.post(
@@ -84,10 +89,10 @@ def test_ln_invoice_creates_real_quote(rust_basic_server):
     assert "quote" in data, f"Missing 'quote' field: {data}"
     assert data["quote"] != "", f"Empty quote ID: {data}"
 
-    if data.get("request", "").startswith("stub"):
+    if data["quote"].startswith("stub") or data.get("invoice", "").startswith("stub"):
         pytest.skip("Wallet not connected to mint (stub response)")
     else:
-        assert data["request"] != "", f"Empty request (BOLT11): {data}"
+        assert data.get("invoice", "") != "", f"Empty invoice (BOLT11): {data}"
 
 
 def test_ln_invoice_status_check(rust_basic_server):
@@ -107,8 +112,8 @@ def test_ln_invoice_status_check(rust_basic_server):
 
     sdata = status.json()
     assert sdata["quote"] == quote_id
+    # rust-basic emits `state` ("paid"/"unpaid"); it has no Go-style `checkState`.
     assert sdata["state"] in ("paid", "unpaid"), f"Unexpected state: {sdata['state']}"
-    assert sdata["checkState"] in ("PAID", "UNPAID"), f"Unexpected checkState: {sdata['checkState']}"
 
 
 def test_ln_invoice_rejects_zero_amount(rust_basic_server):

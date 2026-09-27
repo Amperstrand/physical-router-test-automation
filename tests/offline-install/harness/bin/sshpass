@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for sshpass: consume its own options, then exec what follows.
+set -uo pipefail
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p|-f|-d|-P) shift 2 ;;
+        -e|-v|-V|-h) shift ;;
+        *) break ;;
+    esac
+done
+exec "$@"

@@ -18,6 +18,9 @@
 #     ever probing the router or taking a transcript
 #   * the router-side snapshot refuses without a window, and its payload (render mode) is
 #     accepted by both `sh -n` and BusyBox `ash -n` — the router's own shell
+#   * the settle phase's negative control fires in every documented direction (including the
+#     MEASURED pre17 window and the fix's own log line, replayed from fixtures) and never
+#     false-fires — and the forcing step it drives announces itself as a BENCH ACTION
 #   * the token tool mints nothing without --yes and refuses to check an absent token
 #
 # The "router" is a throw-away directory; ssh/scp/apk are PATH test doubles in
@@ -168,6 +171,7 @@ new_router() {   # fresh harness router root with both payloads mapped
 SECOND_PURCHASE="$BENCH_DIR/second-purchase-e2e.sh"
 ROUTER_SNAPSHOT="$BENCH_DIR/router-snapshot.sh"
 BENCH_TOKEN="$BENCH_DIR/bench-token.py"
+ZOMBIE_CONTROL="$HERE/zombie-settle-control.sh"
 
 deploy_in_window() {   # $1=purpose ; rest = deploy args
   local purpose="$1"; shift
@@ -526,8 +530,22 @@ t_begin "zombie-settle-control: the PHASE 5b assertions fire on every way the mo
 run_cmd "$HERE/zombie-settle-control.sh"
 check_rc "zombie-settle-control exits 0 on the frozen script" 0 "$RC"
 check_contains "it reports PASS" "PASS: PHASE 5b fails in every direction it is supposed to" "$OUT"
+   # Carried over from main's own version of this test (which drove the same control without the
+   # mutant): these three assert the control is driven by the MEASURED evidence, not by a synthetic
+   # window, so the stronger claims main made about this control survive the merge.
+check_contains "the pre17 direction is driven by the MEASURED capture" "pre17, verbatim capture" "$OUT"
+check_contains "the fix direction is driven by the fix's own line" "the fix, verbatim" "$OUT"
+check_contains "the forcing step is checked for attribution" "BENCH ACTION" "$OUT"
 check_not_contains "no direction failed" "   FAIL - " "$OUT"
-check_eq "every direction ran (8 cases + the anti-vacuity read)" "9" "$(printf '%s' "$OUT" | grep -c '^   ok   - ' | head -1)"
+# Anti-vacuity, without a brittle magic total: the control prints one `== ` heading per direction it
+# drives and one `ok   - ` line per assertion, and that pair grew when main extended the control (the
+# pre17/fix forced-restart directions, the BENCH ACTION attribution, the router-shell parse). The
+# branch's original `check_eq … "9"` was the pre-merge count and is a false-FAIL generator now; the
+# invariant that survives the control growing is that every direction it reported produced evidence.
+ZOMBIE_DIRS="$(printf '%s' "$OUT" | grep -c '^== ' | head -1)"
+ZOMBIE_OKS="$(printf '%s' "$OUT" | grep -c '^   ok   - ' | head -1)"
+check_eq "every direction the control drove produced an ok line" "yes" \
+  "$( [ "$ZOMBIE_OKS" -ge "$ZOMBIE_DIRS" ] && echo yes || echo "no ($ZOMBIE_OKS ok lines for $ZOMBIE_DIRS directions)")"
 
 t_begin "the wired-in controls still go RED on a mutated e2e script (the wiring is not decoration)"
 # The restart guard has exactly one failure path (box_broken): neutralising it must make every
@@ -563,8 +581,37 @@ else
     "$PROD_FLOCK_BEFORE" "$PROD_FLOCK_AFTER" "$BENCH_LOCK_PATH"
 fi
 
+# ================= 7. the harness's substring check on a large haystack (kept from main)
+t_begin "check_contains cannot false-FAIL on a large haystack (the printf|grep -q pipefail race)"
+# The settle phase EXTRACTS a long log window and asserts on a MAC that sits in its first lines —
+# the exact shape in which `printf '%s' "$3" | grep -qF -- "$2"` under `set -o pipefail` reports a
+# present needle as absent: grep -q exits on the match, printf dies of SIGPIPE (141), pipefail
+# promotes 141. Measured 2026-09-26: 166/300 false FAILs on this haystack (needle at byte 10 of
+# 51 343). The suite lost two assertions to it before the harness switched to haystack_has (case).
+BIG_NEEDLE='SENTINEL-NEEDLE-02:11:22:33:44:55'
+BIG_HAYSTACK="$( { printf 'line 0001 %s\n' "$BIG_NEEDLE"
+                   printf 'filler %04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' $(seq 1 900); } )"
+BIG_BYTES="$(printf '%s' "$BIG_HAYSTACK" | wc -c)"
+if [ "$BIG_BYTES" -gt 40000 ]; then BIG_VERDICT=large; else BIG_VERDICT="too small ($BIG_BYTES bytes)"; fi
+check_eq "the probe haystack really is large (the racing shape)" "large" "$BIG_VERDICT"
+check_eq "the needle really is at the TOP of it" "10" \
+  "$(printf '%s' "$BIG_HAYSTACK" | grep -boF -- "$BIG_NEEDLE" | head -1 | cut -d: -f1)"
+# Drive the REAL check 40 times and count how many of them failed. Counter bookkeeping is restored
+# so the probe does not inflate the suite's own totals. With the piped form a revert is caught with
+# probability 1 - (1-0.55)^40 ≈ 1 (measured 0.55 false-FAIL rate here); with haystack_has it is 0.
+_before_run="$TESTS_RUN"; _before_failed="$TESTS_FAILED"
+for _i in $(seq 1 40); do check_contains "probe $_i" "$BIG_NEEDLE" "$BIG_HAYSTACK" >/dev/null; done
+_probe_failed=$(( TESTS_FAILED - _before_failed ))
+TESTS_RUN="$_before_run"; TESTS_FAILED="$_before_failed"
+check_eq "40/40 large-haystack probes found the needle" "0" "$_probe_failed"
+# ...and the check is still a CHECK: an absent needle must still be reported.
+_before_failed="$TESTS_FAILED"
+check_contains "probe absent" 'NEEDLE-THAT-IS-NOT-THERE' "$BIG_HAYSTACK" >/dev/null
+_probe_absent=$(( TESTS_FAILED - _before_failed ))
+TESTS_FAILED="$_before_failed"
+check_eq "an absent needle is still reported as missing" "1" "$_probe_absent"
+
 lock_kill_all
 rm -f "$BENCH_LOCK_PATH"
 printf '\nworkdir kept for inspection: %s\n' "$WORK"
 summary
-

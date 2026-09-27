@@ -1,0 +1,28 @@
+#!/bin/sh
+# 99z — Management keepalive (seeded by install-offline.sh BEFORE anything can start
+# enforcement).  Trusts the wired management workstation MAC and allows SSH pre-auth.
+#
+# Placed in /etc/uci-defaults/ so it re-applies at every boot, AFTER 99-tollgate-setup:
+# the "z" in the name is the ordering mechanism (uci-defaults run in lexical order).
+#
+# WHY THIS FILE IS THE FIRST THING AN INSTALL DOES
+# nodogsplash turns `users_to_router` into its pre-auth ruleset (the ndsRTR chain) ONCE,
+# at start-up, and it bypasses enforcement for every MAC in `trustedmac`.  With neither in
+# place, the moment NDS starts enforcing on br-lan the wired management workstation loses
+# SSH — that wedge bricked the bench twice (2026-08-16/17).  Staging this file is not
+# enough on its own: it has to be APPLIED (and the applied state asserted) before the
+# package postinst runs, and install-offline.sh refuses to install anything if it is not.
+TRUST_MAC="__TRUST_MAC__"
+
+TM=$(uci -q get nodogsplash.@nodogsplash[0].trustedmac 2>/dev/null || echo "")
+if ! echo "$TM" | grep -q "$TRUST_MAC"; then
+    uci add_list nodogsplash.@nodogsplash[0].trustedmac="$TRUST_MAC"
+fi
+
+UTR=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+if ! echo "$UTR" | grep -q "port 22"; then
+    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22'
+fi
+
+uci commit nodogsplash
+exit 0

@@ -469,13 +469,20 @@ class TestFreshFlashPrerequisite:
         }
 
     def test_02_wallet_drain_gate_refuses_to_flash_money(self, router_host, package_manager):
-        """The operator drains; the harness only verifies and refuses."""
+        """The operator drains; the harness only verifies and refuses.
+
+        A wallet that cannot be read at all is *unknown*, which the gate treats
+        exactly like money: unknown output must never become "safe to flash".
+        """
         if package_manager != "apk":
             pytest.skip("wallet CLI probe is defined for the apk/25.x image")
-        balance_out, _ = _ssh(router_host, ff.WALLET_BALANCE_COMMAND, timeout=60)
+        balance_out, balance_rc = _ssh(router_host, ff.WALLET_BALANCE_COMMAND, timeout=60)
         listing_out, _ = _ssh(router_host, ff.ECASH_LISTING_COMMAND, timeout=30)
-        state = ff.parse_wallet_state(balance_out, listing_out)
+        state = ff.parse_probed_wallet_state(
+            balance_out, listing_out, balance_exit_code=balance_rc
+        )
         HOST_FACTS["wallet_before_flash"] = {
+            "probed": state.probed,
             "total_sats": state.total_sats,
             "nonempty_ecash_files": state.nonempty_files,
             "summary": state.summary(),
@@ -488,6 +495,18 @@ class TestFreshFlashPrerequisite:
             assert any(ff.FLASH_ENABLE_ENV in blocker for blocker in preconditions), (
                 "flash_preconditions must report the destructive switch when it is off: "
                 f"{preconditions}"
+            )
+        if not state.probed:
+            if ALLOW_NONEMPTY_WALLET:
+                pytest.skip(
+                    "unprobed wallet accepted via TOLLGATE_ALLOW_NONEMPTY_WALLET=1 — "
+                    "the operator takes the risk of flashing an unknown wallet"
+                )
+            pytest.fail(
+                "REFUSING TO FLASH: the wallet probe did not answer, so the wallet is "
+                f"UNKNOWN ({state.summary()}) — empty output must never read as 'empty "
+                "wallet'. Prove the wallet is empty by hand, then re-run. Set "
+                "TOLLGATE_ALLOW_NONEMPTY_WALLET=1 only to accept the risk."
             )
         if state.empty:
             return

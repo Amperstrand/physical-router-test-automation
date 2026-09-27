@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# TEST DOUBLE for ssh.  It never leaves the machine: it runs the remote command string
+# in the harness router root, with TGOFFLINE_ROOT exported (the production scripts use
+# that as their filesystem prefix) and the harness doubles on PATH.
+#
+# stdin passes straight through, which is what makes the `ssh 'cat > file' < local`
+# staging path work exactly as it does against a real dropbear.
+set -uo pipefail
+
+HARNESS_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${TGOFFLINE_HARNESS_ROOT:?the harness must export TGOFFLINE_HARNESS_ROOT}"
+SSH_LOG="${TGOFFLINE_HARNESS_SSH_LOG:-}"
+SH_BIN="${TGOFFLINE_HARNESS_SH:-sh}"
+
+HOST=""; CMD=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|-p|-i|-l|-F|-b|-c|-D|-E|-e|-I|-J|-L|-m|-O|-Q|-R|-S|-W|-w) shift 2 ;;
+        -*) shift ;;
+        *) if [ -z "$HOST" ]; then HOST="$1"; else CMD="$1"; fi; shift ;;
+    esac
+done
+
+[ -n "$SSH_LOG" ] && printf 'ssh %s: %s\n' "${HOST:-?}" "$CMD" >> "$SSH_LOG"
+[ -n "$CMD" ] || { echo "ssh(double): no remote command (interactive ssh is not modelled)" >&2; exit 2; }
+
+# The child PATH is the ROUTER's PATH: the fake root's bin dirs first, then the
+# package doubles, then a MINIMAL host PATH (/usr/bin:/bin).  /usr/sbin and /sbin are
+# deliberately absent so the host's own iptables cannot stand in for the base image's —
+# the fixture root is the only place iptables can come from (see run-tests.sh T07).
+PATH="$ROOT/usr/sbin:$ROOT/usr/bin:$ROOT/bin:$HARNESS_BIN:/usr/bin:/bin"
+export PATH
+export TGOFFLINE_ROOT="$ROOT"
+export TGOFFLINE_HARNESS_ROOT="$ROOT"
+
+# shellcheck disable=SC2086  # SH_BIN may be "busybox ash"
+exec $SH_BIN -c "$CMD"

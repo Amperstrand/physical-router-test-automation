@@ -1,8 +1,8 @@
 """User Story: A person's paid session expires and they must re-pay
 to regain internet access.
 
-Tests the session lifecycle: pay → verify internet → wait for expiry
-(or force-deauth) → verify internet is gone → re-pay → verify restored.
+Uses the state-as-fixture pattern: the test requests `fresh_session`
+(guaranteed authenticated) and tests the expiry → re-payment cycle.
 """
 import logging
 import os
@@ -11,57 +11,57 @@ import time
 
 import pytest
 
-from tests.stories.conftest import get_client_device
+from lib.contract import min_token_sats
+from lib.cashu import HttpMinter
 
 log = logging.getLogger("tollgate.story.session_expiry")
 
 pytestmark = [pytest.mark.slow]
 
 PHONE_MAC = "24:46:c8:a9:de:bb"
-ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "192.168.13.124")
 
 
-def _ssh_router(cmd: str) -> str:
-    return subprocess.run(
+def _deauth():
+    host = os.environ.get("TOLLGATE_SSH_HOST", "")
+    if not host:
+        return
+    subprocess.run(
         ["ssh", "-o", "ConnectTimeout=5",
          "-o", "StrictHostKeyChecking=no",
-         f"root@{ROUTER_HOST}", cmd],
-        capture_output=True, text=True, timeout=10).stdout.strip()
+         f"root@{host}", f"ndsctl deauth {PHONE_MAC} 2>/dev/null"],
+        capture_output=True, timeout=10)
 
 
-@pytest.mark.parametrize("device_place", ["android-phone"])
-def test_session_expiry_and_repayment(device_place, tollgate_ssid):
-    device = get_client_device(device_place)
+def test_session_expiry_and_repayment(fresh_session, rate_limiter):
+    device = fresh_session
 
-    # Ensure connected and authenticated
-    assert device.join_wifi(tollgate_ssid), "WiFi join failed"
-    ip = device.get_ip()
-    assert ip, "no IP"
+    # Precondition: authenticated (guaranteed by fresh_session fixture)
+    assert device.has_internet(), \
+        "precondition failed: device should have internet (fresh_session)"
+    log.info("precondition: authenticated with internet")
 
-    if not device.has_internet():
-        # Need to pay first
-        from lib.cashu import HttpMinter
-        mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL",
-                                  "http://192.168.13.221:8383")
-        token = HttpMinter(mint_url).mint(4)
-        assert device.submit_token(token), "initial payment failed"
-        assert device.has_internet(), "no internet after initial payment"
-        log.info("initial payment successful")
-
-    # Force session expiry (deauth simulates timeout)
-    _ssh_router(f"ndsctl deauth {PHONE_MAC} 2>/dev/null")
+    # Act: force session expiry
+    _deauth()
     time.sleep(3)
 
-    # Verify internet is gone
+    # Assert: internet is gone
     assert not device.has_internet(), \
-        "internet should be gone after session expiry (deauth)"
+        "internet should be gone after session expiry"
     log.info("session expired, internet blocked")
 
-    # Re-pay and verify internet restored
-    from lib.cashu import HttpMinter
+    # Act: re-pay
     mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL",
                               "http://192.168.13.221:8383")
-    token = HttpMinter(mint_url).mint(4)
+    token = HttpMinter(mint_url).mint(min_token_sats())
+
+    rate_limiter()
     assert device.submit_token(token), "re-payment failed"
+    log.info("re-payment submitted")
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if device.has_internet():
+            break
+        time.sleep(2)
     assert device.has_internet(), "no internet after re-payment"
     log.info("re-payment successful, internet restored")

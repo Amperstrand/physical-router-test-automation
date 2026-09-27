@@ -320,3 +320,95 @@ def story_evidence(request, results_dir):
     rec = StoryRecorder()
     yield rec
     rec.write_manifest()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Session State Management (labgrid Strategy pattern)
+#
+# Tests declare the state they need via fixtures. Each fixture guarantees
+# the device is in that state on entry and cleans up on exit.
+# See docs/session-state-management.md for the full design rationale.
+# ═══════════════════════════════════════════════════════════════════════
+
+PHONE_MAC = "24:46:c8:a9:de:bb"
+RATE_LIMIT_PER_MIN = 8  # margin below backend's 10/min
+
+
+def _router_ssh(cmd: str) -> str:
+    host = os.environ.get("TOLLGATE_SSH_HOST", "")
+    if not host:
+        return ""
+    return subprocess.run(
+        ["ssh", "-o", "ConnectTimeout=5",
+         "-o", "StrictHostKeyChecking=no",
+         f"root@{host}", cmd],
+        capture_output=True, text=True, timeout=15).stdout.strip()
+
+
+def _deauth_device():
+    _router_ssh(f"ndsctl deauth {PHONE_MAC} 2>/dev/null || true")
+    time.sleep(2)
+
+
+def _mint_and_pay(device) -> bool:
+    from lib.cashu import HttpMinter
+    mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL",
+                              "http://192.168.13.221:8383")
+    minter = HttpMinter(mint_url)
+    token = minter.mint(4)
+    return device.submit_token(token)
+
+
+@pytest.fixture(scope="session")
+def rate_limiter():
+    """Track payment timestamps, back off when approaching the backend limit."""
+    payments: list[float] = []
+
+    def check():
+        now = time.time()
+        payments[:] = [t for t in payments if now - t < 60]
+        if len(payments) >= RATE_LIMIT_PER_MIN:
+            wait = 60 - (now - payments[0]) + 1
+            log.info("rate limit approaching (%d payments), waiting %.1fs",
+                     len(payments), wait)
+            time.sleep(wait)
+        payments.append(now)
+
+    return check
+
+
+@pytest.fixture(scope="function")
+def no_session(tollgate_ssid, rate_limiter):
+    """Guarantee the device is NOT authenticated (portal visible).
+
+    Setup: deauth the device's MAC on the router.
+    Teardown: none (next fixture sets its own state).
+    """
+    device = get_client_device("android-phone")
+    if not device.join_wifi(tollgate_ssid):
+        pytest.skip(f"device could not join {tollgate_ssid}")
+    _deauth_device()
+    yield device
+
+
+@pytest.fixture(scope="function")
+def fresh_session(tollgate_ssid, rate_limiter):
+    """Guarantee the device IS authenticated with a working session.
+
+    Setup: deauth (reset), then mint token and pay.
+    Teardown: deauth (clean state for next test).
+    """
+    device = get_client_device("android-phone")
+    if not device.join_wifi(tollgate_ssid):
+        pytest.skip(f"device could not join {tollgate_ssid}")
+
+    _deauth_device()
+    rate_limiter()
+
+    if not _mint_and_pay(device):
+        pytest.skip("could not establish fresh session (payment failed)")
+    assert device.has_internet(), "fresh_session setup: no internet after payment"
+
+    yield device
+
+    _deauth_device()

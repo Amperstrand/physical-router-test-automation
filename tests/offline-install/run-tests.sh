@@ -12,6 +12,12 @@
 #   * the dependency install passes --no-network --allow-untrusted
 #     --force-missing-repositories BY PATH, and that the last flag is load-bearing
 #     (the apk double aborts without it, exactly as a real WAN-less router's apk does);
+#   * the dependency install offers apk the WHOLE staged closure — and the AS-SHIPPED
+#     stage (only REQUIRED_DEPS + STUB_OK_DEPS) REFUSES on a fresh box, which is the
+#     wave-3 defect this suite exists to keep fixed (T20: apk refuses the whole
+#     transaction, `REFUSED(7)`, and the negation's rc=0 was misreported).  The control
+#     runs the same as-shipped stage on an UPGRADE box, where it passes — the defect was
+#     fresh-box only, which is why it survived three waves of bench installs;
 #   * the negative controls from the card, one test each:
 #       (a) a bundle missing a dependency            -> refuses, naming it
 #       (b) the keepalive step removed               -> refuses with the lockout reason
@@ -469,6 +475,197 @@ PY
         "$(python3 "$HERE/harness/report.py" "$WORK/report.json" fails 2>/dev/null)"
 }
 
+# =============================================================== T20 the closure, fresh box
+# The defect this group exists for: stage (2) of the router-side installer built its apk
+# file list from REQUIRED_DEPS + STUB_OK_DEPS, so a FRESHLY FLASHED box was handed 4 of
+# the bundle's staged packages.  apk-tools 3 resolves a transaction from the files NAMED
+# on the command line plus the installed DB and from nothing else, so nodogsplash's
+# iptables closure (`iptables-nft`, `iptables-mod-conntrack-extra`,
+# `iptables-mod-ipopt`, `iptables-mod-nat-extra`) read `(no such package)` and apk
+# refused the WHOLE transaction → `REFUSED(7)`, on a box the bundle carried every
+# package for.  On an UPGRADE box those deps are already installed, so the transaction
+# resolved from the DB and the stage looked correct — which is why three waves of bench
+# installs never saw it.
+#
+# T20 runs the AS-SHIPPED stage (the pre-fix text, rebuilt by reversing the fix in the
+# shipped file) as a CONTROL, so the green assertions cannot be vacuous:
+#   (a) fresh box, as-shipped   -> REFUSED(7), only the top-level deps offered, and the
+#                                  gate reports the NEGATION's rc (0), not apk's
+#   (b) upgrade box, as-shipped -> PASS: the defect is fresh-box only
+#   (c) fresh box, shipped      -> PASS, every staged package except the one under test
+#   (d) apk's REAL rc reaches the gate, on both the shipped and the as-shipped stage
+test_T20() {
+    local as_shipped="$WORK/as-shipped-scripts"
+    local bfix="" bctl="" staged_green expected_green expected_ship4
+
+    check_gate() { # $1 desc, $2 gate name, $3 state, $4 haystack
+        if printf '%s' "$4" | grep -qE "^gate $2 +$3"; then
+            pass "$1"
+        else
+            fail "$1: no '$3' gate line for $2"
+            printf '        --- output was ---\n%s\n        --- apk log was ---\n%s\n' "$4" "$(apk_log)"
+        fi
+    }
+
+    # ---- rebuild the AS-SHIPPED stage by reversing the fix in the shipped file -------
+    # The control has to run the PRE-FIX stage text, and the shipped file is the only
+    # source of truth for what the fix replaced — so it is reversed here instead of being
+    # paraphrased.  If the shipped stage stops matching, the reversal FAILS LOUDLY: that
+    # is the drift guard (a control that silently tests something else is worse than no
+    # control).
+    rm -rf "$as_shipped"
+    mkdir -p "$as_shipped"
+    cp -R "$SCRIPTS_DIR/." "$as_shipped/"
+    if OUT="$(python3 - "$as_shipped/install-router.sh" <<'PY' 2>&1
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+
+# the stage text AS SHIPPED (verbatim — the shape that refused on a fresh box)
+AS_SHIPPED_FILES = '''dep_files=""
+for dep in $REQUIRED_DEPS; do
+    for f in $STAGED_APKS; do
+        case "$(basename "$f")" in
+            "$dep-"*) dep_files="$dep_files $f" ;;
+        esac
+    done
+done
+for dep in $STUB_OK_DEPS; do
+    for f in $STAGED_APKS; do
+        case "$(basename "$f")" in
+            "$dep-"*) dep_files="$dep_files $f" ;;
+        esac
+    done
+done
+'''
+
+AS_SHIPPED_DEPS_RC = '''if ! apk add --no-network --allow-untrusted --force-missing-repositories $dep_files; then
+    gate_fail deps_installed "apk add of the dependency files failed rc=$?"
+'''
+
+# the two regions the fix rewrote, matched by their own shape (comments included)
+FILES_FIXED = re.compile(
+    r"(?ms)^# --- full-closure offer \(added by the offline bundle builder\) -+\n"
+    r"(?:^#[^\n]*\n)*"
+    r'^dep_files=""\n'
+    r"^for f in \$STAGED_APKS; do\n"
+    r'^    if \[ "\$f" != "\$PKG_APK" \]; then\n'
+    r'^        dep_files="\$dep_files \$f"\n'
+    r"^    fi\n"
+    r"^done\n")
+DEPS_RC_FIXED = re.compile(
+    r"(?ms)^#[^\n]*NEGATION[^\n]*\n"
+    r"(?:^#[^\n]*\n)*"
+    r"^apk_deps_rc=0\n"
+    r"^apk add --no-network[^\n]*\| apk_deps_rc=\$\?\n"
+    r'^if \[ "\$apk_deps_rc" != 0 \]; then\n'
+    r"^    gate_fail deps_installed[^\n]*\n")
+
+for pattern, replacement, label in ((FILES_FIXED, AS_SHIPPED_FILES, "stage-2 file list"),
+                                    (DEPS_RC_FIXED, AS_SHIPPED_DEPS_RC, "stage-2 rc accounting")):
+    hits = len(pattern.findall(text))
+    if hits != 1:
+        print("CONTROL-FAILURE: the shipped %s is not the shape this control reverses "
+              "(%d match(es)) — reconcile T20 with scripts/offline/install-router.sh"
+              % (label, hits))
+        sys.exit(1)
+    text = pattern.sub(lambda m: replacement, text, count=1)
+
+open(path, "w", encoding="utf-8").write(text)
+print("reversed: %s, %s" % ("stage-2 file list", "stage-2 rc accounting"))
+PY
+)"; then
+        pass "closure control: the shipped stage reverses to the as-shipped text ($(printf '%s' "$OUT" | tail -n1))"
+    else
+        fail "closure control: could not rebuild the as-shipped stage — $(printf '%s' "$OUT" | tail -n1)"
+    fi
+
+    bfix="$(bundle_build "$WORK/b20fix")" || bfix=""
+    bctl="$(TGOFFLINE_HARNESS_SCRIPTS="$as_shipped" bundle_build "$WORK/b20ctl")" || bctl=""
+    if [ -z "$bfix" ] || [ -z "$bctl" ]; then
+        fail "closure: could not build the fixture bundles (shipped='$bfix' as-shipped='$bctl')"
+        return 0
+    fi
+    staged_green="$(cd "$bfix/pkgs" && ls *.apk | grep -v '^tollgate-wrt_' | sort)"
+    expected_green="$staged_green"
+    expected_ship4="$(printf '%s\n' "$(cd "$bctl/pkgs" && ls *.apk)" \
+        | grep -E '^(nodogsplash|jq|libmicrohttpd-no-ssl|libpthread)-' | sort)"
+
+    # (a) CONTROL, fresh box, as-shipped stage: the refusal, and its rc accounting.
+    router_root_new
+    run_install "$bctl"
+    check_rc "closure control: the as-shipped stage REFUSES the dependency install on a fresh box" 7 "$RC"
+    check_contains "closure control: the refusal is the WAN-less dependency refusal" "REFUSED(7)" "$OUT"
+    check_contains "closure control: the refusal names what to check (closure/arch/flag)" \
+        "a package missing from the bundle's closure" "$OUT"
+    check_contains "closure control: the gate reported the NEGATION's rc (0), not apk's" \
+        "apk add of the dependency files failed rc=0" "$OUT"
+    check_eq "closure control: the as-shipped stage offered $(printf '%s\n' "$expected_ship4" | grep -c .) of $(printf '%s\n' "$expected_green" | grep -c .) staged packages (the top-level deps only)" \
+        "$expected_ship4" "$(deps_offered_apks)"
+    check_eq "closure control: apk refused the WHOLE transaction — nothing was installed" \
+        "0" "$(apk_add_count)"
+
+    # (b) CONTROL, upgrade box (those deps already installed), same as-shipped stage.
+    router_root_new
+    router_feature upgrade-box
+    run_install "$bctl"
+    check_rc "closure control: the SAME as-shipped stage PASSES on an upgrade box — the defect is fresh-box only" 0 "$RC"
+    check_contains "closure control: the upgrade-box install is a PASS" "TGOFFLINE-RESULT PASS" "$OUT"
+    check_gate "closure control: deps_installed passed on the upgrade box" deps_installed PASS "$OUT"
+    check_eq "closure control: on an upgrade box only the top-level deps were offered — and that was enough" \
+        "$expected_ship4" "$(deps_offered_apks)"
+
+    # (c) the SHIPPED stage, fresh box: the closure is offered, resolves, and lands.
+    router_root_new
+    run_install "$bfix"
+    check_rc "closure: the shipped stage passes on a fresh box" 0 "$RC"
+    check_contains "closure: the fresh-box install is a PASS" "TGOFFLINE-RESULT PASS" "$OUT"
+    check_gate "closure: deps_installed passed" deps_installed PASS "$OUT"
+    check_eq "closure: the shipped stage offers EVERY staged package except the one under test" \
+        "$expected_green" "$(deps_offered_apks)"
+    check_eq "closure: the fresh-box install still uses exactly two apk add invocations (closure, then the package)" \
+        "2" "$(apk_add_count)"
+    check_contains "closure: nodogsplash's iptables closure really landed (iptables-nft)" \
+        "iptables-nft" "$(installed_names_sorted)"
+    check_contains "closure: …and iptables-mod-nat-extra too" \
+        "iptables-mod-nat-extra" "$(installed_names_sorted)"
+    check_contains "closure: …and xtables-nft landed too" \
+        "xtables-nft" "$(installed_names_sorted)"
+    check_contains "closure: …and libxtables" \
+        "libxtables" "$(installed_names_sorted)"
+    check_contains "closure: …and the base image is still there (the closure did not replace it)" \
+        "libc" "$(installed_names_sorted)"
+
+    # (d) apk's OWN rc reaches the gate (the negation's 0 was the second half of the bug).
+    router_root_new
+    router_feature apk-add-fails
+    run_install "$bfix"
+    check_rc "closure: an apk that fails aborts the install (7)" 7 "$RC"
+    check_contains "closure: the dependency gate reports apk's REAL rc (3), not the negation's 0" \
+        "apk add of the dependency files failed rc=3" "$OUT"
+    check_not_contains "closure: and the gate does not report rc=0 for a real failure" \
+        "failed rc=0" "$OUT"
+    router_root_new
+    router_feature apk-add-fails
+    run_install "$bctl"
+    check_contains "closure control: the as-shipped accounting reported that same rc=3 failure as rc=0" \
+        "apk add of the dependency files failed rc=0" "$OUT"
+
+    # (e) STATIC: the shipped script hands apk the staged set and reads apk's own rc at
+    #     BOTH invocations.  (The one `for dep in $REQUIRED_DEPS` loop that remains is
+    #     the stage-1b closure/name gate, which is where it belongs.)
+    check_eq "closure: the shipped script no longer builds the apk file list from REQUIRED_DEPS/STUB_OK_DEPS" \
+        "1" "$(grep -cF 'for dep in $REQUIRED_DEPS' "$SCRIPTS_DIR/install-router.sh")"
+    check_eq "closure: the dependency stage captures apk's own rc" "1" \
+        "$(grep -cF '|| apk_deps_rc=$?' "$SCRIPTS_DIR/install-router.sh")"
+    check_eq "closure: the package stage captures apk's own rc too" "1" \
+        "$(grep -cF '|| apk_pkg_rc=$?' "$SCRIPTS_DIR/install-router.sh")"
+    check_eq "closure: no apk invocation reads \$? inside \`if !\` any more" "0" \
+        "$(grep -cF 'failed rc=$?' "$SCRIPTS_DIR/install-router.sh")"
+}
+
 # =============================================================== runner
 TITLES="
 T01|dry-run: verify the bundle, print the ordered plan, touch nothing
@@ -490,8 +687,9 @@ T16|--force-missing-repositories is load-bearing (behaviour changes without it)
 T17|the production scripts run under the router's shell (BusyBox ash / dash)
 T18|staging never uses scp (stdin redirect only)
 T19|the machine-readable report has every gate, in JSON, with the remote half embedded
+T20|the dependency closure on a FRESH box (as-shipped refusal + upgrade-box control)
 "
-TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19"
+TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20"
 if [ -n "${1:-}" ] && [ "${1:-}" = "--only" ]; then ONLY="${2:-}"; fi
 if [ -n "${TGOFFLINE_HARNESS_ONLY:-}" ]; then ONLY="$TGOFFLINE_HARNESS_ONLY"; fi
 

@@ -10,6 +10,13 @@
 #     never run `apk update`, so every feed index is missing — which is why that
 #     flag is load-bearing rather than cosmetic.
 #   * `add <file>...`   installs a fixture package into the router root
+#   * DEPENDENCY RESOLUTION on `add`: a transaction resolves from the files NAMED on
+#     the command line, the fixture packages' own `provides`, the installed DB and the
+#     base image — and from nothing else.  A dependency that is none of those is
+#     `(no such package)` and apk refuses the WHOLE transaction (nothing installs),
+#     exactly as apk-tools 3 does with --no-network on a WAN-less box.  Without this,
+#     a stage that hands apk only the top-level deps looks healthy, which is how the
+#     fresh-box dependency-closure defect (T20) survived.
 #   * `extract --allow-untrusted --destination D <file>`  (used for the payload
 #     identity gate: the hash of usr/bin/tollgate-wrt inside the artifact)
 #   * `info -v`, `info -R <name>`, `update`
@@ -34,6 +41,23 @@ HSTATE="$ROOT/var/lib/tgoffline-harness"
 mkdir -p "$DB/depends" "$HSTATE"
 
 log() { printf '%s\n' "$*" >> "$LOG"; }
+
+# PKGINFO of a fixture package, one key at a time (the fixture is a tar.gz, so the
+# control member has to be read out of the archive).
+pkg_field() { # pkg_field <apk-file> <PKGINFO key>
+    local t v=""
+    t="$(mktemp -d)"
+    if tar xzf "$1" -C "$t" 2>/dev/null && [ -f "$t/PKGINFO" ]; then
+        v="$(sed -n "s/^$2=//p" "$t/PKGINFO" | head -1)"
+    fi
+    rm -rf "$t"
+    printf '%s' "$v"
+}
+
+# The packages the running box already has.  apk resolves a transaction from the files
+# NAMED on the command line plus this DB, and from nothing else.  Returned as a single
+# space-separated list so it can be matched as ` $name ` below.
+installed_names() { [ -f "$DB/installed" ] && awk '{print $1}' "$DB/installed" 2>/dev/null | tr '\n' ' '; }
 
 cmd="${1:-}"
 shift || true
@@ -129,6 +153,56 @@ case "$cmd" in
             done
         fi
         log "apk add: no-network=$no_network allow-untrusted=$allow_untrusted force-missing-repositories=$force_missing files:$files"
+        # ---- modelled failure: apk that answers with a KNOWN rc ---------------------
+        # (harness knob, see lib.sh router_feature apk-add-fails[=N]).  It sits BEFORE
+        # the resolution below and BEFORE the "Running" line, so a failed `apk add`
+        # leaves no completed invocation behind — and the rc the installer reports can
+        # be compared with the rc apk actually returned.
+        forced_rc="$(cat "$HSTATE/apk_add_fail" 2>/dev/null || printf '')"
+        if [ -n "$forced_rc" ]; then
+            echo "ERROR: (harness) modelled apk add failure, rc=$forced_rc" >&2
+            exit "$forced_rc"
+        fi
+        # ---- dependency RESOLUTION (apk-tools 3, --no-network, WAN-less box) --------
+        # apk resolves a transaction from the files NAMED on the command line plus the
+        # installed DB, and from nothing else.  With --no-network there is no feed index
+        # to fall back on, so a dependency of a NAMED package that is not itself named
+        # (and not already installed, and not part of the base image) is
+        # `(no such package)` — and apk refuses the WHOLE transaction: nothing in it is
+        # installed.  This is the refusal a freshly flashed box hit while the bundle
+        # carried every package it needed, which is why it is modelled here rather than
+        # assumed away: the previous version of this double installed whatever it was
+        # handed, so a stage that handed apk only the top-level deps looked healthy.
+        offered=""
+        provides=""
+        for f in $files; do
+            offered="$offered $(pkg_field "$f" name)"
+            for p in $(pkg_field "$f" provides); do provides="$provides ${p%-any}"; done
+        done
+        have="$offered$provides $(installed_names)"
+        unresolved=""
+        for f in $files; do
+            requirer="$(pkg_field "$f" name)-$(pkg_field "$f" version)"
+            for d in $(pkg_field "$f" depends); do
+                case " $have " in
+                    *" $d "*) ;;
+                    *) unresolved="$unresolved$d:$requirer " ;;
+                esac
+            done
+        done
+        if [ -n "$unresolved" ]; then
+            echo "ERROR: unable to select packages:" >&2
+            printf '%s\n' $unresolved | sed 's/:.*//' | sort -u | while read -r d; do
+                echo "  $d (no such package):" >&2
+                for pair in $unresolved; do
+                    case "$pair" in
+                        "$d":*) echo "    required by: ${pair#*:}[depends]" >&2 ;;
+                    esac
+                done
+            done
+            echo "ERROR: $(printf '%s\n' $files | wc -l | tr -d ' ') file(s) offered; a dependency of a named package is neither named nor installed, and --no-network leaves no feed index to resolve it from" >&2
+            exit 1
+        fi
         log "Running .apk add$files"
         # ---- install each named file ----------------------------------------------
         for file in $files; do

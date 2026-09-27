@@ -137,6 +137,36 @@ payload_mhd="$SCRATCH/pay_mhd"
 mkdir -p "$payload_mhd/usr/lib"
 printf 'libmicrohttpd fixture payload\n' > "$payload_mhd/usr/lib/libmicrohttpd.so.12"
 
+# The iptables closure nodogsplash needs ON TOP of the feed's DEPENDS+= line — the
+# packages the released pre19 bundle stages, and the ones the dependency stage never
+# offered to apk.  Their payloads deliberately do NOT include /usr/sbin/iptables: on
+# this fixture router that binary belongs to the BASE IMAGE (see harness/lib.sh), which
+# is exactly what the `no-iptables` variant removes to prove the runtime-payload gate
+# fires.  A shortcut here would make T07 vacuous.
+payload_iptables_nft="$SCRATCH/pay_iptables_nft"
+mkdir -p "$payload_iptables_nft/usr/sbin"
+cat > "$payload_iptables_nft/usr/sbin/iptables-nft-multi" <<'EOF'
+#!/bin/sh
+echo "iptables v1.8.10 (nf_tables) [harness fixture]"
+EOF
+chmod 755 "$payload_iptables_nft/usr/sbin/iptables-nft-multi"
+
+payload_xtables_nft="$SCRATCH/pay_xtables_nft"
+mkdir -p "$payload_xtables_nft/usr/lib/xtables"
+printf 'xtables-nft fixture payload\n' > "$payload_xtables_nft/usr/lib/xtables/libxt_standard.so"
+
+payload_libxtables="$SCRATCH/pay_libxtables"
+mkdir -p "$payload_libxtables/usr/lib"
+printf 'libxtables fixture payload\n' > "$payload_libxtables/usr/lib/libxtables.so.12"
+
+payload_mod_conntrack="$SCRATCH/pay_mod_conntrack"
+payload_mod_ipopt="$SCRATCH/pay_mod_ipopt"
+payload_mod_nat="$SCRATCH/pay_mod_nat"
+for d in "$payload_mod_conntrack" "$payload_mod_ipopt" "$payload_mod_nat"; do
+    mkdir -p "$d/usr/lib/iptables"
+    printf '%s fixture payload\n' "$(basename "$d")" > "$d/usr/lib/iptables/$(basename "$d")"
+done
+
 payload_tollgate="$SCRATCH/pay_tollgate"
 mkdir -p "$payload_tollgate/usr/bin" "$payload_tollgate/etc/init.d" \
          "$payload_tollgate/etc/uci-defaults" "$payload_tollgate/lib/upgrade/keep.d"
@@ -208,11 +238,21 @@ build_dep() { # build_dep <name> <version> <depends> <payload-dir>
         apk_build "$DEST/pkgs/$n-$v.apk" "$n" "$v" "$d" "-" "$p"
     fi
 }
-build_dep nodogsplash "5.0.2-r1" "libmicrohttpd-no-ssl libpthread" "$payload_nodogsplash"
+build_dep nodogsplash "5.0.2-r1" "libmicrohttpd-no-ssl libpthread iptables-nft iptables-mod-conntrack-extra iptables-mod-ipopt iptables-mod-nat-extra" "$payload_nodogsplash"
 build_dep jq "1.8.1-r2" "libc" "$payload_jq"
 build_dep libmicrohttpd-no-ssl "1.0.2-r1" "libc" "$payload_mhd"
 # the stale virtual dep: an empty stub is the CORRECT answer for these
 build_dep libpthread "1.0" "" "-"
+# nodogsplash's iptables closure: NOT reachable from REQUIRED_DEPS, and the reason the
+# dependency stage has to offer everything staged rather than the top-level deps only.
+# `kernel` is deliberately NOT built here — the base image provides it, as it does on a
+# real router.
+build_dep iptables-nft "1.8.10-r3" "libxtables xtables-nft kernel" "$payload_iptables_nft"
+build_dep xtables-nft "1.8.10-r3" "libxtables" "$payload_xtables_nft"
+build_dep libxtables "1.8.10-r3" "libc" "$payload_libxtables"
+build_dep iptables-mod-conntrack-extra "1.8.10-r3" "libxtables" "$payload_mod_conntrack"
+build_dep iptables-mod-ipopt "1.8.10-r3" "libxtables" "$payload_mod_ipopt"
+build_dep iptables-mod-nat-extra "1.8.10-r3" "libxtables" "$payload_mod_nat"
 
 apk_build "$DEST/pkgs/$TOLLGATE_APK" "tollgate-wrt" "${PKG_VERSION}-r1" \
     "jq libc nodogsplash" "$postinst_dir/tollgate" "$payload_tollgate"

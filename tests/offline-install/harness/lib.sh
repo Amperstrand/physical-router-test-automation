@@ -85,6 +85,17 @@ EOF
 echo "iptables v1.8.11 (nf_tables)"
 EOF
     chmod +x "$root/usr/sbin/iptables"
+    # the installed DB of a freshly flashed image: the base image's own packages and
+    # NOTHING the bundle ships.  apk resolves a transaction from the files NAMED on the
+    # command line plus this DB (apk-tools 3, --no-network, no feed index to fall back
+    # on) — so what is in here is exactly what decides whether a WAN-less install can
+    # resolve.  A fresh flash has libc/libgcc/kernel; it has no nodogsplash, no jq and
+    # no iptables-nft, which is why the dependency stage has to be handed the closure.
+    cat > "$root/var/lib/apk/installed" <<'EOF'
+libc 1.2.5-r5
+libgcc 14.3.0-r4
+kernel 6.12.60-r1
+EOF
     # the HTTP surface model the curl double reads (port → code).  8090/8443 are
     # derived from the guard state on purpose (see harness/bin/curl).
     cat > "$root/var/lib/tgoffline-harness/http_codes" <<'EOF'
@@ -108,6 +119,27 @@ router_feature() { # $1=feature  — flip a feature on the CURRENT root
         uplink) rm -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/no-uplink" ;;
         8080-200) sed -i 's/^8080 307$/8080 200/' "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/http_codes" ;;
         no-guard-state) rm -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/nft_admin_board_input_guard" ;;
+        # the SAME box after a previous install: the packages the dependency stage does
+        # not offer (nodogsplash's iptables closure) are already in the DB, so the
+        # transaction resolves from here.  This is the shape that hid the fresh-box
+        # defect for three waves of bench installs (T20's upgrade-box control).
+        upgrade-box)
+            cat > "$TGOFFLINE_HARNESS_ROOT/var/lib/apk/installed" <<'EOF'
+libc 1.2.5-r5
+libgcc 14.3.0-r4
+kernel 6.12.60-r1
+iptables-nft 1.8.10-r3
+xtables-nft 1.8.10-r3
+libxtables 1.8.10-r3
+iptables-mod-conntrack-extra 1.8.10-r3
+iptables-mod-ipopt 1.8.10-r3
+iptables-mod-nat-extra 1.8.10-r3
+EOF
+            ;;
+        # make `apk add` fail with a KNOWN non-zero rc, so the rc the installer reports
+        # can be compared with the rc apk actually returned (3 unless overridden)
+        apk-add-fails) printf '3\n' > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/apk_add_fail" ;;
+        apk-add-fails=*) printf '%s\n' "${1#apk-add-fails=}" > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/apk_add_fail" ;;
     esac
 }
 
@@ -119,6 +151,18 @@ apk_add_count() {
     if [ -f "$log" ]; then grep -c 'Running .apk add' "$log" 2>/dev/null | head -1; else echo 0; fi
 }
 apk_log() { cat "$TGOFFLINE_HARNESS_ROOT/var/log/apk.log" 2>/dev/null; }
+# the .apk basenames the FIRST `apk add` invocation was handed — the dependency stage.
+# The double logs every invocation (`apk add: … files: <path> <path> …`) BEFORE it
+# resolves, so a REFUSED transaction is still recorded and "what was offered" is
+# assertable.  The dependency stage is always invocation #1 (stage 2 runs before the
+# package stage), and apk_add_count() counts only COMPLETED invocations.
+deps_offered_apks() {
+    sed -n 's/^apk add: .* files: //p' "$TGOFFLINE_HARNESS_ROOT/var/log/apk.log" 2>/dev/null \
+        | head -1 | tr ' ' '\n' | while read -r p; do [ -n "$p" ] && basename "$p"; done | sort
+}
+installed_names_sorted() {
+    awk '{print $1}' "$TGOFFLINE_HARNESS_ROOT/var/lib/apk/installed" 2>/dev/null | sort | tr '\n' ' '
+}
 nft_log() { cat "$TGOFFLINE_HARNESS_ROOT/var/log/nft.log" 2>/dev/null; }
 ssh_log() { cat "${TGOFFLINE_HARNESS_SSH_LOG:-}" 2>/dev/null; }
 scp_log() { cat "${TGOFFLINE_HARNESS_SCP_LOG:-}" 2>/dev/null; }

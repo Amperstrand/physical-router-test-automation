@@ -3,8 +3,12 @@
 **Lane:** `scripts/cudy-flash.py` (logic in `lib/cudy_flash.py`, tests in `tests/unit/test_cudy_flash.py`)
 **Status:** stages **1 and 2 are VERIFIED ON HARDWARE (2026-09-27)** on a real Cudy
 WR3000 v1. The stage-1 vendor upload endpoint/selector and the stage-2 sysupgrade path
-below are pinned from that run. The flash-capacity preflight is measured on that run;
-the **volatile (tmpfs) install is implemented and unit-tested but NOT hardware-verified**.
+below are pinned from that run. The flash-capacity preflight is measured on that run, and
+a later 2026-09-27 measurement on the same box proved the project's `upx-ultra-brute`
+compressed payload **fits flash and survives a reboot** — so the *default* payload is the
+one that does not fit, not every flash install. The
+**volatile (tmpfs) install is implemented and unit-tested but NOT hardware-verified** (it
+is now the *fallback*, not the answer).
 See [What is verified vs not](#what-is-verified-vs-not).
 
 The operator's requirement was: *"the physical router testing kit should have the
@@ -116,9 +120,9 @@ Provenance, stage 2:
 Both images also accept a **`<image>.sha256` sidecar** when one is present. A
 sidecar that disagrees with the pinned hash is a refusal, never a silent pick.
 
-## The flash-capacity wall (MEASURED 2026-09-27) — the headline for a 16 MB box
+## The flash-capacity wall: the DEFAULT payload does not fit (MEASURED 2026-09-27)
 
-The TollGate payload **cannot be installed on flash** on this board:
+The TollGate **default** payload **cannot be installed on flash** on this board:
 
 | fact | bytes |
 |---|---|
@@ -126,17 +130,22 @@ The TollGate payload **cannot be installed on flash** on this board:
 | mtd6 kernel | ~4.2 MB |
 | mtd7 rootfs | ~10.8 MB |
 | mtd8 `rootfs_data` (jffs2 overlay) | ~5.9 MB, of which **only ~4.6 MB free** |
-| tollgate-wrt payload, **uncompressed** | **21 MB** |
+| tollgate-wrt default payload, **uncompressed** | **21 MB** |
 | — `usr/bin/tollgate-wrt` | 12,361,280 |
 | — `usr/bin/tollgate` | 7,373,632 |
 | — `etc/` 924 K, `www/` 216 K, `lib/` ~1.2 MB | ~2.3 MB |
-| the `.apk`/`.ipk` package, **compressed** | 8.5 MB |
+| the default `.apk`/`.ipk` package, **compressed** | 8.5 MB |
 
 The compressed package cannot be unpacked into 4.6 MB free: `apk` dies mid-extract with
 
 ```
 failed to extract usr/bin/tollgate-wrt: No space left on device
 ```
+
+*(Note on the numbers: the ~4.6 MB "free" above is the **residual** free left on the overlay
+by the failed default-payload extraction. A freshly-flashed box has (nearly) the whole ~5.9 MB
+overlay free — that is the space the compressed variant below was installed into, leaving
+0.16 M free.)*
 
 A custom ImageBuilder image fails the same arithmetic (base squashfs ~6.5 MB + kernel
 3.2 MB + ~8.5 MB compressed payload > 15.1 MB firmware area).
@@ -150,12 +159,63 @@ scripts/cudy-flash.py capacity --probe    # df -k /overlay + df -k /tmp over ssh
 
 `cf.check_install_capacity` names the payload size and the free space, and
 `install-tollgate` (and `capacity`) refuse with exit bit **128** before touching the box.
+The refusal now points FIRST at the compressed variant below.
 
-## The volatile (tmpfs) install — IMPLEMENTED, NOT YET HARDWARE-VERIFIED
+## The compressed `upx-ultra-brute` variant DOES fit — **VERIFIED ON HARDWARE 2026-09-27**
 
-The operator's chosen answer to the wall is a **volatile** install: ~117 MB of tmpfs is
-free, so the **two big binaries live in `/tmp`** (RAM) and are **symlinked from `/usr/bin`**,
-while the **small parts** (`etc/`, `www/`, `lib/` ~1.2 MB) go on flash.
+> **This supersedes the earlier "volatile is the only answer" conclusion.** That conclusion
+> was drawn from the *default* payload only; the compressed variant was measured on the same
+> box afterwards.
+
+The project's CI already builds a **`upx-ultra-brute`** variant for
+`aarch64_cortex-a53` / `mediatek-filogic`. Artifact
+`tollgate-wrt_main.200.4469994_aarch64_cortex-a53-upx-ultra-brute.apk` (also `.ipk`), found
+via the project's Nostr NIP-94 kind-1063 events (publisher
+`5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a`, tag
+`compression=upx-ultra-brute`; relays `relay1`/`relay2.orangesync.tech`). Verified against
+each event's `x` tag:
+
+| artifact | sha256 |
+|---|---|
+| `.apk` | `29bb68adbb26e67c0c0091e83f79fc79d9617f91364efa260e3e386fc00fff8b` |
+| `.ipk` | `85a34d272629a386806462845cae071fdf12777e9be6ace09a1dd3f28bf39da8` |
+
+Payload: **18 files, 5,601,262 B = 5.34 MiB** uncompressed — `usr/bin/tollgate-wrt`
+3,470,344 B + `usr/bin/tollgate` 1,867,032 B + ~256 KiB of config/captive-portal files
+(compare the default: 21 MB uncompressed / 8.5 MB compressed).
+
+**It fits and is PERSISTENT** (measured directly on a real WR3000 v1):
+
+* `apk add --no-network --allow-untrusted --force-non-repository /tmp/upx.apk` succeeded and
+  registered `tollgate-wrt` in the apk DB;
+* the UPX-compressed Go binaries **execute correctly** on the router's kernel;
+* after a **real reboot** (uptime 1 min) `tollgate-wrt` was **RUNNING**, `/tmp/tg` was
+  absent, and the binaries were still on flash. Overlay after install:
+  **5.8 M used / 0.16 M free (97%)**.
+
+**Two traps measured** — they belong in the preflight advice:
+
+1. `apk add --force-non-repository <file>` performs a **world sync** and **REMOVES** packages
+   that were previously installed from *files* (not from any repository): after installing
+   the module package, `nodogsplash`, `jq`, `iptables-nft` and `libmicrohttpd-no-ssl` had
+   **silently vanished**. Fix: install the whole dependency closure in ONE `apk add`
+   transaction, or take `nodogsplash` from the feed repositories / bake it into the image.
+2. Freeing the **`tollgate` CLI** (1,867,032 B = 1.78 MiB) — only needed for provisioning,
+   which runs once — makes room for the nodogsplash closure on a 16 MB device: after
+   dropping it the overlay had **2.0 MB free**, and after reinstalling the 37-package
+   closure **1016 KB free**.
+
+**Provenance caveat.** This was exercised on a **dev-channel artifact**, not a release
+asset: the feed **RELEASE does not publish the compressed variant** (only default builds), so
+today a device cannot fetch it from a release. That gap is tracked in
+**FreedomTechFeed/packages PR #39** (already corrected there) — it is out of scope here.
+
+## The volatile (tmpfs) install — the FALLBACK — IMPLEMENTED, NOT YET HARDWARE-VERIFIED
+
+When the compressed variant is unavailable and the space cannot be freed, the **fallback** is
+a **volatile** install: ~117 MB of tmpfs is free, so the **two big binaries live in `/tmp`**
+(RAM) and are **symlinked from `/usr/bin`**, while the **small parts**
+(`etc/`, `www/`, `lib/` ~1.2 MB) go on flash.
 
 ```sh
 # prints the plan and uploads nothing unless --package + --yes-i-mean-it are given
@@ -183,7 +243,8 @@ refuses any claim that it survives a reboot:
 > not survive a power cycle or a `sysupgrade`.
 
 This is a *bench/workbench* install mode (bring the module up to test it), not a
-deployment mode.
+deployment mode. For a persistent deployment on a 16 MB box, use the compressed
+`upx-ultra-brute` variant above.
 
 ## Two kit bugs found by the hardware run, and their fixes
 
@@ -245,7 +306,8 @@ TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true \
   scripts/cudy-flash.py sysupgrade --yes-i-mean-it --readdress enx00e04c683d2d
 #    --dry-run stages + verifies on device and stops before the flash
 
-# 3. STAGE 3 — handover into the kit's existing install path (or volatile)
+# 3. STAGE 3 — handover into the kit's existing install path (prefer the compressed
+#    `upx-ultra-brute` payload; `--volatile` is the bench-only fallback)
 TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true TOLLGATE_ROUTER_PASSWORD=… \
   scripts/cudy-flash.py install-tollgate                 # capacity preflight, sets pw, enables Wi-Fi, prints the path
 TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true TOLLGATE_ROUTER_PASSWORD=… \
@@ -288,7 +350,9 @@ pinned endpoint/field), `CUDY_TOLLGATE_PACKAGE` (the `.apk` for `--volatile`),
 * an upload whose two-step answer is not *upload 200 → Proceed 302* (unknown is
   **never** a pass), and an upload refused by Cudy's signature check;
 * the **install** when the payload does not fit the free overlay (exit **128**), with
-  the payload-vs-free arithmetic and the ENOSPC consequence named — never `apk`'s error;
+  the payload-vs-free arithmetic and the ENOSPC consequence named — never `apk`'s error —
+  and the refusal points first at the compressed `upx-ultra-brute` variant, then at
+  dropping the `tollgate` CLI, then at `--volatile` as the fallback;
 * `install-tollgate` without `TOLLGATE_ROUTER_PASSWORD` (a fresh image has an
   EMPTY root password and the lab password must be **set** as part of the handover).
 
@@ -350,8 +414,11 @@ it serialises on its **own** lock (`~/.hermes/state/bench-cudy-wr3000.lock`).
 7. **A fresh image has an EMPTY root password.** `ssh root@192.168.1.1` works with no
    password; the lab password must be **set** (`passwd root`; `chpasswd` does not exist
    on OpenWrt) before the install path runs, which refuses an empty password.
-8. **The 16 MB flash wall.** The 21 MB uncompressed payload does not fit the 4.6 MB
-   free overlay. Use `--volatile` (tmpfs; **LOST ON REBOOT**), never a flash install.
+8. **The 16 MB flash wall.** The 21 MB *default* uncompressed payload does not fit the
+   4.6 MB free overlay. Prefer the project's `upx-ultra-brute` compressed variant
+   (5.60 MB uncompressed — **VERIFIED ON HARDWARE 2026-09-27 to fit and survive a
+   reboot**); if it is unavailable, drop the provisioning-only `tollgate` CLI to free the
+   overlay; `--volatile` (tmpfs; **LOST ON REBOOT**) is the *fallback* for bench work.
 9. **"recovery TFTP" naming.** The Cudy Drive folder has more than one variant.
    Use `WR3000+V1  without recovery TFTP.zip`; the recovery-TFTP archive belongs
    to the UART/U-Boot route.
@@ -374,7 +441,10 @@ it serialises on its **own** lock (`~/.hermes/state/bench-cudy-wr3000.lock`).
   landing on SNAPSHOT r22906-c9cb6411c1 / board `cudy,wr3000-v1` / empty root password;
 * **stage 2** — the ssh-stdin staging, on-device sha256 match, `sysupgrade -T` then
   `sysupgrade -n`, landing on 25.12.5 r33051-f5dae5ece4 / board `cudy,wr3000-v1`;
-* the **flash-capacity wall** (the measured layout and the ENOSPC mid-extract);
+* the **flash-capacity wall** (the measured layout and the ENOSPC mid-extract of the
+  *default* payload);
+* the **compressed `upx-ultra-brute` payload** — installed persistently, binaries executed,
+  survived a real reboot (2026-09-27) — from a **dev-channel artifact, not a release asset**;
 * the **kit bug (1)** keepalive-seed fix (the fresh box then trusts the MAC).
   *(Kit bug (2), the WAN-less closure, was fixed and landed upstream in PR #178.)*
 
@@ -382,13 +452,16 @@ it serialises on its **own** lock (`~/.hermes/state/bench-cudy-wr3000.lock`).
 
 * the **volatile (tmpfs) install** (`install-tollgate --volatile`) — plan, idempotent
   commands, and the non-persistence refusals are unit-tested; no run has installed it
-  on a box. Treat it as "bring it up for a bench test", and verify the module answers
-  `kind:10021` by hand the first time;
+  on a box. It is now the *fallback* path. Treat it as "bring it up for a bench test", and
+  verify the module answers `kind:10021` by hand the first time;
 * the **capacity preflight's on-device probes** (`df -k /overlay`, `df -k /tmp` over ssh)
   — the arithmetic is pinned from the run, but the probe wiring is not exercised.
 
 **Still unverified / out of scope:**
 
+* whether the **feed RELEASE** ever ships the `upx-ultra-brute` variant — it currently
+  publishes only default builds, so the compressed payload was fetched from the dev channel
+  (tracked in **FreedomTechFeed/packages PR #39**, not fixed here);
 * the **login POST shape** end to end (`luci_username=admin` + `password` to
   `/cgi-bin/luci/`) — the standard LuCI form, but not exercised for the *upload flow* by
   the lane itself;
@@ -407,7 +480,10 @@ it serialises on its **own** lock (`~/.hermes/state/bench-cudy-wr3000.lock`).
 python3 -m pytest tests/unit/test_cudy_flash.py -q
 python3 -m py_compile scripts/cudy-flash.py lib/cudy_flash.py
 python3 scripts/cudy-flash.py check --model "WR3000 2.0"    # must refuse, naming the gates
-python3 scripts/cudy-flash.py capacity                      # must refuse: 21 MB vs 4.6 MB
+python3 scripts/cudy-flash.py capacity                      # must refuse the DEFAULT 21 MB vs 4.6 MB
+                                                            # and point first at the compressed variant
+TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true \
+  python3 scripts/cudy-flash.py capacity --payload-bytes 5601262   # must fit (VERIFIED 2026-09-27)
 python3 scripts/cudy-flash.py --help
 
 # the two kit-bug regressions, offline (no router)

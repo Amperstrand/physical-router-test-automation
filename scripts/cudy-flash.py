@@ -14,9 +14,12 @@
     install-tollgate STAGE 3 handoff: set the root password, enable the AP
                     wifi-iface sections, then enter the kit's EXISTING install
                     path (``scripts/install-path-e2e.py`` / ``make install-path-e2e``).
-                    ``--volatile`` installs the big binaries into tmpfs instead
-                    (16 MB of flash cannot hold the 21 MB payload) — the install
-                    is then LOST ON REBOOT and is never reported as persistent.
+                    A 16 MB box cannot hold the 21 MB *default* payload, so prefer
+                    the project's ``upx-ultra-brute`` compressed variant
+                    (5.60 MB uncompressed; VERIFIED ON HARDWARE 2026-09-27 to
+                    install persistently).  ``--volatile`` is the FALLBACK: it
+                    installs the big binaries into tmpfs, is LOST ON REBOOT, and
+                    is never reported as persistent.
     verify          read-only post-install ladder: identity, Wi-Fi ifaces,
                     module ``kind:10021``
 
@@ -26,9 +29,10 @@ the wallet gate, which fails closed — a wallet probe that did not answer is
 *unknown*, never "empty".  Each subcommand refuses loudly and names its gate.
 
 EVIDENCE: stages 1 and 2 were exercised end to end on a real Cudy WR3000 v1 on
-2026-09-27 (see docs/cudy-wr3000-flashing.md).  The volatile install and the
-capacity preflight are implemented and unit-tested but have NOT been run on
-hardware.
+2026-09-27, and the ``upx-ultra-brute`` compressed payload was installed
+persistently on the same box on 2026-09-27 (see docs/cudy-wr3000-flashing.md).
+The volatile install and the capacity preflight are implemented and unit-tested
+but have NOT been run on hardware.
 """
 
 from __future__ import annotations
@@ -336,8 +340,11 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"stage2 flash   : {cf.sysupgrade_command(cf.remote_image_path(cf.MAINLINE_IMAGE_FILENAME))}")
     print(f"no-sftp note   : {cf.SFTP_UNSUPPORTED_NOTE}")
     print(f"capacity       : payload {cf.TOLLGATE_UNCOMPRESSED_BYTES} B uncompressed vs overlay free "
-          f"{cf.OVERLAY_FREE_BYTES_MEASURED} B -> does NOT fit; use `install-tollgate --volatile` (tmpfs, "
-          f"NOT persistent). Full preflight: `cudy-flash.py capacity`")
+          f"{cf.OVERLAY_FREE_BYTES_MEASURED} B -> the DEFAULT payload does NOT fit. Use the "
+          f"`{cf.TOLLGATE_COMPRESSED_VARIANT}` variant "
+          f"({cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES} B; VERIFIED ON HARDWARE "
+          f"{cf.TOLLGATE_COMPRESSED_VERIFIED_DATE}), or `install-tollgate --volatile` (tmpfs, "
+          f"FALLBACK, NOT persistent). Full preflight: `cudy-flash.py capacity`")
     print(f"wifi enable    : {' && '.join(cf.WIFI_IFACE_ENABLE_COMMANDS)}")
     print(f"set password   : {cf.SET_ROOT_PASSWORD_COMMAND}   # {cf.SET_ROOT_PASSWORD_NOTE}")
     print(f"stage3 handoff : {cf.tollgate_install_handoff().describe()}")
@@ -641,23 +648,47 @@ def cmd_capacity(args: argparse.Namespace) -> int:
             tmpfs_free = probed_tmpfs if tmpfs_free is None else tmpfs_free
         else:
             print(f"probe : nothing on {args.host}:22 — using the 2026-09-27 measured defaults")
-    overlay_free = cf.OVERLAY_FREE_BYTES_MEASURED if overlay_free is None else overlay_free
+    overlay_free = cf.OVERLAY_FRESH_FREE_BYTES if overlay_free is None else overlay_free
     tmpfs_free = cf.TMPFS_FREE_BYTES_MEASURED if tmpfs_free is None else tmpfs_free
 
+    variant = cf.payload_variant_name(payload)
+    if variant == cf.TOLLGATE_COMPRESSED_VARIANT:
+        wrt_bytes, cli_bytes = (
+            cf.TOLLGATE_COMPRESSED_BINARY_TOLLGATE_WRT_BYTES,
+            cf.TOLLGATE_COMPRESSED_BINARY_TOLLGATE_BYTES,
+        )
+    else:
+        wrt_bytes, cli_bytes = (
+            cf.TOLLGATE_BINARY_TOLLGATE_WRT_BYTES,
+            cf.TOLLGATE_BINARY_TOLLGATE_BYTES,
+        )
     print(
-        f"payload: {payload} B uncompressed (tollgate-wrt {cf.TOLLGATE_BINARY_TOLLGATE_WRT_BYTES} B"
-        f" + tollgate {cf.TOLLGATE_BINARY_TOLLGATE_BYTES} B + small parts {cf.TOLLGATE_SMALL_PARTS_BYTES} B);"
-        f" package is {cf.TOLLGATE_PACKAGE_COMPRESSED_BYTES} B compressed"
+        f"payload: {payload} B uncompressed (tollgate-wrt {wrt_bytes} B"
+        f" + tollgate {cli_bytes} B + small parts {cf.TOLLGATE_SMALL_PARTS_BYTES} B);"
+        f" package is {cf.TOLLGATE_PACKAGE_COMPRESSED_BYTES} B compressed (default build)"
     )
+    print(f"variant: {variant} (from the {payload} B uncompressed payload)")
     print(
         f"flash  : firmware {cf.FLASH_TOTAL_BYTES} B (16 MB NOR) = kernel {cf.FLASH_KERNEL_BYTES}"
-        f" + rootfs {cf.FLASH_ROOTFS_BYTES} + overlay {cf.OVERLAY_TOTAL_BYTES} (measured"
-        f" {cf.OVERLAY_FREE_BYTES_MEASURED} free)"
+        f" + rootfs {cf.FLASH_ROOTFS_BYTES} + overlay {cf.OVERLAY_TOTAL_BYTES} "
+        f"(free on a fresh box ~{cf.OVERLAY_FRESH_FREE_BYTES} B; {cf.OVERLAY_FREE_BYTES_MEASURED} B"
+        f" was the residual after the failed default attempt)"
     )
     flash = cf.check_install_capacity(payload, available_bytes=overlay_free, mode=cf.MODE_FLASH)
     volatile = cf.check_install_capacity(payload, available_bytes=tmpfs_free, mode=cf.MODE_VOLATILE)
     print(f"flash  : {flash.describe()}")
     print(f"volatile: {volatile.describe()}")
+
+    # the compressed variant is the FIRST choice on a 16 MB box: show whether IT fits
+    compressed = cf.check_install_capacity(
+        cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES, available_bytes=overlay_free, mode=cf.MODE_FLASH
+    )
+    print(
+        f"compressed `{cf.TOLLGATE_COMPRESSED_VARIANT}` payload "
+        f"{cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES} B vs overlay free {overlay_free} B -> "
+        f"fits={compressed.fits}{'' if compressed.fits else ' (also too big here)'}"
+    )
+    print(f"         {cf.TOLLGATE_COMPRESSED_PROVENANCE_NOTE}")
 
     chosen = volatile if args.mode == cf.MODE_VOLATILE else flash
     rc = EXIT_OK
@@ -693,6 +724,11 @@ def cmd_install_tollgate(args: argparse.Namespace) -> int:
     available = tmpfs_free if args.volatile else overlay_free
     verdict = cf.check_install_capacity(payload, available_bytes=available, mode=mode)
     print(f"capa  : mode={mode} payload={payload} B available={available} B fits={verdict.fits}")
+    print(
+        f"variant: payload={cf.payload_variant_name(payload)}; the `"
+        f"{cf.TOLLGATE_COMPRESSED_VARIANT}` variant ({cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES} B) is "
+        f"the FIRST choice on a 16 MB box — {cf.TOLLGATE_COMPRESSED_PROVENANCE_NOTE}"
+    )
     problems = cf.capacity_problems(verdict)
     if problems:
         for problem in problems:
@@ -781,7 +817,9 @@ def cmd_install_tollgate(args: argparse.Namespace) -> int:
     print()
     print("(handover prerequisites done; the install path itself runs under its own gates —")
     print(" rerun with --run-install-path to shell out to it now, or run the make target above;")
-    print(" if the flash cannot hold the payload, use --volatile instead — NOT persistent)")
+    print(" if the flash cannot hold the payload, prefer the `"
+          + cf.TOLLGATE_COMPRESSED_VARIANT + "` variant (VERIFIED ON HARDWARE "
+          + cf.TOLLGATE_COMPRESSED_VERIFIED_DATE + "); `--volatile` is the fallback — NOT persistent)")
     return EXIT_OK
 
 

@@ -840,6 +840,62 @@ def test_measured_flash_layout_and_payload_numbers_are_pinned():
     assert cf.TOLLGATE_PACKAGE_COMPRESSED_BYTES == 8_500_000
 
 
+def test_measured_compressed_variant_numbers_are_pinned():
+    # the upx-ultra-brute payload, measured on a real WR3000 v1 on 2026-09-27
+    assert cf.TOLLGATE_COMPRESSED_VARIANT == "upx-ultra-brute"
+    assert cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES == 5_601_262
+    assert cf.TOLLGATE_COMPRESSED_BINARY_TOLLGATE_WRT_BYTES == 3_470_344
+    assert cf.TOLLGATE_COMPRESSED_BINARY_TOLLGATE_BYTES == 1_867_032
+    assert cf.TOLLGATE_COMPRESSED_VERIFIED_DATE == "2026-09-27"
+    assert "upx-ultra-brute" in cf.TOLLGATE_COMPRESSED_PACKAGE_PATTERN
+    assert cf.TOLLGATE_COMPRESSED_APK_SHA256 == (
+        "29bb68adbb26e67c0c0091e83f79fc79d9617f91364efa260e3e386fc00fff8b"
+    )
+    assert cf.TOLLGATE_COMPRESSED_IPK_SHA256 == (
+        "85a34d272629a386806462845cae071fdf12777e9be6ace09a1dd3f28bf39da8"
+    )
+    # the compressed payload is smaller than the default payload and fits a FRESH overlay
+    assert cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES < cf.TOLLGATE_UNCOMPRESSED_BYTES
+    assert cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES < cf.OVERLAY_FRESH_FREE_BYTES
+    # ...but it does NOT fit the 4.6 MB RESIDUAL free left by the failed default attempt
+    assert cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES > cf.OVERLAY_FREE_BYTES_MEASURED
+
+
+def test_the_default_payload_does_not_fit_but_the_compressed_variant_does():
+    default = cf.check_install_capacity(
+        cf.TOLLGATE_UNCOMPRESSED_BYTES, available_bytes=cf.OVERLAY_FRESH_FREE_BYTES
+    )
+    compressed = cf.check_install_capacity(
+        cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES, available_bytes=cf.OVERLAY_FRESH_FREE_BYTES
+    )
+    assert not default.fits
+    assert compressed.fits and cf.capacity_problems(compressed) == []
+
+
+def test_payload_variant_is_derived_from_the_payload_size():
+    assert cf.payload_variant_name(cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES) == "upx-ultra-brute"
+    assert cf.payload_variant_name(cf.TOLLGATE_UNCOMPRESSED_BYTES) == "default"
+    # unknown / zero sizes fail toward the default (never assume "small")
+    assert cf.payload_variant_name(0) == "default"
+
+
+def test_refusal_names_the_compressed_variant_first_then_fallback():
+    problems = cf.capacity_problems(
+        cf.check_install_capacity(
+            cf.TOLLGATE_UNCOMPRESSED_BYTES, available_bytes=cf.OVERLAY_FREE_BYTES_MEASURED
+        )
+    )
+    text = problems[0]
+    assert cf.TOLLGATE_COMPRESSED_VARIANT in text
+    assert str(cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES) in text
+    assert "dev-channel" in text.lower() or "DEV-CHANNEL" in text
+    # the compressed variant is named BEFORE the volatile fallback
+    assert text.index("upx-ultra-brute") < text.index("--volatile")
+    # dropping the provisioning-only CLI is named as the second option
+    assert str(cf.TOLLGATE_COMPRESSED_BINARY_TOLLGATE_BYTES) in text
+    assert "tollgate` CLI" in text
+
+
 def test_the_measured_payload_does_not_fit_the_measured_overlay():
     verdict = cf.check_install_capacity(
         cf.TOLLGATE_UNCOMPRESSED_BYTES, available_bytes=cf.OVERLAY_FREE_BYTES_MEASURED
@@ -954,4 +1010,29 @@ def test_cli_capacity_volatile_mode_is_green_when_tmpfs_has_room():
     assert "fits=True" in out
     assert "persistent=False" in out
     assert result.returncode == 0
+
+
+def test_cli_capacity_points_at_the_compressed_variant_and_shows_it_fits():
+    # the DEFAULT payload is refused, and the output names the compressed variant
+    refused = _run_cli(
+        "capacity",
+        "--payload-bytes",
+        str(cf.TOLLGATE_UNCOMPRESSED_BYTES),
+        env={"TOLLGATE_ENABLE_SYSUPGRADE_FLASHING": "true"},
+    )
+    refused_out = refused.stdout + refused.stderr
+    assert refused.returncode & 128  # EXIT_CAPACITY
+    assert cf.TOLLGATE_COMPRESSED_VARIANT in refused_out
+    assert "fits=True" in refused_out  # the compressed variant itself fits the fresh overlay
+
+    # passing the compressed payload size makes the flash preflight GREEN
+    ok = _run_cli(
+        "capacity",
+        "--payload-bytes",
+        str(cf.TOLLGATE_COMPRESSED_PAYLOAD_BYTES),
+        env={"TOLLGATE_ENABLE_SYSUPGRADE_FLASHING": "true"},
+    )
+    ok_out = ok.stdout + ok.stderr
+    assert "upx-ultra-brute" in ok_out
+    assert "OK     : mode=flash fits" in ok_out
 

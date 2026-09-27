@@ -11,6 +11,8 @@ import subprocess
 import time
 from typing import Protocol
 
+import pytest
+
 
 class ClientDevice(Protocol):
     """Any device that can act as a captive-portal client."""
@@ -45,15 +47,23 @@ class ADBClientDevice:
         if psk:
             cmd += f" {psk}"
         self._shell(cmd, timeout=30)
-        for _ in range(10):
-            time.sleep(3)
-            if ssid in self._shell("dumpsys wifi | grep mWifiInfo"):
-                return True
-        return False
+        for _ in range(15):
+            time.sleep(2)
+            info = self._shell("dumpsys wifi | grep mWifiInfo")
+            if ssid in info and "ip" in info.lower() and "/192" in info:
+                return True  # connected AND has an IP
+            if ssid in info:
+                # Connected but no IP yet — keep waiting for DHCP
+                continue
+        return ssid in self._shell("dumpsys wifi | grep mWifiInfo")
 
     def get_ip(self) -> str:
-        return self._shell(
+        ip = self._shell(
             "ip addr show wlan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1")
+        if not ip:
+            ip = self._shell(
+                "dumpsys wifi | grep mWifiInfo | grep -o 'IP: /[0-9.]*' | cut -d/ -f2")
+        return ip
 
     def has_internet(self, host: str = "8.8.8.8") -> bool:
         return "1 received" in self._shell(f"ping -c1 -W3 {host}")
@@ -69,7 +79,9 @@ class ADBClientDevice:
 
     def submit_token(self, token: str) -> bool:
         gateway = self._shell(
-            "ip route | grep default | awk '{print $3}' | head -1")
+            "ip route show table all | grep 'default via' | awk '{print $3}' | head -1")
+        if not gateway:
+            gateway = "192.168.1.1"
         out = self._shell(
             f"curl -s -m 20 -X POST -H 'Content-Type: text/plain' "
             f"-d '{token}' http://{gateway}:2121/")

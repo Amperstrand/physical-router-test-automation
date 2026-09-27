@@ -25,18 +25,36 @@ check_rc() {   # $1 desc, $2 expected rc, $3 actual rc
   if [ "$2" = "$3" ]; then pass "$1 (rc=$3)"; else fail "$1: expected rc=$2, got rc=$3"; fi
 }
 
+# check_contains / check_not_contains do a pure-bash LITERAL substring match on purpose.
+#
+# `printf '%s' "$haystack" | grep -qF -- "$needle"` is a false-FAIL generator under this file's
+# `set -o pipefail`: `grep -q` exits at the FIRST match, the still-writing printf is then killed
+# by SIGPIPE (141), and pipefail reports the pipeline as failed — so a FAIL prints a haystack that
+# visibly CONTAINS the needle. The rate is not small once the haystack is a real log window:
+# measured 2026-09-26 on the settle phase's shape (bash 5.3, 51 343-byte haystack, needle at byte
+# 10 — a MAC in the first line of a window), 166 of 300 calls false-FAILed (55%), which is how this
+# suite lost two assertions while dumping its own counter-evidence. The `case` form forks nothing,
+# so there is no second process to lose a race (0 of 300), and it is stricter for a multi-line
+# needle, where grep -F would treat the lines as alternatives. The same fix is in flight
+# independently in PR #173 — whichever lands second keeps one copy.
 check_contains() {   # $1 desc, $2 needle, $3 haystack
-  if printf '%s' "$3" | grep -qF -- "$2"; then pass "$1"; else
-    fail "$1: output does not contain '$2'"
-    printf '        --- output was ---\n%s\n        ------------------\n' "$3"
-  fi
+  case "$3" in
+    *"$2"*) pass "$1" ;;
+    *)
+      fail "$1: output does not contain '$2'"
+      printf '        --- output was ---\n%s\n        ------------------\n' "$3"
+      ;;
+  esac
 }
 
 check_not_contains() {   # $1 desc, $2 needle, $3 haystack
-  if printf '%s' "$3" | grep -qF -- "$2"; then
-    fail "$1: output unexpectedly contains '$2'"
-    printf '        --- output was ---\n%s\n        ------------------\n' "$3"
-  else pass "$1"; fi
+  case "$3" in
+    *"$2"*)
+      fail "$1: output unexpectedly contains '$2'"
+      printf '        --- output was ---\n%s\n        ------------------\n' "$3"
+      ;;
+    *) pass "$1" ;;
+  esac
 }
 
 check_eq() {   # $1 desc, $2 expected, $3 actual

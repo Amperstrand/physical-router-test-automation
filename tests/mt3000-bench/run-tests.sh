@@ -18,6 +18,8 @@
 #     ever probing the router or taking a transcript
 #   * the router-side snapshot refuses without a window, and its payload (render mode) is
 #     accepted by both `sh -n` and BusyBox `ash -n` — the router's own shell
+#   * the harness's own substring check cannot false-FAIL on a large haystack (the
+#     `printf | grep -q` / `set -o pipefail` race, driven 40x over a 51 KiB log window)
 #   * the token tool mints nothing without --yes and refuses to check an absent token
 #
 # The "router" is a throw-away directory; ssh/scp/apk are PATH test doubles in
@@ -396,8 +398,36 @@ run_cmd "$BENCH_TOKEN" verify --token-file "$WORK/definitely-absent.txt"
 check_rc "verify on a missing token file refused" 2 "$RC"
 check_contains "refusal names the path" "definitely-absent.txt" "$OUT"
 
+t_begin "check_contains cannot false-FAIL on a large haystack (the printf|grep -q pipefail race)"
+# The settle phase EXTRACTS a long log window and asserts on a MAC that sits in its first lines —
+# the exact shape in which `printf '%s' "$3" | grep -qF -- "$2"` under `set -o pipefail` reports a
+# present needle as absent: grep -q exits on the match, printf dies of SIGPIPE (141), pipefail
+# promotes 141. Measured 2026-09-26: 166/300 false FAILs on this haystack (needle at byte 10 of
+# 51 343). The suite lost two assertions to it before the harness switched to haystack_has (case).
+BIG_NEEDLE='SENTINEL-NEEDLE-02:11:22:33:44:55'
+BIG_HAYSTACK="$( { printf 'line 0001 %s\n' "$BIG_NEEDLE"
+                   printf 'filler %04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' $(seq 1 900); } )"
+BIG_BYTES="$(printf '%s' "$BIG_HAYSTACK" | wc -c)"
+if [ "$BIG_BYTES" -gt 40000 ]; then BIG_VERDICT=large; else BIG_VERDICT="too small ($BIG_BYTES bytes)"; fi
+check_eq "the probe haystack really is large (the racing shape)" "large" "$BIG_VERDICT"
+check_eq "the needle really is at the TOP of it" "10" \
+  "$(printf '%s' "$BIG_HAYSTACK" | grep -boF -- "$BIG_NEEDLE" | head -1 | cut -d: -f1)"
+# Drive the REAL check 40 times and count how many of them failed. Counter bookkeeping is restored
+# so the probe does not inflate the suite's own totals. With the piped form a revert is caught with
+# probability 1 - (1-0.55)^40 ≈ 1 (measured 0.55 false-FAIL rate here); with haystack_has it is 0.
+_before_run="$TESTS_RUN"; _before_failed="$TESTS_FAILED"
+for _i in $(seq 1 40); do check_contains "probe $_i" "$BIG_NEEDLE" "$BIG_HAYSTACK" >/dev/null; done
+_probe_failed=$(( TESTS_FAILED - _before_failed ))
+TESTS_RUN="$_before_run"; TESTS_FAILED="$_before_failed"
+check_eq "40/40 large-haystack probes found the needle" "0" "$_probe_failed"
+# ...and the check is still a CHECK: an absent needle must still be reported.
+_before_failed="$TESTS_FAILED"
+check_contains "probe absent" 'NEEDLE-THAT-IS-NOT-THERE' "$BIG_HAYSTACK" >/dev/null
+_probe_absent=$(( TESTS_FAILED - _before_failed ))
+TESTS_FAILED="$_before_failed"
+check_eq "an absent needle is still reported as missing" "1" "$_probe_absent"
+
 lock_kill_all
 rm -f "$BENCH_LOCK_PATH"
 printf '\nworkdir kept for inspection: %s\n' "$WORK"
 summary
-

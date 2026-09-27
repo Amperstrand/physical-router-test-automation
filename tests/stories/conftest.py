@@ -404,9 +404,12 @@ class StoryRecorder:
         state = getattr(self.device, "state_text", None)
         if not callable(state):
             return None
+        text = state()
+        if not text:
+            return None
         path = os.path.join(self.art_dir, f"{step}.state.txt")
         with open(path, "w") as f:
-            f.write(state())
+            f.write(text)
         return path
 
     def shot(self, step: str, claim: str):

@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 _spec = importlib.util.spec_from_file_location(
     "story_conftest", REPO_ROOT / "tests" / "stories" / "conftest.py")
+assert _spec is not None and _spec.loader is not None
 story_conftest = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(story_conftest)
 
@@ -39,16 +40,18 @@ class FakeDevice:
 
 
 def _black_frame(path):
-    Image.new("RGB", (720, 1520), (0, 0, 0)).save(path)
+    # no color arg -> PIL fills with zeros (black); stub-clean
+    Image.new("RGB", (720, 1520)).save(path)
 
 
 def _content_frame(seed):
     def write(path):
-        img = Image.new("RGB", (720, 1520), (255, 255, 255))
-        px = img.load()
+        img = Image.new("RGB", (720, 1520))
         for y in range(0, 1520, 7):
             for x in range(0, 720, 5):
-                px[x, y] = ((x * y + seed) % 256, seed % 256, (x + seed) % 256)
+                img.putpixel(
+                    (x, y), ((x * y + seed) % 256, seed % 256,
+                             (x + seed) % 256))
         img.save(path)
     return write
 

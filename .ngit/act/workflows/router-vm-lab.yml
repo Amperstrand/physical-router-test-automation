@@ -1,0 +1,57 @@
+# router-vm-lab — run the OpenWrt VM smoke lab on the self-hosted lab host.
+#
+# Primary venue: ngit-ci (.ngit/act/workflows/). Mirror: .github/workflows/.
+# The runner lives on the lab HOST and is a thin orchestrator: it restores the
+# immutable base snapshot and executes the suite INSIDE the LXD VM, so
+# untrusted PR code never runs on the host.
+#
+# All options are selectable at run time. Defaults are safe (go / smoke).
+name: router-vm-lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "TollGate backend"
+        type: choice
+        options: [go, go-cdk, rust-basic, rust]
+        default: go
+      tier:
+        description: "Test tier"
+        type: choice
+        options: [smoke, critical, extended, all]
+        default: smoke
+      target_kind:
+        description: "Target kind"
+        type: choice
+        options: [branch, pr, commit]
+        default: branch
+      target_ref:
+        description: "branch name / PR number / commit"
+        default: main
+      publish:
+        description: "Publish report (signed result / gh-pages)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: openwrt-qemu
+  cancel-in-progress: false
+
+jobs:
+  router-vm-smoke:
+    runs-on: [self-hosted, openwrt-qemu]
+    timeout-minutes: 30
+    steps:
+      - name: Run OpenWrt VM lab suite
+        env:
+          BACKEND: ${{ inputs.backend }}
+          TIER: ${{ inputs.tier }}
+          TARGET_KIND: ${{ inputs.target_kind }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          ORCH="${OPENWRT_LAB_ORCH:-$HOME/.hermes/scripts/openwrt_lab_run.sh}"
+          "$ORCH" --backend "$BACKEND" --tier "$TIER" \
+            --target-kind "$TARGET_KIND" --target-ref "$TARGET_REF" \
+            $([ "$PUBLISH" = "true" ] && echo --publish || true)

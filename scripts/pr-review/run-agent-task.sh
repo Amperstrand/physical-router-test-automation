@@ -42,9 +42,17 @@ done
 
 herdr agent read "$NAME" --source recent-unwrapped --lines 110 >> "$LOG" 2>&1
 
-# Side-effect check is the caller's: pass a checker command via $CHECK.
+# Check BEFORE shutdown: herdr can report the agent settled between turns
+# while it is mid-task; re-prompt the same agent instead of killing it.
 if [ -n "${CHECK:-}" ]; then
-  eval "$CHECK" >> "$LOG" 2>&1 || echo "WARN: side-effect check did not pass — inspect $LOG" | tee -a "$LOG"
+  for check_attempt in 1 2; do
+    if eval "$CHECK" >> "$LOG" 2>&1; then break; fi
+    echo "side-effect missing after attempt $check_attempt — re-prompting agent" >> "$LOG"
+    out=$(herdr agent prompt "$NAME" "Your task is incomplete — the expected GitHub side effect is not visible yet. Continue exactly where you left off (do not redo finished steps), complete the remaining steps including the push and the single PR comment, then print the final result block." --wait --timeout 1800000 2>&1)
+    echo "$out" >> "$LOG"
+    herdr agent read "$NAME" --source recent-unwrapped --lines 80 >> "$LOG" 2>&1
+  done
+  eval "$CHECK" >> "$LOG" 2>&1 || echo "WARN: side-effect check still failing — inspect $LOG" | tee -a "$LOG"
 fi
 
 herdr agent send-keys "$NAME" ctrl+c >> "$LOG" 2>&1

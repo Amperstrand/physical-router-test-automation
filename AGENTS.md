@@ -2055,3 +2055,56 @@ Exporters: `ai-legion-small-rig` (phone), `ai-legion-small-microfips` (ESP32s).
 Also: `wallet.db` caches mint URLs, so delete it after changing mints; use
 `scp -O` for OpenWrt.
 
+## Lessons Learned — v0.6 Release-Kit Session (2026-09-27)
+
+Four test-rail root causes from building the release kit against NR7101
+(tollgate-wrt v0.6.0-alpha4, Android 15 moto g(7) bench phone):
+
+1. **A stale firewall mark masqueraded as a "backend session keeper".**
+   `no_session` deauthed the phone yet internet persisted; the backend was
+   blamed for re-authenticating a live session — even a backend restart
+   "didn't help". Truth: a per-client `iptables -t mangle ... ndsOUT ...
+   MARK --set-xmark 0x20000/0x20000` rule (the NDS 5.0.2 auth-mark
+   workaround class) that `ndsctl deauth` does not track. NDS showed
+   `State: Preauthenticated` while the mark kept the gate open. Diagnosis:
+   compare `ndsctl status | grep <mac>` with `iptables -t mangle -S ndsOUT
+   | grep <mac>`. `tests/stories/conftest.py:_deauth_device()` now removes
+   those rules on every deauth. Open question (candidate v0.6.0-alpha4
+   firmware bug, unfiled): whatever inserts the workaround rule leaves it
+   behind on deauth — confirm whether it's the backend's gate-open path or
+   a manual bench action before reporting to the Amperstrand fork.
+
+2. **The global `--timeout=60` killed phone-driving stories.** Story tests
+   carry `slow`, not `phone`, so the pytest.ini cap applied — a wifi-cycle
+   revalidation nudge alone runs 40s. The mid-flow kill also wedged the
+   phone and contaminated the NEXT test (join failure). `tests/stories/
+   conftest.py` now stamps `timeout(300)` on every collected story via
+   `pytest_collection_modifyitems`. Rule: any test that drives the phone
+   needs phone-tier timeouts regardless of its marker.
+
+3. **The Android supplicant can wedge after an interrupted wifi-cycle.**
+   Symptom: WiFi ON but DISCONNECTED with zero association attempts
+   reaching the AP — visible in hostapd `logread`, not in dumpsys. A radio
+   toggle (`svc wifi disable` → `svc wifi enable`) resets it. `join_wifi`
+   now retries once through a toggle before giving up.
+
+4. **Concurrent lanes clobber shared-file edits.** A replaceAll routing fix
+   in conftest.py was partially overwritten by another session's fixture
+   edit written from a stale view; the loss surfaced only as a
+   wrong-device skip two runs later. After any concurrent commit lands in
+   the shared tree, re-grep for the old pattern to confirm every site
+   still holds your change.
+
+Readiness ≠ liveness struck again: a "V4 mint broken" verdict was a
+transient mint hiccup — `/v1/info` stayed green, a manual cdk-cli repro
+minted fine, and the test had swallowed the mint-step stderr entirely.
+`_mint_v4_token` now retries once and surfaces both subprocess stderrs.
+
+Release kit: `scripts/release-test.sh --version X --router IP --ipk F.ipk`
+(labgrid lock → scp+opkg flash → story suite → portal tab-copy → markdown
+report). First v0.6.0-alpha4 baselines: payment **0.71s end-to-end**
+(mint 0.06 / submit 0.58 / auth-wait 0.07), portal load 13ms, backend
+response 682ms. Upgrade-path story activates with `TOLLGATE_RELEASE_IPK`;
+concurrent-payment story with `TOLLGATE_DEBIAN_HOST`. Cross-implementation
+client routing: `TOLLGATE_STORY_CLIENT=debian-vm|omarchy-vm|android-phone`.
+

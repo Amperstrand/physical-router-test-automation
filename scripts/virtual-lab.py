@@ -865,13 +865,17 @@ if [ ! -f "$disk" ]; then
   qemu-img create -f qcow2 -F qcow2 -b "$base" "$disk"
 fi
 
-# Start QEMU with serial/monitor Unix sockets
+# Start QEMU with serial/monitor Unix sockets.  The serial chardev also
+# logs every byte to logs/serial.log — console history (boot, netifd,
+# kernel panics) survives network-stack failures and rides with story
+# runs via lib/runlogs.py (TOLLGATE_CONSOLE_LOG).
+mkdir -p "$workdir/logs"
 nohup qemu-system-x86_64 \
   -enable-kvm \
   -m 512 \
   -smp 1 \
   -nographic \
-  -serial unix:"$workdir/run/serial.sock",server,nowait \
+  -serial unix:"$workdir/run/serial.sock",server,nowait,logfile="$workdir/logs/serial.log",logappend=on \
   -monitor unix:"$workdir/run/monitor.sock",server,nowait \
   -drive file="$disk",if=virtio,format=qcow2 \
   -netdev tap,id=lan,ifname={POC_TAP},script=no,downscript=no \
@@ -944,6 +948,7 @@ if [ -f "$seed_iso" ]; then
   # otherwise delays sshd by ~2 minutes on every boot via cloud-init.service.
   smbios_opts="-smbios type=1,serial=ds=nocloud"
 fi
+mkdir -p "$workdir/logs"
 nohup qemu-system-x86_64 \
   -enable-kvm \
   -m {DEBIAN_RAM} \
@@ -955,7 +960,7 @@ nohup qemu-system-x86_64 \
   $snapshot_opts \
   -netdev tap,id=client,ifname={DEBIAN_TAP},script=no,downscript=no \
   -device virtio-net-pci,netdev=client,mac={DEBIAN_MAC} \
-  -serial unix:"$workdir/run/serial-client.sock",server,nowait \
+  -serial unix:"$workdir/run/serial-client.sock",server,nowait,logfile="$workdir/logs/serial-client.log",logappend=on \
   -monitor unix:"$workdir/run/monitor-client.sock",server,nowait \
   >"$workdir/run/qemu-client.stdout" 2>"$workdir/run/qemu-client.stderr" &
 printf '%s\\n' "$!" > "$client_pidfile"

@@ -667,9 +667,9 @@ def flash_and_run(args: argparse.Namespace) -> int:
 
         # 5. wallet gate (a flash destroys money) ---------------------------
         if not args.skip_wallet_gate:
-            out, _ = _ssh_rc(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
+            out, wallet_rc = _ssh_rc(args.host, ff.WALLET_BALANCE_COMMAND, timeout=60)
             listing, _ = _ssh_rc(args.host, ff.ECASH_LISTING_COMMAND, timeout=30)
-            state = ff.parse_wallet_state(out, listing)
+            state = ff.parse_probed_wallet_state(out, listing, balance_exit_code=wallet_rc)
             print(f"[install-paths] wallet: {state.summary()}")
             blockers = ff.flash_preconditions(
                 state, allow_nonempty=args.allow_nonempty_wallet

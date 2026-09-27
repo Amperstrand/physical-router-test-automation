@@ -135,7 +135,7 @@ Do not read this page as "the operator report is fixed".
 ```sh
 bash -n scripts/mt3000-bench/second-purchase-e2e.sh scripts/mt3000-bench/router-snapshot.sh
 shellcheck -s bash -S warning scripts/mt3000-bench/*.sh
-make bench-tests                     # 23 offline negative controls, including this lane's
+make bench-tests                     # 29 offline negative controls, including this lane's
 python3 -m pytest tests/unit/test_recover_tokens.py
 ```
 
@@ -144,3 +144,24 @@ tokens is refused (exit 2); a paid run **is refused while another window owns th
 (exit 3, holder named, no router probe, no transcript directory created); the snapshot payload
 is accepted by both `sh -n` and BusyBox `ash -n`; and the token tool mints nothing without
 `--yes`.
+
+It is also safe to run **while a real run owns the bench**: the suite takes its own lock inside a
+`mktemp -d` workdir, refuses to start (exit 90) if the lock it would take is the production
+`~/.hermes/state/bench-mt3000.lock`, bounds every command and every lock wait (`BENCH_TEST_CMD_TIMEOUT`,
+`BENCH_LOCK_WAIT`), and asserts at the end that the production lock file — holder line included — is
+byte-identical to what it found. Measured 2026-09-27: 29 tests / 0 failed / 0 timeouts while the
+production flock was deliberately held by another process, with that lock's sha256, inode, size,
+mtime and holder line all unchanged and the flock still owned by its holder afterwards.
+
+That gate is load-bearing, and was measured RED first: pointed at a state-dir lock held by another
+process, the PRE-FIX suite (HEAD `9e7cdb36`; exit 0, 23 tests, 20 s) **deleted** that lock file from
+its first case, so the holder line was gone and the path was takeable again (`flock FREE`) while the
+live run's flock sat on an unlinked inode — a second window could take the bench under a run that
+believed it owned it. The pre-fix suite also carried unbounded waits on its own holders (`wait
+"$HOLDER1"`) and a family-pattern `pkill -f 'sleep 20'`; both are gone.
+
+Finally, the two guards this lane's verdicts depend on are no longer hand-run evidence:
+`restart-guard-control.sh` (box-identity/restart guard) and `zombie-settle-control.sh` (PHASE 5b
+convergence) are driven by `make bench-tests`, and each control is then run against a MUTATED copy
+of `second-purchase-e2e.sh` that must make it go red — so a control that stops being able to fail
+fails the suite instead of silently blessing the lane.

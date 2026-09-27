@@ -1174,7 +1174,7 @@ bench-token-verify: ## NUT-07: TOKEN_FILE must read back fully UNSPENT before it
 	@test -n "$(TOKEN_FILE)" || { echo "set TOKEN_FILE=<path to a cashu token file>"; exit 1; }
 	@scripts/mt3000-bench/bench-token.py verify --token-file $(TOKEN_FILE) $(BENCH_TOKEN_ARGS)
 
-bench-tests: ## Offline negative-control suite for the bench lock, the e2e lanes and the snapshot payload (no router)
+bench-tests: ## Offline negative-control suite: the bench lock (hermetic: never the production lock), the e2e lanes, the snapshot payload, and the live-run guard controls (no router)
 	@bash tests/mt3000-bench/run-tests.sh
 
 pytest-hardware-smoke: ## Migrated smoke-* scenario subset

@@ -73,8 +73,18 @@ def test_ln_invoice_creates_real_quote(rust_basic_server):
     """POST /ln-invoice creates a real mint quote via CDK wallet.
 
     Response schema (rust-basic LightningInvoiceResponse): `quote` (ID) and
-    `invoice` (BOLT11). When the mint is unreachable the backend degrades to
-    `quote="stub-quote-N"` / `invoice="stub-invoice"` with HTTP 200 — skip.
+    `invoice` (BOLT11).
+
+    Venue gaps skip (PRTA AGENTS.md runtime-detection pattern):
+    - 400 mac-address-lookup-failed: the GH-runner venue talks to the
+      backend over loopback, which never has an ARP/DHCP entry — the
+      backend (correctly) refuses invoices it cannot bind to a client
+      MAC (tmbr #22/#23 resolve-and-store-at-creation). The full
+      MAC-bound path is covered by the QEMU virtual-lab venue with a
+      real client.
+    - 502 mint quote failed: no reachable mint in this venue (the old
+      200-with-stub fallback was removed by tmbr #22/#23 — durable
+      quotes never return synthetic invoices).
     """
     base = rust_basic_server["http_url"]
 
@@ -83,16 +93,17 @@ def test_ln_invoice_creates_real_quote(rust_basic_server):
         json={"amount": 1},
         timeout=15,
     )
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
+    body = resp.text[:200]
+    if resp.status_code == 400 and "mac-address-lookup-failed" in body:
+        pytest.skip("venue has no resolvable client MAC (loopback client)")
+    if resp.status_code == 502:
+        pytest.skip("mint unreachable from this venue (real quote unavailable)")
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {body}"
 
     data = resp.json()
     assert "quote" in data, f"Missing 'quote' field: {data}"
     assert data["quote"] != "", f"Empty quote ID: {data}"
-
-    if data["quote"].startswith("stub") or data.get("invoice", "").startswith("stub"):
-        pytest.skip("Wallet not connected to mint (stub response)")
-    else:
-        assert data.get("invoice", "") != "", f"Empty invoice (BOLT11): {data}"
+    assert data.get("invoice", "") != "", f"Empty invoice (BOLT11): {data}"
 
 
 def test_ln_invoice_status_check(rust_basic_server):

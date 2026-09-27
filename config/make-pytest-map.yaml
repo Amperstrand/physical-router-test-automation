@@ -318,3 +318,49 @@ fips-exit-smoke:
   markers: extended
   timeout: 300
   notes: FIPS exit-node VPS smoke (WireGuard + nft MASQUERADE + nostr advert); no router/hardware lock, SSHes to an external VPS via FIPS_EXIT_* env
+
+  # ─── User stories (device-agnostic, contract-driven) ──────────────────
+  pytest-stories:
+    runner: pytest
+    pytest: tests/stories/
+    status: migrated
+    lock: hardware
+    markers: slow
+    timeout: 300
+    notes: All user stories (pay, expiry, degraded, tabs, V4 token) — parameterized across devices
+
+  pytest-story-pay:
+    runner: pytest
+    pytest: tests/stories/test_user_pays_and_gets_internet.py
+    status: migrated
+    lock: hardware
+    markers: slow
+    timeout: 120
+    notes: Core story — user joins WiFi, pays Cashu token, gets internet
+
+  pytest-story-expiry:
+    runner: pytest
+    pytest: tests/stories/test_session_expiry_and_repayment.py
+    status: migrated
+    lock: hardware
+    markers: slow
+    timeout: 120
+    notes: Session expiry (deauth) then re-payment restores internet
+
+  pytest-story-degraded:
+    runner: pytest
+    pytest: tests/stories/test_degraded_mode.py
+    status: migrated
+    lock: none
+    markers: slow
+    timeout: 60
+    notes: Backend resilience (degraded mode, portal loads in any state)
+
+  pytest-story-v4:
+    runner: pytest
+    pytest: tests/stories/test_v4_token.py
+    status: migrated
+    lock: hardware
+    markers: slow
+    timeout: 180
+    notes: V4/CBOR (cashuB) token payment via cdk-cli

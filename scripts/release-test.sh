@@ -90,19 +90,16 @@ log ""
 # ═══════════════════════════════════════════════════════════════
 if [[ "$NO_FLASH" == "false" && -n "$IPK_PATH" ]]; then
     log "Phase 2: Flashing $IPK_PATH"
-    if ssh -o ConnectTimeout=5 "root@$ROUTER" "opkg install --force-overwrite /tmp/release.ipk && /etc/init.d/tollgate-wrt restart" \
-        < <(cat "$IPK_PATH") 2>&1 | tee -a "$REPORT_DIR/pipeline.log"; then
+    if scp -O -o ConnectTimeout=10 "$IPK_PATH" "root@$ROUTER:/tmp/release.ipk" \
+        && ssh -o ConnectTimeout=10 "root@$ROUTER" \
+            "opkg install --force-overwrite /tmp/release.ipk && /etc/init.d/tollgate-wrt restart" \
+            2>&1 | tee -a "$REPORT_DIR/pipeline.log"; then
         log "✓ Flashed and restarted"
     else
         log "❌ Flash failed"
         [[ -n "$LOCKED_PLACE" ]] && "$VENV/bin/labgrid-client" -x "$LABGRID_COORD" -p "$LOCKED_PLACE" release 2>/dev/null || true
         exit 1
     fi
-    sleep 10
-elif [[ -n "$IPK_PATH" ]]; then
-    scp -O "$IPK_PATH" "root@$ROUTER:/tmp/release.ipk"
-    log "Phase 2: Flashed (scp + opkg)"
-    ssh "root@$ROUTER" "opkg install --force-overwrite /tmp/release.ipk && /etc/init.d/tollgate-wrt restart"
     sleep 10
 else
     log "Phase 2: Skipping flash (--no-flash or no --ipk)"

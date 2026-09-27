@@ -159,3 +159,74 @@ def get_client_device(place_name: str) -> ClientDevice:
     if not factory:
         raise ValueError(f"Unknown device place: {place_name}")
     return factory()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Labgrid Place Mutex (acquire/release around test runs)
+# ═══════════════════════════════════════════════════════════════════════
+
+LABGRID_COORDINATOR = os.environ.get(
+    "LG_COORDINATOR", "192.168.13.208:20408")
+LABGRID_CLIENT = os.path.join(
+    os.path.dirname(subprocess.run(["which", "python3"],
+                                    capture_output=True, text=True).stdout.strip()),
+    "labgrid-client")
+
+
+def _labgrid_client(*args, place: str | None = None) -> subprocess.CompletedProcess:
+    cmd = [LABGRID_CLIENT, "-x", LABGRID_COORDINATOR]
+    if place:
+        cmd += ["-p", place]
+    cmd += list(args)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+
+
+@pytest.fixture(scope="function")
+def labgrid_phone_mutex(request):
+    """Acquire the android-test labgrid place for the duration of a test.
+
+    This prevents multiple agents/sessions from using the phone
+    simultaneously. Yields True if acquired, skips if unavailable.
+    """
+    place = "android-test"
+    r = _labgrid_client("lock", place=place)
+    if r.returncode != 0:
+        pytest.skip(f"labgrid place '{place}' not available: {r.stderr.strip()}")
+    log.info("acquired labgrid place '%s'", place)
+    yield True
+    _labgrid_client("release", place=place)
+    log.info("released labgrid place '%s'", place)
+
+
+# Map device place names to labgrid place names for the mutex
+DEVICE_TO_LABGRID_PLACE = {
+    "android-phone": "android-test",
+}
+
+
+@pytest.fixture(scope="function")
+def device_mutex(request):
+    """Acquire the labgrid place mutex for the current device, if available.
+
+    This is a no-op fixture for devices without labgrid places.
+    """
+    device_place = getattr(request, "param", None)
+    if not device_place:
+        # Try to get from the test's parameterization
+        return None
+
+    labgrid_place = DEVICE_TO_LABGRID_PLACE.get(device_place)
+    if not labgrid_place:
+        return None
+
+    r = _labgrid_client("lock", place=labgrid_place)
+    if r.returncode == 0:
+        log.info("acquired labgrid place '%s' for '%s'", labgrid_place, device_place)
+        yield labgrid_place
+        _labgrid_client("release", place=labgrid_place)
+        log.info("released labgrid place '%s'", labgrid_place)
+    else:
+        # Don't skip — the device may still be available directly
+        log.warning("labgrid place '%s' locked by another user, "
+                    "proceeding without mutex", labgrid_place)
+        yield None

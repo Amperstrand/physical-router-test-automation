@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TollGate Behavior Contract",
+  "description": "Expected behavior for all TollGate implementations. When an implementation changes behavior, this contract changes in the same PR. Drift = test failure = blocked PR.",
+  "version": "1.0.0",
+  "portal": {
+    "entry_path": "/splash.html",
+    "ports": {
+      "captive_portal_gateway": 2050,
+      "portal_assets": 2051,
+      "backend_api": 2121
+    },
+    "tabs": {
+      "expected": ["lightning", "cashu"],
+      "default": "implementation-defined",
+      "copy_rule": "zero cross-tab bleed (no Lightning text on Cashu tab, no Cashu input on Lightning tab)"
+    },
+    "caching": {
+      "html": "no-cache, must-revalidate",
+      "hashed_assets": "public, max-age=31536000, immutable",
+      "redirects": "302/307 only (never 301)"
+    }
+  },
+  "payment": {
+    "token_formats": ["cashuA (V3)", "cashuB (V4)"],
+    "content_type": "text/plain",
+    "method": "POST",
+    "response_success": "kind:1022",
+    "response_degraded": "kind:21023",
+    "response_rate_limited": "kind:21023",
+    "auth_timeout_seconds": 30,
+    "allotment_metric": "bytes",
+    "min_token_sats": 4
+  },
+  "session": {
+    "duration_default": "1 hour",
+    "expiry_behavior": "internet blocked, must re-pay",
+    "persist_across_backend_restart": true
+  },
+  "internet": {
+    "validation": "Android VALIDATED network capability",
+    "probe_host": "8.8.8.8",
+    "external_ip_service": "ifconfig.me",
+    "dns": "router-provided (dnsmasq)"
+  },
+  "wireless": {
+    "security": "open (no PSK) for guest SSID",
+    "ssid_prefix": "TollGate-",
+    "ssid_suffix": "last 4 hex of router MAC (uppercase)",
+    "dhcp_pool": "100-249",
+    "gateway": ".1"
+  },
+  "infrastructure": {
+    "ssh_port": 22,
+    "ssh_user": "root",
+    "config_path": "/etc/tollgate/config.json",
+    "service_name": "tollgate-wrt",
+    "nds_service": "nodogsplash"
+  }
+}

@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from lib.contract import min_token_sats, probe_host
 from tests.stories.conftest import get_client_device
 
 log = logging.getLogger("tollgate.story.pay_internet")
@@ -56,7 +57,7 @@ def test_user_pays_and_gets_internet(device_place, tollgate_ssid,
     mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL",
                               "http://192.168.13.221:8383")
     minter = HttpMinter(mint_url)
-    token = minter.mint(4)
+    token = minter.mint(min_token_sats())
     log.info("[%s] minted %d-char token", device.name, len(token))
 
     assert device.submit_token(token), \
@@ -68,10 +69,10 @@ def test_user_pays_and_gets_internet(device_place, tollgate_ssid,
     # Step 4: Internet is granted
     deadline = time.time() + 30
     while time.time() < deadline:
-        if device.has_internet():
+        if device.has_internet(probe_host()):
             break
         time.sleep(2)
-    assert device.has_internet(), \
+    assert device.has_internet(probe_host()), \
         f"{device.name}: no internet after payment"
 
     story_evidence.shot("04-internet",

@@ -2069,10 +2069,19 @@ Four test-rail root causes from building the release kit against NR7101
    `State: Preauthenticated` while the mark kept the gate open. Diagnosis:
    compare `ndsctl status | grep <mac>` with `iptables -t mangle -S ndsOUT
    | grep <mac>`. `tests/stories/conftest.py:_deauth_device()` now removes
-   those rules on every deauth. Open question (candidate v0.6.0-alpha4
-   firmware bug, unfiled): whatever inserts the workaround rule leaves it
-   behind on deauth — confirm whether it's the backend's gate-open path or
-   a manual bench action before reporting to the Amperstrand fork.
+   those rules on every deauth.
+
+   **Resolved 2026-09-28 — not a firmware bug.** The Go backend has no
+   iptables code (its ipk ships only an nft enforcement bridge that READS
+   marks). The stale rule was PRTA's own old workaround
+   (`fix_nds_auth_mark_rules`: in-place `-R` rewrite to `--or-mark 0x20000`),
+   which `ndsctl deauth` cannot remove — NDS deletes only the exact rule
+   it inserted. Bench-proven on the local-lab VM: auth → rewrite → deauth
+   leaves the rule behind; without the rewrite, deauth cleans up. The
+   repair was redesigned (606fb23) to insert one client-agnostic ndsNET
+   accept rule instead — no leak. `remove_nds_auth_mark_rules`
+   (lib/router.py, wired into `reset_state`) sweeps rules leaked by the
+   old approach. No upstream issue warranted.
 
 2. **The global `--timeout=60` killed phone-driving stories.** Story tests
    carry `slow`, not `phone`, so the pytest.ini cap applied — a wifi-cycle

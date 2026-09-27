@@ -99,3 +99,49 @@ def test_wait_for_auth_no_repair_when_not_authed(monkeypatch):
     monkeypatch.setattr(router, "fix_nodogsplash_auth_marks", lambda: repaired.append(True))
     assert router.wait_for_auth(timeout=1) is False
     assert repaired == []
+
+
+LEAKED = (
+    "-A ndsOUT -s 10.99.99.186/32 -m mac --mac-source aa:bb:cc:dd:ee:ff "
+    "-j MARK --set-xmark 0x20000/0x20000"
+)
+DELETE_BUGGY = (
+    "iptables -t mangle -D ndsOUT -s 10.99.99.186/32 -m mac "
+    "--mac-source aa:bb:cc:dd:ee:ff -j MARK --set-xmark 0x30000/0x30000"
+)
+DELETE_LEAKED = (
+    "iptables -t mangle -D ndsOUT -s 10.99.99.186/32 -m mac "
+    "--mac-source aa:bb:cc:dd:ee:ff -j MARK --set-xmark 0x20000/0x20000"
+)
+
+
+def test_remove_nds_auth_marks_sweeps_both_mark_forms():
+    calls = []
+    router = make_router([f"-N ndsOUT\n{BUGGY}\n{LEAKED}"], calls)
+
+    removed = router.remove_nds_auth_marks()
+
+    assert removed == 2
+    assert calls[0] == "iptables -t mangle -S ndsOUT 2>/dev/null"
+    assert calls[1:3] == [DELETE_BUGGY, DELETE_LEAKED]
+    assert len(calls) == 3
+
+
+def test_remove_nds_auth_marks_noop_when_clean():
+    calls = []
+    router = make_router(["-N ndsOUT"], calls)
+
+    assert router.remove_nds_auth_marks() == 0
+    assert calls == ["iptables -t mangle -S ndsOUT 2>/dev/null"]
+
+
+def test_remove_nds_auth_marks_scopes_to_requested_mac():
+    calls = []
+    other = BUGGY.replace("aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66")
+    router = make_router([f"-N ndsOUT\n{BUGGY}\n{other}"], calls)
+
+    removed = router.remove_nds_auth_marks("aa:bb:cc:dd:ee:ff")
+
+    assert removed == 1
+    assert calls[1] == DELETE_BUGGY
+    assert len(calls) == 2

@@ -68,6 +68,14 @@ export default defineConfig({
 			use: { viewport: viewports[viewport] || viewports.desktop },
 		},
 		{
+			name: `${viewport}-cudy`,
+			testMatch: 'browser/cudy_wr3000.spec.mjs',
+			// Read-only by default; the one mutating probe (OEM firmware route) is
+			// env-gated inside the spec, so no retry is needed to be safe.
+			retries: 0,
+			use: { viewport: viewports[viewport] || viewports.desktop },
+		},
+		{
 			name: `${viewport}-protocol`,
 			testMatch: /protocol\/(?:payment-protocol|payment-lifecycle|data-allotment|router-network-config|tollgate-payment-protocol)\.spec\.mjs/,
 			dependencies: [`${viewport}-luci`],

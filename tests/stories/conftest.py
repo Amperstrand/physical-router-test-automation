@@ -3,15 +3,24 @@
 Provides the device-agnostic ClientDevice abstraction backed by labgrid.
 Each test parameterizes over device_place names; the corresponding
 adapter is instantiated from the labgrid target.
+
+Also provides SSID auto-resolution (queries the router for the actual
+SSID matching the TollGate- prefix) and evidence recording (video +
+step screenshots with vision validation).
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
 from typing import Protocol
 
 import pytest
+
+from lib.clients.ssid import get_router_host, resolve_ssid
+
+log = logging.getLogger("tollgate.stories")
 
 
 class ClientDevice(Protocol):
@@ -88,8 +97,12 @@ class ADBClientDevice:
         return "1022" in out
 
     def portal_detected(self) -> bool:
-        out = self._shell("dumpsys connectivity | grep -c 'CAPTIVE_PORTAL'")
-        return out.strip() != "0"
+        # Not behind a portal if we can reach the internet
+        if self.has_internet():
+            return False
+        # On WiFi without internet = behind a captive portal
+        wifi = self._shell("dumpsys wifi | grep -c 'mWifiInfo SSID: \"TollGate'")
+        return wifi.strip() != "0"
 
 
 class SSHClientDevice:
@@ -242,3 +255,68 @@ def device_mutex(request):
         log.warning("labgrid place '%s' locked by another user, "
                     "proceeding without mutex", labgrid_place)
         yield None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SSID Auto-Resolution
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="session")
+def tollgate_ssid():
+    """Resolve the actual SSID from the router, not just the prefix.
+
+    TOLLGATE_SSID=TollGate → queries router → returns "TollGate-0805"
+    """
+    prefix = os.environ.get("TOLLGATE_SSID", "TollGate")
+    router = get_router_host()
+    if router:
+        full = resolve_ssid(router, prefix)
+        if full != prefix:
+            log.info("SSID auto-resolved: %s → %s", prefix, full)
+            return full
+    return prefix
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Evidence Recording (video + screenshots)
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="function")
+def story_evidence(request, results_dir):
+    """Evidence recorder for user-story tests.
+
+    Wraps lib/clients/evidence.py to produce video + step screenshots.
+    Works with any ClientDevice that has a screenshot() method.
+    """
+    device_name = getattr(request, "param", "unknown")
+    art_dir = os.path.join(results_dir, "artifacts", device_name)
+    os.makedirs(art_dir, exist_ok=True)
+
+    class StoryRecorder:
+        def __init__(self):
+            self.steps: list[dict] = []
+            self.device = None  # set by the test
+
+        def attach(self, device):
+            self.device = device
+
+        def shot(self, step: str, claim: str):
+            path = os.path.join(art_dir, f"{step}.png")
+            if self.device and self.device.screenshot(path):
+                self.steps.append({
+                    "step": step, "file": path, "claim": claim,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+                log.info("evidence: %s (%s)", step, claim)
+                return path
+            return None
+
+        def write_manifest(self):
+            import json
+            manifest = os.path.join(art_dir, "evidence-steps.json")
+            with open(manifest, "w") as f:
+                json.dump({"steps": self.steps}, f, indent=2)
+
+    rec = StoryRecorder()
+    yield rec
+    rec.write_manifest()

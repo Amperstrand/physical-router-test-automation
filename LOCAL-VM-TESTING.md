@@ -49,11 +49,11 @@ Host (10.99.99.2)
 | VM | IP | Image | Role |
 |----|-----|-------|------|
 | OpenWrt | 10.99.99.1 | `overlays/tollgate-poc.qcow2` | Router under test |
-| Debian | 10.99.99.100 (static) | `overlays/debian-client.qcow2` (on `debian-12-generic` + NoCloud seed) | Test client |
+| Debian | DHCP from .100 | `overlays/debian-client.qcow2` | Test client |
 
 - OpenWrt root password: `tollgate` (set by provisioning script)
 - SSH: `sshpass -p tollgate ssh root@10.99.99.1`
-- Serial consoles: `~/tollgate-virtual-lab/run/serial.sock` (fallback provisioning only — see `docs/virtual-lab.md` for the seed/SSH-first flow and `--ephemeral-client` mode)
+- Serial consoles: `~/tollgate-virtual-lab/run/serial.sock`
 
 ## Deploying Changes
 

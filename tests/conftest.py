@@ -346,6 +346,29 @@ def router(request, backend):
         log.info(f"--client={client}: auto-detected WiFi MAC {phone_mac}")
     elif client == "container":
         phone_ip = phone_ip or "10.99.99.100"
+        # The legacy constant is the CLOUD-lab container NIC MAC; on other
+        # venues the container's real MAC differs and injecting it into
+        # dhcp.leases poisons the backend's MAC lookup (ndsctl auth on a
+        # phantom MAC — every payment fails, AGENTS.md 2026-09-28).
+        # Prefer explicit env, then the router's ARP truth.
+        if not phone_mac:
+            phone_mac = os.environ.get("TOLLGATE_CLIENT_MAC", "")
+        if not phone_mac and host:
+            try:
+                import subprocess as _sp
+
+                neigh = _sp.run(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                     "-o", "StrictHostKeyChecking=no", f"root@{host}",
+                     f"ip neigh show {phone_ip}"],
+                    capture_output=True, text=True, timeout=10,
+                ).stdout
+                for part in neigh.split():
+                    if part.count(":") == 5:
+                        phone_mac = part
+                        break
+            except Exception:
+                pass
         phone_mac = phone_mac or "02:00:00:00:00:01"
         log.info(f"--client=container: using container IP {phone_ip}, MAC {phone_mac}")
     else:

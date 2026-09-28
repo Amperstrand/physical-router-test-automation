@@ -2131,12 +2131,15 @@ GO-backend precedent, tmbg #88) as rate limiting. Wrong on two counts:
    before diagnosing.
 2. **The actual failure**: `failed to open gate: ndsctl auth
    02:00:00:00:00:01 failed after 5 attempts` — the router's DHCP lease
-   table had been poisoned (`10.99.99.100 → 02:00:00:00:00:01`, a
-   locally-administered MAC from a rogue DHCP client during the
-   2026-09-28 route-flip window) while ARP held the true
-   `de:54:4e:91:49:da`. The backend resolves MAC from DHCP leases
-   first, authed a phantom MAC, and every payment consumed its token
-   then rolled back.
+   table was being poisoned (`10.99.99.100 → 02:00:00:00:00:01`) while
+   ARP held the true `de:54:4e:91:49:da`. The backend resolves MAC from
+   DHCP leases first, authed a phantom MAC, and every payment consumed
+   its token then rolled back. **The poisoner was PRTA itself**:
+   `tests/conftest.py`'s container client defaulted to the CLOUD-lab
+   container NIC MAC (`02:00:00:00:00:01` — correct only there) and
+   `ensure_dhcp_lease()` injects it into `/tmp/dhcp.leases` on every
+   `--client=container` run. Fixed: MAC now resolves env
+   (`TOLLGATE_CLIENT_MAC`) → router ARP truth → legacy constant.
 
 **The "route flip" was ICMP redirects.** The poc router's WAN sits on
 the same bridge L2 as its LAN, so the router legitimately emits ICMP

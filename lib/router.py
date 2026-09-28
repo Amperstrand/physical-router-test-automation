@@ -110,6 +110,24 @@ class Router:
         return self.phone_mac, self.phone_ip
 
     @property
+    def portal_host(self) -> str:
+        """The DUT's captive-portal (br-lan) address for CLIENT-side URLs.
+
+        NOT self.host: on split-plane DUTs (owner topology 2026-09-28,
+        x1860 alpha/bravo) the SSH/mgmt plane is OOB-only and must stay out
+        of the experiment; portal clients live on br-lan. Env override
+        TOLLGATE_PORTAL_HOST wins; uci network.lan.ipaddr next; falls back
+        to self.host for single-bridge DUTs (NR7101-era shape).
+        """
+        env = os.environ.get("TOLLGATE_PORTAL_HOST")
+        if env:
+            return env
+        lan = self.uci_get("network.lan.ipaddr")
+        if lan:
+            return lan
+        return self.host
+
+    @property
     def gateway_ip(self) -> str:
         if self.domain:
             return self.domain

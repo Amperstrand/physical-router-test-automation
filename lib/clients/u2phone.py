@@ -59,6 +59,24 @@ class U2Phone:
         self.shell("settings put global stay_on_while_plugged_in 7")
         self.shell("input keyevent KEYCODE_WAKEUP")
 
+    def fresh_session(self) -> None:
+        """Deterministic pre-take client reset: a user walking up to a
+        TollGate with a phone that has never seen it.
+
+        Force-stops background apps (2026-09-29: eight idle Chrome tabs kept
+        firing Google connectivity probes through takes, polluting captures
+        and muddying captive-portal verdicts) and cycles airplane mode for a
+        clean radio + network stack before the join."""
+        for pkg in ("com.android.chrome",):
+            self.shell(f"am force-stop {pkg}")
+        self.shell("cmd connectivity airplane-mode enable")
+        time.sleep(2)
+        self.shell("cmd connectivity airplane-mode disable")
+        for _ in range(10):
+            if "enabled" in self.shell("cmd wifi status 2>/dev/null"):
+                break
+            time.sleep(1)
+
     def is_locked(self) -> bool:
         out = self.shell("dumpsys trust | grep '(current)' | head -1")
         m = re.search(r"deviceLocked=([01])", out)

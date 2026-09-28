@@ -67,9 +67,16 @@ done 2>>"$LOG"
 git -C "$WT" reset --hard origin/main --quiet >>"$LOG" 2>&1
 git -C "$WT" clean -fdq >>"$LOG" 2>&1
 git -C "$WT" branch --format='%(refname:short)' | sort > /tmp/opencode/${NAME}.branches-after
+# Only delete branches this run created AND that no other worktree holds —
+# parallel lanes share branch storage, so a sibling lane's new branch shows
+# up in the diff and must not be culled here.
+git worktree list --porcelain | sed -n 's/^branch //p' | sed 's|refs/heads/||' | sort -u > /tmp/opencode/${NAME}.branches-held
 comm -13 /tmp/opencode/${NAME}.branches-before /tmp/opencode/${NAME}.branches-after \
   | grep -vx 'pr-review-base' \
-  | while read -r b; do git -C "$WT" branch -D "$b" --quiet; done 2>>"$LOG"
+  | while read -r b; do
+      grep -qxF "$b" /tmp/opencode/${NAME}.branches-held && continue
+      git -C "$WT" branch -D "$b" --quiet
+    done 2>>"$LOG"
 branch_count_after=$(git -C "$WT" branch | wc -l)
 [ "$branch_count_after" -le "$branch_count_before" ] || echo "WARN: branch count grew ($branch_count_before -> $branch_count_after)" | tee -a "$LOG"
 

@@ -42,6 +42,25 @@ targets:
         keyfile: "~/.ssh/id_ed25519"
         stderr_merge: true
 
+  # ─── Virtual venue via the ai-legion coordinator (Phase-1) ──
+  # Same resources as the standalone targets above, but leased through the
+  # coordinator so virtual and physical places compose uniformly (micronuts#79).
+  # Lifecycle: scripts/virtual-lab.py start-poc on ai-legion boots the VM;
+  # these targets only resolve while the venue is up.
+  venue-openwrt-serial:
+    resources:
+      RemotePlace:
+        name: "venue-poc-openwrt-serial"
+    drivers:
+      NetworkSerialDriver: {}
+
+  venue-openwrt-api:
+    resources:
+      RemotePlace:
+        name: "venue-poc-openwrt-api"
+    drivers:
+      DummyDriver: {}
+
   # ─── Debian client VM ─────────────────────────────────
   debian-client:
     resources:

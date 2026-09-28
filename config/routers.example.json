@@ -9,6 +9,8 @@
       "arch": "aarch64_cortex-a53",
       "wifiInterface": "wlan0",
       "tollgateSsidPrefix": "TollGate-",
+      "captiveSsidPrefixes": ["TollGate-", "Net4sats-"],
+      "privateSsidPrefix": "c08r4d0r",
       "openwrtVersion": "24.10.1",
       "openwrtTarget": "mediatek/filogic",
       "openwrtProfile": "glinet_gl-mt3000"

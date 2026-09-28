@@ -78,6 +78,8 @@ _INVENTORY_ENV_MAP = {
     "arch": "TOLLGATE_ROUTER_ARCH",
     "wifiInterface": "TOLLGATE_WIFI_INTERFACE",
     "tollgateSsidPrefix": "TOLLGATE_SSID_PREFIX",
+    "captiveSsidPrefixes": "TOLLGATE_CAPTIVE_SSID_PREFIXES",
+    "privateSsidPrefix": "TOLLGATE_PRIVATE_SSID_PREFIX",
     "jumpHost": "TOLLGATE_SSH_JUMP_HOST",
     "sshPort": "TOLLGATE_SSH_PORT",
 }
@@ -108,6 +110,8 @@ def _load_router_inventory():
     entry = routers[router_id]
     for field, env_var in _INVENTORY_ENV_MAP.items():
         value = entry.get(field)
+        if isinstance(value, (list, tuple)):
+            value = ",".join(str(v) for v in value)
         if value:
             os.environ[env_var] = value
     log.info("Loaded router inventory: %s (%s)", router_id, entry.get("model", "unknown"))
@@ -253,6 +257,13 @@ def pytest_addoption(parser):
     parser.addoption("--lab-type", default=None,
                      choices=["virtual-lab", "gcloud", "physical", "browserstack"],
                      help="Lab environment type. Default: TOLLGATE_LAB_TYPE env or 'physical'")
+    parser.addoption("--preflight", default="auto", choices=["auto", "on", "off"],
+                     help="Environment autodetection: 'auto' reuses a fresh "
+                          "results/preflight-latest.json (probing when stale), "
+                          "'on' forces a fresh probe, 'off' disables entirely. "
+                          "Prints the checklist at session start and defaults "
+                          "TOLLGATE_SSH_HOST/PHONE_SERIAL to the first available "
+                          "router/phone when unset or unreachable.")
 
 
 def pytest_configure(config):
@@ -280,6 +291,16 @@ def results_dir(request):
     os.makedirs(os.path.join(rd, "raw"), exist_ok=True)
     os.makedirs(os.path.join(rd, "report"), exist_ok=True)
     return rd
+
+
+@pytest.fixture(scope="session")
+def preflight_snapshot(request):
+    """Environment snapshot from --preflight (None when disabled/unavailable).
+
+    Loaded or refreshed at session start (see _run_preflight_session);
+    tests may inspect routers/adb/docker/lanes from it.
+    """
+    return getattr(request.session, "_tollgate_preflight_snapshot", None)
 
 
 @pytest.fixture(scope="session")
@@ -651,7 +672,11 @@ def all_routers(backend):
 @pytest.fixture(scope="session")
 def wifi(adb, router):
     ssid = os.environ.get("TOLLGATE_SSID", "TollGate")
-    return WiFi(adb=adb, router=router, ssid=ssid)
+    prefixes = (
+        [p for p in os.environ.get("TOLLGATE_CAPTIVE_SSID_PREFIXES", "").split(",") if p]
+        or None
+    )
+    return WiFi(adb=adb, router=router, ssid=ssid, captive_prefixes=prefixes)
 
 
 @pytest.fixture(autouse=True)
@@ -1251,8 +1276,48 @@ def serial_console(router):
     return SerialConsole(port)
 
 
+def _preflight_unit_only(config) -> bool:
+    args = getattr(config, "args", []) or []
+    return bool(args) and all("unit" in str(a).replace(os.sep, "/") for a in args)
+
+
+def _run_preflight_session(session) -> dict | None:
+    mode = session.config.getoption("--preflight", default="auto")
+    if mode == "off":
+        return None
+    if IS_MOCK_MODE:
+        return None
+    if os.environ.get("TOLLGATE_SKIP_PREFLIGHT", "").lower() in ("1", "true", "yes"):
+        return None
+    if _preflight_unit_only(session.config):
+        return None
+    if getattr(session.config.option, "collectonly", False):
+        return None
+
+    from lib.preflight import apply_env_defaults, format_checklist, load_snapshot, run_preflight
+
+    snapshot = load_snapshot() if mode == "auto" else None
+    if snapshot is None:
+        try:
+            snapshot = run_preflight(repo_root=SCRIPT_DIR)
+        except Exception as exc:
+            log.warning("Preflight probe failed: %s", exc)
+            return None
+    print("\n" + format_checklist(snapshot) + "\n")
+    try:
+        apply_env_defaults(snapshot, env=os.environ, logger=log)
+    except Exception as exc:
+        log.debug("Preflight env defaults not applied: %s", exc)
+    return snapshot
+
+
 def pytest_sessionstart(session):
     global _session_lock, _hardware_lock_acquired
+    try:
+        session._tollgate_preflight_snapshot = _run_preflight_session(session)
+    except Exception as exc:
+        log.debug("Preflight skipped: %s", exc)
+
     lock_phase = session.config.getoption("--lock-phase", default=None)
     use_hardware = (
         lock_phase

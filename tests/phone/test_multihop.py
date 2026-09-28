@@ -6,12 +6,15 @@
 #                                          → WiFi 2.4GHz AP → Phone
 #
 # Prerequisites:
-#   - alpha: TollGate running, seller mode, SSID c08r4d0r-1706 on 5GHz
+#   - alpha: TollGate running, seller mode, private SSID <nym>-<code> on 5GHz
 #   - beta: TollGate running, reseller_mode=true, WiFi STA to alpha on 5GHz,
-#            client AP c08r4d0r-C830 on 2.4GHz (br-private),
+#            client AP broadcasting the private SSID on 2.4GHz (br-private),
 #            NoDogSplash on br-private, testnut mint accepted,
 #            wallet funded, upstream buying session active
-#   - Phone connected to c08r4d0r-C830 via WiFi AND USB/ADB
+#   - Phone connected to beta's private SSID via WiFi AND USB/ADB
+#
+# The reseller SSID is resolved from the ROUTER at runtime (device code +
+# private-SSID prefix, default nym c08r4d0r). Override with RESELLER_SSID.
 #
 # Run:
 #   PHONE_SERIAL=R5CR508MD9R TOLLGATE_ROUTER_ID=beta \
@@ -28,13 +31,13 @@ from lib.router import Router
 from lib.cashu import CashuMint
 from lib.clients.adb import ADBDevice
 from lib.helpers import assert_internet, is_session_event, assert_session_active
+from lib.ssid import LEGACY_RESELLER_SSID, resolve_reseller_ssid
 
 log = logging.getLogger("tollgate.multihop")
 
 pytestmark = [pytest.mark.phone, pytest.mark.timeout(120)]
 
 SCRIPT_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
-RESELLER_SSID = "c08r4d0r-C830"
 
 
 def _load_router(router_id: str) -> Router:
@@ -67,6 +70,14 @@ def router_b():
 
 
 @pytest.fixture(scope="module")
+def reseller_ssid(router_a) -> str:
+    """RESELLER_SSID env override → router-resolved private SSID → legacy literal."""
+    ssid = resolve_reseller_ssid(router_a.ssh, fallback=LEGACY_RESELLER_SSID)
+    log.info("Reseller SSID resolved: %s", ssid)
+    return ssid
+
+
+@pytest.fixture(scope="module")
 def adb():
     serial = os.environ.get("PHONE_SERIAL", "")
     pin = os.environ.get("PHONE_PIN", "")
@@ -91,11 +102,11 @@ def test_01_infrastructure_healthy(router_a, router_b):
     assert "reseller_mode" in config and "true" in config, "Router-a not in reseller mode"
 
 
-def test_02_phone_on_reseller_wifi(adb, router_a):
+def test_02_phone_on_reseller_wifi(adb, router_a, reseller_ssid):
     """Phone is connected to the reseller's 2.4GHz AP."""
     wifi_info = adb.shell("dumpsys wifi 2>/dev/null | grep 'mWifiInfo'").strip()
-    assert RESELLER_SSID in wifi_info, \
-        f"Phone not on {RESELLER_SSID}. Current: {wifi_info[:100]}"
+    assert reseller_ssid in wifi_info, \
+        f"Phone not on {reseller_ssid}. Current: {wifi_info[:100]}"
     ip = adb.wifi_ip()
     assert ip, "Phone has no WiFi IP"
     router_a.phone_ip = ip

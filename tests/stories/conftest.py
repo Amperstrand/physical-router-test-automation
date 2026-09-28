@@ -264,13 +264,23 @@ class SSHClientDevice:
             "| awk '{print $2}' | cut -d/ -f1 | head -1")
 
     def has_internet(self, host: str = "8.8.8.8") -> bool:
-        return ", 0% packet loss" in self._ssh(f"ping -c1 -W3 {host}")
+        # HTTP truth, not ping: the VM lab's NDS lets ICMP through
+        # pre-auth while HTTP is 307'd to the portal — ping lies for
+        # Linux clients behind that ruleset. generate_204 answers 204
+        # only when the full user path (DNS + HTTP) is open.
+        out = self._ssh(
+            "curl -s -o /dev/null -w '%{http_code}' -m 8 "
+            "http://connectivitycheck.gstatic.com/generate_204")
+        return out == "204"
 
     def screenshot(self, path: str) -> bool:
+        # A headless Linux client has no pixels — its "screenshot" is a
+        # connectivity proof written to the exact requested path (the
+        # recorder handles non-PNG evidence via its size heuristic).
         proof = self._ssh(
             f"curl -s -m 5 http://ifconfig.me && echo "
             f"&& ping -c1 -W3 8.8.8.8 2>&1 | tail -1")
-        with open(path.replace(".png", ".txt"), "w") as f:
+        with open(path, "w") as f:
             f.write(proof)
         return len(proof) > 0
 
@@ -473,7 +483,13 @@ class StoryRecorder:
         if digest in self._hashes:
             return "degraded:duplicate"
         self._hashes.add(digest)
-        if Image is not None:
+        with open(path, "rb") as f:
+            head = f.read(8)
+        if not head.startswith(b"\x89PNG"):
+            # Non-PNG evidence (headless clients write text proofs):
+            # duplicate detection already ran; non-empty = usable.
+            blank = os.path.getsize(path) == 0
+        elif Image is not None:
             with Image.open(path) as img:
                 rgb = img.convert("RGB")
                 colors = rgb.getcolors(maxcolors=1 << 24) or []
@@ -481,6 +497,8 @@ class StoryRecorder:
             dominant = max((c for c, _ in colors), default=0) / total
             blank = dominant > 0.995
         else:
+            # PNG without PIL: a content-bearing screenshot compresses
+            # far above this; solid frames land in the low kilobytes.
             blank = os.path.getsize(path) < 12288
         return "degraded:blank" if blank else "ok"
 

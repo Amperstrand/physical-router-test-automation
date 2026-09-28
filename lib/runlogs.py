@@ -78,22 +78,30 @@ class PhoneLogcatSource:
 
 
 class RouterLogreadSource:
-    """Tail the router's logread (tollgate/nds/dnsmasq/hostapd/netifd)."""
+    """Tail the router's logread (tollgate/nds/dnsmasq/hostapd/netifd).
 
-    def __init__(self, host: str, user: str = "root"):
+    Uses key auth by default; the local-lab VMs are password-authed, so
+    TOLLGATE_SSH_PASSWORD (the repo's existing convention) routes through
+    sshpass when set.
+    """
+
+    def __init__(self, host: str, user: str = "root",
+                 password: str = ""):
         self.host = host
         self.user = user
+        self.password = password
         self.name = "router-logread"
 
     def available(self) -> bool:
         return bool(self.host)
 
     def collect(self, path: str) -> None:
+        cmd = ["ssh", *SSH_OPTS, f"{self.user}@{self.host}",
+               "logread | tail -400"]
+        if self.password:
+            cmd = ["sshpass", "-p", self.password] + cmd
         try:
-            r = subprocess.run(
-                ["ssh", *SSH_OPTS, f"{self.user}@{self.host}",
-                 "logread | tail -400"],
-                capture_output=True, timeout=30)
+            r = subprocess.run(cmd, capture_output=True, timeout=30)
             _write(path, r.stdout or b"(no output)\n")
         except Exception as exc:  # noqa: BLE001
             _write(path, b"", f"(capture failed: {exc})\n")
@@ -237,6 +245,7 @@ def default_sources(env: dict[str, str] | None = None) -> list[LogSource]:
     env = dict(os.environ) if env is None else dict(env)
     phone = env.get("PHONE_SERIAL") or env.get("TOLLGATE_PHONE_SERIAL", "")
     router = env.get("TOLLGATE_SSH_HOST", "")
+    router_pw = env.get("TOLLGATE_SSH_PASSWORD", "")
     console_log = env.get("TOLLGATE_CONSOLE_LOG", "")
     console_tcp = env.get("TOLLGATE_CONSOLE_TCP", "")
     lg_client = env.get("TOLLGATE_LABGRID_CLIENT", "")
@@ -249,7 +258,7 @@ def default_sources(env: dict[str, str] | None = None) -> list[LogSource]:
         sources.append(PhoneLogcatSource(phone, key_slice=False))
         sources.append(PhoneLogcatSource(phone, key_slice=True))
     if router:
-        sources.append(RouterLogreadSource(router))
+        sources.append(RouterLogreadSource(router, password=router_pw))
     if console_log:
         sources.append(ConsoleFileSource(console_log,
                                          label=os.path.basename(console_log)))

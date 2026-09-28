@@ -2117,3 +2117,13 @@ response 682ms. Upgrade-path story activates with `TOLLGATE_RELEASE_IPK`;
 concurrent-payment story with `TOLLGATE_DEBIAN_HOST`. Cross-implementation
 client routing: `TOLLGATE_STORY_CLIENT=debian-vm|omarchy-vm|android-phone`.
 
+
+## Rogue-DHCP Discipline — fixtures never compete with the network's DHCP authorities (2026-09-28)
+
+PRTA drives physical routers on the bench/house network. The authority map and enforcement live in conwrt-bench (`docs/NETWORK-SEGMENTATION.md`, issue #28): house LAN VLAN 13 and lab island VLAN 12 are served by the ERX ONLY; bench DUT VLANs 100N by the bench switch ONLY. A fixture answering DHCPDISCOVER or emitting RA outside its own isolated VLAN is a rogue that can take down the production house WiFi.
+
+1. **Every router under test is presumed armed**: fresh/default firmware runs DHCP + RA. Before a fixture shares any segment: `dhcp.lan.ignore='1'`, `dhcp.lan.ra='disabled'`, `dhcp.lan.dhcpv6='disabled'` — commit, restart, read back.
+2. **Fixtures attach to bench DUT bays (isolated VLANs) only** — never to ERX eth3 (production chain) or any shared/management segment.
+3. **A story that needs a DHCP server runs inside an isolated VLAN** (one VLAN, one server, owned by the segment owner).
+4. After package installs on fixtures, verify dnsmasq/odhcpd did not auto-start (the `apk add dnsmasq` lesson).
+5. Detection tripwire: on the ERX, `Drop-Lab-Rogue-*` firewall counters/log hits = a rogue is transmitting — find and quiet it before continuing the run.

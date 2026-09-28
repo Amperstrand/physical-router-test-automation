@@ -122,6 +122,19 @@ def test_size_fallback_without_pil(tmp_path, monkeypatch):
     assert rec.steps[0]["visual"] == "degraded:blank"
 
 
+def test_text_proof_evidence_classified_not_crashed(tmp_path):
+    # Headless Linux clients write connectivity proofs, not PNGs — the
+    # recorder must assess them (heuristic branch) instead of crashing.
+    def text_frame(path):
+        with open(path, "w") as f:
+            f.write("external-ip: 203.0.113.7\nping: 1 received\n")
+
+    rec = _recorder(tmp_path, FakeDevice(text_frame))
+    rec.shot("01-proof", "internet proof")
+    assert rec.steps[0]["visual"] == "ok"
+    assert rec.steps[0]["evidence_ok"] is True
+
+
 def test_failed_capture_recorded_loudly_with_state_sidecar(tmp_path):
     dev = FakeDevice(None, state="validation: VALIDATED\nwifi: fake\n")
     rec = _recorder(tmp_path, dev)

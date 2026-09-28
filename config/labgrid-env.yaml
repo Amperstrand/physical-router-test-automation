@@ -83,6 +83,19 @@ targets:
         login_prompt: ""
         username: ""
 
+  # ─── CYD (ESP32-2432S028) — TollGate terminal project ─
+  # Physically attached to ai-legion (the bench coordinator host since
+  # 2026-09-28 — ai-legion-small no longer coordinates) and exported there
+  # as place `cyd-tollgate-01`; reachable from any pytest host via the
+  # coordinator with RemotePlace. Serial carries esptool flashing and the
+  # runtime console. Project: "micronuts on tollgate on the cyd".
+  cyd-terminal:
+    resources:
+      RemotePlace:
+        name: "cyd-tollgate-01"
+    drivers:
+      SerialDriver: {}
+
   # ─── NR7101 physical router ────────────────────────────
   nr7101:
     resources:

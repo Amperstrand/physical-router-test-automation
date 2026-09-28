@@ -60,7 +60,7 @@ sleep 4
 herdr pane read "$PANE" --source detection --lines 3 >> "$LOG" 2>&1
 
 # Worktree cleanup + shared-git-dir guard.
-git -C "$WT" checkout pr-review-base --quiet 2>>"$LOG"
+git -C "$WT" checkout pr-review-base --quiet 2>>"$LOG" || git -C "$WT" checkout -q --detach origin/main 2>>"$LOG"
 git -C "$WT" branch --list 'pr-[0-9]*' --format='%(refname:short)' | while read -r b; do
   git -C "$WT" branch -D "$b" --quiet
 done 2>>"$LOG"

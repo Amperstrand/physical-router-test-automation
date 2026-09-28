@@ -1,0 +1,109 @@
+#!/bin/sh
+# TollGate first-boot offline install for a baked-in image.
+#
+# This script is shipped INSIDE the image via the ImageBuilder FILES= mechanism
+# (see scripts/comfast-cf-wr632ax/build-image.sh) together with the module
+# package at /root/tollgate-wrt.apk.  tollgate-wrt is not in the official
+# OpenWrt feeds, so it cannot be named in PACKAGES=; instead it is installed
+# offline from the file on FIRST BOOT, and this script deletes itself so the
+# install runs exactly once.
+#
+# It runs from /etc/init.d/boot (uci-defaults) BEFORE procd brings services up,
+# so "enable" here is enough for the module's init script to be started by the
+# boot that is already in progress.
+#
+# Measured traps respected below (see the physical-router-testing skill):
+#   1. `apk add --force-non-repository <file>` performs a WORLD SYNC and can
+#      remove packages that were installed from files, so the package closure is
+#      installed in ONE apk transaction.
+#   2. nodogsplash's uci section may not exist before the package's own
+#      uci-defaults have run, so the section is created before anything writes
+#      to it.
+#   3. `fw4`/nftables fragments under /etc/nftables.d are INERT until the
+#      firewall reloads; at boot the firewall starts after uci-defaults, so the
+#      reload below is belt-and-braces for the post-first-boot install path only.
+#
+# Log: /tmp/tollgate-firstboot.log  (tmpfs — read it before rebooting)
+
+LOG=/tmp/tollgate-firstboot.log
+APKFILE=/root/tollgate-wrt.apk
+SELF=/etc/uci-defaults/99-tollgate-firstboot
+
+{
+echo "=== tollgate firstboot begin: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+if [ ! -f "$APKFILE" ]; then
+    echo "FATAL: $APKFILE is missing from the image — nothing to install"
+    exit 0
+fi
+
+# --- 1. nodogsplash config section must exist before the module touches it ----
+[ -f /etc/config/nodogsplash ] || : > /etc/config/nodogsplash
+uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1 || uci add nodogsplash nodogsplash
+uci -q set nodogsplash.@nodogsplash[0].enabled='1'
+uci commit nodogsplash 2>/dev/null || true
+
+# --- 2. pick the force flag this apk-tools actually understands --------------
+# apk-tools 3.0.5 (OpenWrt 25.12.x) names it --force-non-repository; older
+# spellings exist, so probe rather than guess.
+APK_HELP="$(apk add --help 2>&1 || true)"
+FORCE=""
+case "$APK_HELP" in
+    *--force-non-repository*)      FORCE="--force-non-repository" ;;
+    *--force-missing-repositories*) FORCE="--force-missing-repositories" ;;
+esac
+echo "apk force flag: '${FORCE:-<none>}'"
+
+# --- 3. install the module, ONE transaction ----------------------------------
+install_tollgate() {
+    # shellcheck disable=SC2086
+    apk add --no-network --allow-untrusted $1 "$APKFILE"
+}
+if ! install_tollgate "$FORCE"; then
+    echo "install with '$FORCE' failed; retrying with the alternative spelling"
+    ALT="--force-non-repository"
+    [ "$FORCE" = "$ALT" ] && ALT="--force-missing-repositories"
+    install_tollgate "$ALT" || echo "ERROR: tollgate-wrt install failed (see the transcript above)"
+fi
+
+if apk list --installed 2>/dev/null | grep -q '^tollgate-wrt-'; then
+    echo "INSTALLED: $(apk list --installed 2>/dev/null | grep '^tollgate-wrt-' | head -n1)"
+else
+    echo "ERROR: tollgate-wrt is NOT in the installed set"
+fi
+
+# --- 4. make sure the module's own first-boot config actually ran -----------
+# The package postinst runs these oneshots immediately on a running system; if
+# it did not (or ran partially), run them here and consume them.
+for s in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
+         /etc/uci-defaults/92-tollgate-admin-setup \
+         /etc/uci-defaults/99-tollgate-setup; do
+    if [ -f "$s" ]; then
+        echo "running $s"
+        sh "$s" || echo "WARN: $s exited non-zero"
+        rm -f "$s"
+    fi
+done
+
+# --- 5. enable the services so this boot's procd starts them ----------------
+for svc in nodogsplash tollgate-wrt; do
+    if [ -x "/etc/init.d/$svc" ]; then
+        "/etc/init.d/$svc" enable && echo "enabled: $svc" || echo "WARN: could not enable $svc"
+    else
+        echo "WARN: /etc/init.d/$svc missing"
+    fi
+done
+
+# --- 6. nftables fragments are inert until the firewall loads them ----------
+/etc/init.d/firewall reload >/dev/null 2>&1 || true
+
+# --- 7. reclaim the space the staged apk held -------------------------------
+rm -f "$APKFILE" "$APKFILE.apk-new"
+
+echo "=== tollgate firstboot done: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} >>"$LOG" 2>&1
+
+# --- 8. run exactly once ----------------------------------------------------
+rm -f "$SELF"
+rm -f /etc/uci-defaults/99-tollgate-firstboot
+exit 0

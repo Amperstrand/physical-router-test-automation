@@ -101,6 +101,51 @@ truthy_gate() { # $1=report json key  -> prints pass/fail/"" from the report
     report_field "$1"
 }
 
+# ------------------------------------------------------------------ keepalive seed
+# Run the PRODUCTION keepalive seed against the harness router, exactly the way
+# install-router.sh applies it (step 1: `sh <seed>` with TGOFFLINE_ROOT standing in for
+# the router's filesystem, and the uci double on PATH reading the same root).  The
+# placeholder is injected first, as install-offline.sh does on the laptop side.
+#   $1 = seed template to run (default: the shipped one)
+run_keepalive_seed() {
+    local seed="${1:-}" seeded
+    [ -n "$seed" ] || seed="$SCRIPTS_DIR/templates/99z-mgmt-keepalive"
+    seeded="$TGOFFLINE_HARNESS_ROOT/tmp/seed-applied/99z-mgmt-keepalive"
+    mkdir -p "$TGOFFLINE_HARNESS_ROOT/tmp/seed-applied"
+    sed 's/__TRUST_MAC__/AA:BB:CC:DD:EE:FF/' "$seed" > "$seeded"
+    # shellcheck disable=SC2086  # SH_BIN may be "busybox ash"
+    OUT="$( TGOFFLINE_ROOT="$TGOFFLINE_HARNESS_ROOT" \
+            PATH="$TGOFFLINE_HARNESS_ROOT/usr/sbin:$TGOFFLINE_HARNESS_ROOT/usr/bin:$HERE/harness/bin:/usr/bin:/bin" \
+            $SH_BIN "$seeded" 2>&1 )"
+    RC=$?
+    return 0
+}
+
+# The fresh-box pre-auth trust, asserted exactly the way install-router.sh's
+# assert_keepalive_live() reads it — plus the committed config FILE the router keeps.
+# $1 = description prefix (so the same assertions can be run as a labelled control)
+keepalive_freshbox_asserts() {
+    local p="$1" conf="$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash"
+    # (a) the config FILE the seed's FIRST uci call needs (absent on a fresh flash:
+    #     nodogsplash is one of the packages the bundle DELIVERS, not yet installed)
+    check_eq "$p the nodogsplash config FILE is created" "yes" \
+        "$([ -f "$conf" ] && echo yes || echo no)"
+    # (b) the anonymous section resolves — the target of every add_list below
+    check_eq "$p the anonymous nodogsplash section exists" "nodogsplash" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0]' 2>/dev/null)"
+    # (c) the pre-auth trust, through uci (what the gate reads) …
+    check_contains "$p trustedmac carries the workstation MAC" "AA:BB:CC:DD:EE:FF" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].trustedmac' 2>/dev/null)"
+    check_contains "$p users_to_router carries 'allow tcp port 22'" "allow tcp port 22" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].users_to_router' 2>/dev/null)"
+    # … and in the committed config FILE itself
+    check_contains "$p the committed config carries the MAC" "AA:BB:CC:DD:EE:FF" \
+        "$(cat "$conf" 2>/dev/null)"
+    check_contains "$p the committed config carries the allow rule" "allow tcp port 22" \
+        "$(cat "$conf" 2>/dev/null)"
+}
+
+
 # =============================================================== T01 dry-run
 test_T01() {
     router_root_new
@@ -741,8 +786,24 @@ test_T21() {
     b="$(bundle_build "$WORK/b21")"
 
     # (i) lexical drift guard: the shipped seed really creates the file + section first.
-    check_contains "the seed creates /etc/config/nodogsplash when it is absent" \
-        '|| : > "$CONF_DIR/nodogsplash"' "$(cat "$seed_tpl")"
+    # The FILE line is asserted in the SHAPE the FEED BUILDER recognises
+    # (KEEPALIVE_FILE_ENSURE_RE, FreedomTechFeed/packages scripts/offline-bundle.py): if the
+    # pin's wording drifts out of that shape the builder stops taking its early return and
+    # inserts its own file-ensure step on top of a seed that already has one.  Rewriting it as
+    # `[ -f "$CONF_DIR/nodogsplash" ] || : > ...` still works on a router but silently loses
+    # that recognition, so the cross-repo contract is asserted here by shape (T29 too).
+    check_contains "the seed creates the nodogsplash config when it is absent" \
+        '|| : >' "$(cat "$seed_tpl")"
+    if printf '%s' "$(cat "$seed_tpl")" | python3 -c '
+import re, sys
+RE = (r"^\s*\[[^\]]*etc/config/nodogsplash\"[^\]]*\]\s*\|\|\s*:\s*>\s*"
+      r"\S*etc/config/nodogsplash\"")
+sys.exit(0 if len(re.findall(RE, sys.stdin.read(), re.M)) == 1 else 1)
+'; then
+        pass "the seed's file-ensure line is in the shape the FEED BUILDER's KEEPALIVE_FILE_ENSURE_RE recognises"
+    else
+        fail "the seed's file-ensure line is NOT in the feed builder's shape - a pinned seed would get the builder's step re-applied"
+    fi
     check_contains "the seed adds the anonymous nodogsplash section" \
         "uci add nodogsplash nodogsplash" "$(cat "$seed_tpl")"
     check_contains "the seed guards the add with a -q get of the section" \
@@ -953,6 +1014,188 @@ test_T28() {
 }
 
 # =============================================================== runner
+# =============================================================== T29 keepalive seed, unit level
+# The SAME defect T21 covers end to end through install-router.sh, driven here at the SEED -
+# the level at which it is fixed - so this group can also pin the two things an end-to-end run
+# cannot: that a RE-RUN of the seed is idempotent, and that the file-ensure line stays in the
+# shape the FEED BUILDER recognises (if it drifts, a pinned seed gets the builder's own step
+# re-applied on top of it - the double-write class of bug feed PR #38 removed).
+#
+# The defect this group exists for: on a freshly flashed WAN-less box /etc/config has
+# NO nodogsplash — nodogsplash is one of the 38 packages the bundle DELIVERS, so it is
+# not installed yet when the keepalive seed runs.  Real `uci` cannot create a section in
+# a config file that does not exist: `uci add nodogsplash nodogsplash` prints
+# "uci: Entry not found" and exits 3 (measured on a bench MT3000, fresh flash, WAN-less,
+# 2026-09-28; with the file created first the very same call exits 0).  It cannot resolve
+# the anonymous section @nodogsplash[0] without the file either, so the seed's add_list
+# calls land NOTHING — and the seed ignores errors and exits 0 anyway.  install-router.sh's
+# keepalive_applied gate then finds no trustedmac / no 'allow tcp port 22' and REFUSES
+# with exit 5 on a first flash: a bundle refused by the gate for a package the bundle
+# itself delivers.
+#
+# The fix is in the seed, so this group drives the SEED directly (the router's own
+# shell, the uci double on PATH, TGOFFLINE_ROOT standing in for the filesystem):
+#   (a) fresh box, shipped seed    -> the config file is created, the section exists,
+#                                     the trust lands, and a RE-RUN is idempotent
+#   (b) fresh box, file-ensure line removed (scratch copy of the seed INSIDE the
+#       harness, never the repo file) -> the SAME assertions FAIL, and they fail for
+#       the right reason: no config file is created and the trust never lands.  The
+#       control also pins the mechanism itself (guard_rc=3 / uci: Entry not found
+#       without the file, rc=0 with it), so the green assertions cannot be vacuous.
+test_T29() {
+    # the scratch seed copy lives in $WORK, NOT under the harness root: router_root_new
+    # wipes the root between cases and would take the control seed with it
+    local seeded_ctl="$WORK/keepalive-control"
+    # the shipped template's hash, captured BEFORE the control runs, so the control can be
+    # proven not to have edited the repo file back
+    local seed_sha
+    seed_sha="$(sha256sum "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" | awk '{print $1}')"
+
+    # ---------------------------------------------------------- (a) fresh box, SHIPPED
+    router_root_new
+    check_eq "fresh box: /etc/config/nodogsplash is absent BEFORE the seed runs" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+
+    run_keepalive_seed
+    check_rc "fresh box: the seed itself still exits 0 (it ignores uci errors)" 0 "$RC"
+    keepalive_freshbox_asserts "fresh box:"
+
+    # idempotency: re-running the seed must not duplicate the list members, and the
+    # committed config must be byte-identical (uci add_list is a set; the section-ensure
+    # is guarded by a `uci -q get`; the file-ensure never clobbers an existing file)
+    local conf="$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" sha1 sha2
+    sha1="$(sha256sum "$conf" | awk '{print $1}')"
+    run_keepalive_seed
+    check_rc "fresh box: the re-run exits 0" 0 "$RC"
+    sha2="$(sha256sum "$conf" | awk '{print $1}')"
+    check_eq "fresh box: re-running the seed leaves the config byte-identical" "$sha1" "$sha2"
+    check_eq "fresh box: the MAC is not duplicated by a re-run" "1" \
+        "$(grep -c 'AA:BB:CC:DD:EE:FF' "$conf")"
+    check_eq "fresh box: the allow rule is not duplicated by a re-run" "1" \
+        "$(grep -c 'allow tcp port 22' "$conf")"
+    check_eq "fresh box: the anonymous section is not duplicated by a re-run" "1" \
+        "$(grep -c '^nodogsplash$' "$TGOFFLINE_HARNESS_ROOT/etc/config/.nodogsplash.sections")"
+
+    # ---------------------------------------------------------- (b) RED CONTROL
+    # Reverse the fix on a SCRATCH COPY inside the harness — the repo template is never
+    # touched.  Removing the file-ensure line is the whole fix under test, and the
+    # reversal is matched by the FEED BUILDER's own regex for that line, so this control
+    # cannot silently test something else.
+    router_root_new
+    mkdir -p "$seeded_ctl"
+    if OUT="$(python3 - "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" \
+                       "$seeded_ctl/99z-mgmt-keepalive" <<'PY' 2>&1
+import re, sys
+# the feed builder's KEEPALIVE_FILE_ENSURE_RE: the shape it recognises as "already
+# fresh-box safe".  Reversing BY THAT SHAPE proves the control removes exactly the
+# step the shipped seed (and the builder) rely on.
+RE = (r'^\s*\[[^\]]*etc/config/nodogsplash"[^\]]*\]\s*\|\|\s*:\s*>\s*'
+      r'\S*etc/config/nodogsplash"')
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding="utf-8").read()
+out, dropped = [], 0
+for line in text.splitlines(keepends=True):
+    if re.search(RE, line.rstrip("\n")):
+        dropped += 1
+        continue
+    out.append(line)
+open(dst, "w", encoding="utf-8").write("".join(out))
+if dropped != 1:
+    print("CONTROL-FAILURE: expected exactly one file-ensure line, removed %d" % dropped)
+    sys.exit(1)
+if re.search(RE, "".join(out), re.M):
+    print("CONTROL-FAILURE: a file-ensure line survived the reversal")
+    sys.exit(1)
+print("removed %d file-ensure line from the scratch seed copy" % dropped)
+PY
+)"; then
+        pass "keepalive control: the file-ensure line is removed from a scratch copy ($(printf '%s' "$OUT" | tail -n1))"
+    else
+        fail "keepalive control: could not build the no-file-ensure seed — $(printf '%s' "$OUT" | tail -n1)"
+    fi
+
+    # the mechanism, pinned directly: real uci refuses to add a section to a config file
+    # that does not exist (rc 3, "uci: Entry not found"), and succeeds once it does
+    check_eq "keepalive control: the config file is absent on the fresh control box" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    OUT="$(uci add nodogsplash nodogsplash 2>&1)"; RC=$?
+    check_rc "keepalive control: uci add REFUSES while the config file does not exist" 3 "$RC"
+    check_contains "keepalive control: the refusal is 'uci: Entry not found'" "uci: Entry not found" "$OUT"
+    if [ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ]; then
+        fail "keepalive control: uci add created the config file itself (it must not)"
+    else
+        pass "keepalive control: uci add did NOT create the config file"
+    fi
+    : > "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash"
+    OUT="$(uci add nodogsplash nodogsplash 2>&1)"; RC=$?
+    check_rc "keepalive control: the SAME uci add exits 0 once the file exists" 0 "$RC"
+
+    # now run the reversed seed on a fresh box and require the trust assertions to FAIL
+    router_root_new
+    run_keepalive_seed "$seeded_ctl/99z-mgmt-keepalive"
+    check_rc "keepalive control: the reversed seed still exits 0 (it ignores errors)" 0 "$RC"
+    check_contains "keepalive control: the reverse really lands no trust (uci: Entry not found emitted)" \
+        "uci: Entry not found" "$OUT"
+
+    # the SAME assertions that passed in (a), run against the reversed seed.  They run in
+    # a SUBSHELL so their (required) failures do not count against the suite: a non-vacuity
+    # control that itself failed the suite would be indistinguishable from a regression.
+    # The same fact is then asserted POSITIVELY below, the way T20's controls do, so the
+    # suite's own counts record it.
+    echo "   --- red control: the SAME fresh-box assertions, against the reversed seed ---"
+    echo "   --- (the FAILs below are REQUIRED and are NOT counted against the suite) ---"
+    local redfile="$WORK/keepalive-control-failures" redcount
+    ( b="$TESTS_FAILED"
+      keepalive_freshbox_asserts "keepalive control:"
+      printf '%s' "$((TESTS_FAILED - b))" > "$redfile" )
+    redcount="$(cat "$redfile" 2>/dev/null || echo 0)"
+    check_eq "keepalive control: the required verdict is that the config file is absent before/after the reversed seed" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    if [ "${redcount:-0}" -ge 1 ]; then
+        pass "keepalive control: the fresh-box assertions FAIL without the file-ensure line ($redcount of them, as required)"
+    else
+        fail "keepalive control: the fresh-box assertions PASSED with the file-ensure line removed — the green test is VACUOUS"
+    fi
+
+    # …and the same fact asserted POSITIVELY, so the control is recorded in the suite's
+    # own counts: with the file-ensure line removed there is no config file, no section
+    # and no trust at all — exactly the fresh-flash state that made install-router.sh
+    # REFUSE(5).
+    check_eq "keepalive control: no config file is created by the reversed seed" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    check_eq "keepalive control: no anonymous nodogsplash section resolves" "" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0]' 2>/dev/null)"
+    check_not_contains "keepalive control: no trustedmac landed (the MAC the gate looks for)" \
+        "AA:BB:CC:DD:EE:FF" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].trustedmac' 2>/dev/null)"
+    check_not_contains "keepalive control: no users_to_router rule landed" "allow tcp port 22" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].users_to_router' 2>/dev/null)"
+
+    # ------------------------------------------------ the shipped seed is untouched…
+    check_eq "the CONTROL did not modify the repo template (sha unchanged)" "$seed_sha" \
+        "$(sha256sum "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" | awk '{print $1}')"
+
+    # …and it still carries the ONE line the FEED BUILDER recognises via its
+    # KEEPALIVE_FILE_ENSURE_RE as "already fresh-box safe".  If this drifts, the builder
+    # stops recognising a pinned seed and RE-APPLIES its own file-ensure step — the
+    # double-apply class of bug the feed PR removed.  Same shape the control reverses,
+    # so the two can never disagree.
+    if OUT="$(python3 - "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" <<'PY' 2>&1
+import re, sys
+RE = (r'^\s*\[[^\]]*etc/config/nodogsplash"[^\]]*\]\s*\|\|\s*:\s*>\s*'
+      r'\S*etc/config/nodogsplash"')
+text = open(sys.argv[1], encoding="utf-8").read()
+n = len(re.findall(RE, text, re.M))
+print("file-ensure lines matched by the feed builder's regex: %d" % n)
+sys.exit(0 if n == 1 else 1)
+PY
+)"; then
+        pass "the shipped seed carries exactly one line the FEED BUILDER's KEEPALIVE_FILE_ENSURE_RE recognises (so it is never re-applied) — $(printf '%s' "$OUT" | tail -n1)"
+    else
+        fail "the shipped seed no longer matches the feed builder's KEEPALIVE_FILE_ENSURE_RE — $(printf '%s' "$OUT" | tail -n1)"
+    fi
+}
+
 TITLES="
 T01|dry-run: verify the bundle, print the ordered plan, touch nothing
 T02|green path: keepalive first, deps by path, package, all gates, one report
@@ -982,8 +1225,9 @@ T25|non-vacuity: a surface with no listener still fails, naming the port
 T26|the WAN probe needs a resolver, not just a route (the bench box's actual state)
 T27|the OTHER documented portal shape (bare root) is accepted, not failed
 T28|anti-vacuity: an unreadable WAN probe does NOT buy the lenient branch
+T29|the keepalive seed at the unit level (config file + section ensured; idempotent; feed-builder shape)
 "
-TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28"
+TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28 T29"
 if [ -n "${1:-}" ] && [ "${1:-}" = "--only" ]; then ONLY="${2:-}"; fi
 if [ -n "${TGOFFLINE_HARNESS_ONLY:-}" ]; then ONLY="$TGOFFLINE_HARNESS_ONLY"; fi
 

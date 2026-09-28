@@ -96,6 +96,36 @@ does **not** serve the admin board, because rpcd would accept *any* password. So
 answering `000` on a fresh image is the documented, correct behaviour, not a bug. If you want
 the board: `ssh root@192.168.1.1 passwd`, set a password, then reboot before expecting `:8090`.
 
+## Where the image is (hand-over)
+
+The image is **not** on any public host — no working upload path existed at build time, and no
+substitute host was improvised:
+
+| host | outcome |
+|---|---|
+| `drive.cashu.email` (the Blossom host the feed's uploads live on) | **blocked**: 17.1 MiB needs payment (19 sats), and the mint the client tries is not accepted — `400 Untrusted mint`. The server's accepted mints do not auto-pay, and there is no funded Lightning capacity. |
+| `blossom2.orangesync.tech` (our own Blossom) | **blocked**: `413 File too large. Maximum allowed size is 10485760 bytes` — a 10 MiB cap, the image is 17.1 MiB. |
+
+So the image exists **only on the build host**:
+
+```
+~/artifacts/comfast-cf-wr632ax/openwrt-25.12.5-mediatek-filogic-comfast_cf-wr632ax-squashfs-sysupgrade-tollgate-0.6.0-alpha4-pre19.bin
+sha256 3172e688bf84692480f912d762acb3ceae5feaad79b935dfb0f0be128328f8ac
+17961249 bytes
+```
+
+A **metadata-only** bundle (manifest, sha256, this page, the build script, the first-boot script —
+no image) was uploaded to the free tier so a tester can check what they should have received:
+
+```
+https://drive.cashu.email/082adfe79ef41ade41d4c432f8487308501931cca7a89d3fb40fe3841f765dc3.gz
+sha256 082adfe79ef41ade41d4c432f8487308501931cca7a89d3fb40fe3841f765dc3   11493 bytes
+```
+
+⚠️ That URL is the **tar.gz of metadata**, 7-day free-tier retention. It is **NOT the image** —
+do not flash it. Rebuild the image with the script, or hand over the file from the build host and
+verify its sha256 against `IMAGE-SHA256.txt` inside the bundle.
+
 ## How to report results
 
 Reply with, per check above: the raw command, its raw output, and PASS/FAIL/INCONCLUSIVE.

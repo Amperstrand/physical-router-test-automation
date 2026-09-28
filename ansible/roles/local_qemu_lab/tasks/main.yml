@@ -1,0 +1,170 @@
+---
+# local_qemu_lab — Ansible replacement for scripts/provision-local-lab.sh.
+# Ports every infrastructure fix discovered during testing. Idempotent where
+# practical; VM units are (re)created to guarantee a clean lab.
+- name: Preflight — KVM, binaries, images
+  assert:
+    that:
+      - "'/dev/kvm' is exists"
+      - cdk_mintd_bin is exists
+      - openwrt_overlay is exists
+    fail_msg: "Missing /dev/kvm, {{ cdk_mintd_bin }}, or {{ openwrt_overlay }}"
+
+- name: Install qemu + helpers
+  apt:
+    name: [qemu-system-x86, qemu-utils, bridge-utils, curl, jq, openssh-client]
+    state: present
+    update_cache: true
+  become: true
+
+# Step 1 — QEMU wrapper (process-name disguise; OpenCode kills "qemu" processes)
+- name: Deploy vm-runner wrapper
+  copy:
+    src: vm-runner.j2
+    dest: /usr/local/bin/vm-runner
+    mode: "0755"
+  become: true
+
+# Step 2 — bridge network + NAT
+- name: Ensure bridge exists
+  command: ip link add {{ bridge_name }} type bridge
+  register: _br
+  changed_when: _br.rc == 0
+  failed_when: _br.rc not in [0, 2]
+  become: true
+
+- name: Ensure bridge address
+  command: ip addr add {{ host_ip }}/24 dev {{ bridge_name }}
+  register: _ba
+  changed_when: _ba.rc == 0
+  failed_when: _ba.rc not in [0, 2]  # 2 = already assigned
+  become: true
+
+- name: Ensure bridge up
+  command: ip link set {{ bridge_name }} up
+  changed_when: false
+  become: true
+
+- name: Configure QEMU bridge helper
+  copy:
+    dest: /etc/qemu/bridge.conf
+    content: "allow {{ bridge_name }}\n"
+    mode: "0644"
+  become: true
+
+- name: Enable IP forwarding (persistent)
+  copy:
+    dest: /etc/sysctl.d/99-local-lab.conf
+    content: "net.ipv4.ip_forward=1\n"
+    mode: "0644"
+  become: true
+  notify: reload sysctl
+
+- name: NAT masquerade for the lab subnet (best-effort)
+  shell: |
+    nft list table ip nat >/dev/null 2>&1 || nft add table ip nat
+    nft list chain ip nat postrouting >/dev/null 2>&1 || \
+      nft 'add chain ip nat postrouting { type nat hook postrouting priority 100 ; }'
+    nft list ruleset | grep -q "saddr {{ subnet }}" || \
+      nft 'add rule ip nat postrouting ip saddr {{ subnet }} oifname != "{{ bridge_name }}" masquerade'
+  changed_when: false
+  failed_when: false
+  become: true
+
+# Step 3 — CDK fakewallet mint (as a systemd unit)
+- name: Write CDK mint config
+  template:
+    src: cdk-config.toml.j2
+    dest: "{{ cdk_config_dir }}/config.toml"
+    mode: "0644"
+  become: true
+  notify: restart cdk-mintd
+
+- name: Install cdk-mintd unit
+  template:
+    src: cdk-mintd.service.j2
+    dest: /etc/systemd/system/cdk-mintd.service
+    mode: "0644"
+  become: true
+  notify: restart cdk-mintd
+
+- name: Enable + start cdk-mintd
+  systemd: { name: cdk-mintd, enabled: true, state: started, daemon_reload: true }
+  become: true
+
+# Step 4 — OpenWrt VM
+- name: Install openwrt-vm unit
+  template:
+    src: openwrt-vm.service.j2
+    dest: /etc/systemd/system/openwrt-vm.service
+    mode: "0644"
+  become: true
+
+- name: (Re)start openwrt-vm
+  systemd: { name: openwrt-vm, enabled: true, state: restarted, daemon_reload: true }
+  become: true
+
+- name: Wait for OpenWrt SSH
+  wait_for:
+    host: "{{ openwrt_ip }}"
+    port: 22
+    timeout: "{{ wait_openwrt_s }}"
+
+# Step 5 — configure OpenWrt (key, binary, procd, config)
+- name: Ensure OpenWrt SSH key auth
+  shell: |
+    PUB=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null || cat ~/.ssh/id_rsa.pub 2>/dev/null || true)
+    [ -n "$PUB" ] && ssh -o StrictHostKeyChecking=no root@{{ openwrt_ip }} \
+      "mkdir -p /etc/dropbear && echo '$PUB' > /etc/dropbear/authorized_keys && chmod 600 /etc/dropbear/authorized_keys"
+  changed_when: false
+  failed_when: false
+
+- name: Deploy tollgate-wrt binary (when present)
+  shell: |
+    ssh -o StrictHostKeyChecking=no root@{{ openwrt_ip }} \
+      '/etc/init.d/tollgate-wrt stop 2>/dev/null; killall tollgate-wrt 2>/dev/null; sleep 2' || true
+    cat {{ tollgate_bin }} | ssh -o StrictHostKeyChecking=no root@{{ openwrt_ip }} \
+      'cat > /usr/bin/tollgate-wrt && chmod +x /usr/bin/tollgate-wrt'
+  when: tollgate_bin is exists
+  changed_when: true
+
+- name: Write procd init + tollgate config
+  template:
+    src: openwrt-tollgate-config.j2
+    dest: /tmp/openwrt-tollgate-config.sh
+    mode: "0755"
+  become: true
+
+- name: Apply OpenWrt tollgate config over SSH
+  shell: "bash /tmp/openwrt-tollgate-config.sh"
+  changed_when: true
+
+# Step 6 — Debian client VM
+- name: Install debian-vm unit
+  template:
+    src: debian-vm.service.j2
+    dest: /etc/systemd/system/debian-vm.service
+    mode: "0644"
+  become: true
+  when: debian_overlay is exists
+
+- name: (Re)start debian-vm
+  systemd: { name: debian-vm, enabled: true, state: restarted, daemon_reload: true }
+  become: true
+  when: debian_overlay is exists
+
+- name: Wait for Debian SSH (best-effort)
+  wait_for:
+    host: "{{ debian_ip }}"
+    port: 22
+    timeout: "{{ wait_debian_s }}"
+  failed_when: false
+  when: debian_overlay is exists
+
+- name: Lab summary
+  debug:
+    msg:
+      - "CDK mint:   http://{{ host_ip }}:{{ cdk_mint_port }}"
+      - "OpenWrt VM: {{ openwrt_ip }} (SSH + :2121)"
+      - "Debian VM:  {{ debian_ip }} (SSH)"
+      - "Bridge:     {{ bridge_name }}"

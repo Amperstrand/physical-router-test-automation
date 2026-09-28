@@ -1,0 +1,8 @@
+---
+# Bare-metal QEMU TollGate lab — Ansible replacement for provision-local-lab.sh.
+#   ansible-playbook -i ansible/inventory.ini ansible/local-lab.yml
+- name: Provision the bare-metal QEMU TollGate lab
+  hosts: local
+  gather_facts: true
+  roles:
+    - local_qemu_lab

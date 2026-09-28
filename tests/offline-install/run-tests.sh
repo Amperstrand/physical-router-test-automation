@@ -26,9 +26,18 @@
 #       (e) an apk named differently than the manifest -> refuses
 #     plus: no admin-board guard in the payload, no firewall reload in the postinst,
 #     a wrong surface code, no BOLT11 quote, SSH not listening;
+#   * the WAN-LESS acceptance contract (the 2026-09-28 hardware defect): on a box with no
+#     uplink a BOLT11 quote is impossible by construction, so the quote gate must report
+#     itself as NOT ASSERTABLE (gate_bolt11_quote=info, fact_bolt11_assertable=no) and
+#     assert graceful degradation instead — while a missing /ln-invoice route, a missing
+#     portal splash page or a dead port still FAILS the run (T23/T24/T25);
+#   * the SAME run with a FAKED UPLINK (T22), where the surfaces and the BOLT11 quote are
+#     asserted exactly as before the fix, and nothing is reported as not-assertable;
 #   * the green path end to end: dependencies, package, payload identity, version,
-#     surfaces, the guard loaded with NO manual reload, SSH alive, a BOLT11 quote, the
-#     br-lan client view, and one machine-readable report with zero failing gates.
+#     surfaces probed at the paths they actually serve (/splash.html on the portal, :2051
+#     200|403, :8080 307|no plain-HTTP answer), the guard loaded with NO manual reload,
+#     SSH alive, the uplink-appropriate /ln-invoice outcome, the br-lan client view, and
+#     one machine-readable report with zero failing gates.
 #
 # The router is a throw-away directory; ssh/scp/apk/uci/nft/curl are PATH doubles in
 # harness/bin/.  The production script text is what runs — including under the shell
@@ -92,6 +101,51 @@ truthy_gate() { # $1=report json key  -> prints pass/fail/"" from the report
     report_field "$1"
 }
 
+# ------------------------------------------------------------------ keepalive seed
+# Run the PRODUCTION keepalive seed against the harness router, exactly the way
+# install-router.sh applies it (step 1: `sh <seed>` with TGOFFLINE_ROOT standing in for
+# the router's filesystem, and the uci double on PATH reading the same root).  The
+# placeholder is injected first, as install-offline.sh does on the laptop side.
+#   $1 = seed template to run (default: the shipped one)
+run_keepalive_seed() {
+    local seed="${1:-}" seeded
+    [ -n "$seed" ] || seed="$SCRIPTS_DIR/templates/99z-mgmt-keepalive"
+    seeded="$TGOFFLINE_HARNESS_ROOT/tmp/seed-applied/99z-mgmt-keepalive"
+    mkdir -p "$TGOFFLINE_HARNESS_ROOT/tmp/seed-applied"
+    sed 's/__TRUST_MAC__/AA:BB:CC:DD:EE:FF/' "$seed" > "$seeded"
+    # shellcheck disable=SC2086  # SH_BIN may be "busybox ash"
+    OUT="$( TGOFFLINE_ROOT="$TGOFFLINE_HARNESS_ROOT" \
+            PATH="$TGOFFLINE_HARNESS_ROOT/usr/sbin:$TGOFFLINE_HARNESS_ROOT/usr/bin:$HERE/harness/bin:/usr/bin:/bin" \
+            $SH_BIN "$seeded" 2>&1 )"
+    RC=$?
+    return 0
+}
+
+# The fresh-box pre-auth trust, asserted exactly the way install-router.sh's
+# assert_keepalive_live() reads it — plus the committed config FILE the router keeps.
+# $1 = description prefix (so the same assertions can be run as a labelled control)
+keepalive_freshbox_asserts() {
+    local p="$1" conf="$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash"
+    # (a) the config FILE the seed's FIRST uci call needs (absent on a fresh flash:
+    #     nodogsplash is one of the packages the bundle DELIVERS, not yet installed)
+    check_eq "$p the nodogsplash config FILE is created" "yes" \
+        "$([ -f "$conf" ] && echo yes || echo no)"
+    # (b) the anonymous section resolves — the target of every add_list below
+    check_eq "$p the anonymous nodogsplash section exists" "nodogsplash" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0]' 2>/dev/null)"
+    # (c) the pre-auth trust, through uci (what the gate reads) …
+    check_contains "$p trustedmac carries the workstation MAC" "AA:BB:CC:DD:EE:FF" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].trustedmac' 2>/dev/null)"
+    check_contains "$p users_to_router carries 'allow tcp port 22'" "allow tcp port 22" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].users_to_router' 2>/dev/null)"
+    # … and in the committed config FILE itself
+    check_contains "$p the committed config carries the MAC" "AA:BB:CC:DD:EE:FF" \
+        "$(cat "$conf" 2>/dev/null)"
+    check_contains "$p the committed config carries the allow rule" "allow tcp port 22" \
+        "$(cat "$conf" 2>/dev/null)"
+}
+
+
 # =============================================================== T01 dry-run
 test_T01() {
     router_root_new
@@ -107,6 +161,10 @@ test_T01() {
 }
 
 # =============================================================== T02 green path
+# The green path IS the WAN-less fresh flash (that is what this suite is for): the
+# install completes, every gate passes, and the WAN-DEPENDENT payment check is reported
+# as explicitly NOT assertable instead of failing a correct box.  T22 is the same run
+# with a faked uplink, where the surfaces and the BOLT11 quote are asserted strictly.
 test_T02() {
     router_root_new
     local b; b="$(bundle_build "$WORK/b02")"
@@ -119,6 +177,30 @@ test_T02() {
     check_contains "guard loaded gate" "guard_loaded" "$OUT"
     check_contains "guard loaded with NO manual reload" "NO manual reload" "$OUT"
     check_contains "BOLT11 quote gate" "bolt11_quote" "$OUT"
+
+    # --- the WAN-LESS contract, stated explicitly in the run and in the report ---
+    check_contains "the run says 'WAN unavailable: quote not assertable'" \
+        "WAN unavailable: quote not assertable" "$OUT"
+    check_eq "gate_bolt11_quote is info — never a pass, so nothing can mistake it" \
+        "info" "$(report_remote_field gate_bolt11_quote)"
+    check_eq "the graceful-degradation gate passes" "pass" "$(report_remote_field gate_bolt11_degraded)"
+    check_eq "the report says the quote was NOT assertable" "no" \
+        "$(report_remote_field fact_bolt11_assertable)"
+    check_eq "the report says the box has no uplink" "no" "$(report_remote_field fact_wan)"
+    check_eq "the degraded answer is the modelled 503" "503" \
+        "$(report_remote_field fact_ln_invoice_code)"
+    check_contains "the degraded answer names the cause, not a wedge" \
+        "merchant is still initializing" "$OUT"
+
+    # --- the surface contract: the paths the services actually serve ---
+    check_eq "the portal is probed at /splash.html and answers 200" "200" \
+        "$(report_remote_field fact_surface_2050)"
+    check_eq "the uhttpd portal site answers its documented 403" "403" \
+        "$(report_remote_field fact_surface_2051)"
+    check_eq "the backend API answers 200" "200" "$(report_remote_field fact_surface_2121)"
+    check_eq "the surfaces gate passes" "pass" "$(report_remote_field gate_surfaces)"
+    check_contains "the run records that :8080 has no plain-HTTP answer" \
+        ":8080=no-plain-HTTP-answer" "$OUT"
 
     # the seed really landed on the router, with the MAC injected, first
     local seed="$TGOFFLINE_HARNESS_ROOT/etc/uci-defaults/99z-mgmt-keepalive"
@@ -168,7 +250,12 @@ test_T02() {
     # the client half of the verification
     check_eq "the report's :8090 client probe is refused" "000" "$(truthy_gate fact_client_8090)"
     check_eq "the report's :8443 client probe is refused" "000" "$(truthy_gate fact_client_8443)"
-    check_eq "the report's :8080 client probe is 307" "307" "$(truthy_gate fact_client_8080)"
+    # :8080 over plain HTTP answers the redirect (307) or NOTHING (000) — that is the
+    # documented redirect_https behaviour, and 000 is what the hardware measured.  A
+    # plain 307 may not be required; the client gate accepts either.
+    check_eq "the report's :8080 client probe is not assertable over plain HTTP" "000" \
+        "$(truthy_gate fact_client_8080)"
+    check_eq "the client surface gate still passes" "pass" "$(truthy_gate gate_client_surfaces)"
     check_eq "the report says PASS" "PASS" "$(truthy_gate result)"
     check_eq "no failing gate in the report" "0" \
         "$(python3 "$HERE/harness/report.py" "$WORK/report.json" fails 2>/dev/null)"
@@ -323,24 +410,37 @@ test_T12() {
 }
 
 # =============================================================== T13 wrong surface
+# The control for the :8080 class: a 200 over plain HTTP means the admin UI is served
+# WITHOUT its TLS redirect — the exact failure the admin-board guard exists to prevent —
+# so it must still FAIL even though a plain 307 is no longer required.
 test_T13() {
     router_root_new
     local b; b="$(bundle_build "$WORK/b13")"
     router_feature 8080-200
     run_install "$b"
     check_rc "a wrong surface code fails the gates (9)" 9 "$RC"
-    check_contains "the surfaces gate fails and names the port" ":8080=200(want 307)" "$OUT"
+    check_contains "the surfaces gate fails and names the port and path" \
+        ":8080/=200(want 307/000)" "$OUT"
+    check_eq "the surfaces gate is FAIL in the report" "fail" "$(report_remote_field gate_surfaces)"
 }
 
 # =============================================================== T14 no BOLT11 quote
+# WAN PRESENT: the strict contract is unchanged — if there is an uplink and the endpoint
+# issues no BOLT11 invoice, the install fails.  (WAN-less is T02/T23: there the quote is
+# explicitly not assertable, which is a different question.)
 test_T14() {
     router_root_new
     local b; b="$(bundle_build "$WORK/b14")"
+    router_feature uplink
     router_feature no-bolt11
     run_install "$b"
-    check_rc "no BOLT11 quote fails the gate (9)" 9 "$RC"
+    check_rc "with an uplink, no BOLT11 quote fails the gate (9)" 9 "$RC"
     check_contains "the quote gate fails" "bolt11_quote" "$OUT"
+    check_contains "the failure says the uplink was present" "WAN present but no BOLT11 invoice" "$OUT"
     check_contains "the failure quotes the endpoint" "/ln-invoice" "$OUT"
+    check_eq "the quote was assertable, so the report says so" "yes" \
+        "$(report_remote_field fact_bolt11_assertable)"
+    check_eq "the router half is FAIL" "fail" "$(report_remote_field gate_bolt11_quote)"
 }
 
 # =============================================================== T15 SSH not listening
@@ -427,7 +527,7 @@ test_T19() {
     # only on its failure branch is NOT listed here — that is what the failure tests
     # T03-T15 cover; this test is about the green report's shape.
     LAPTOP_GATES="keepalive_template bundle_package_names manifest_verified package_manager trust_mac router_reachable keepalive_staged staged_copy remote_report client_surfaces"
-    REMOTE_GATES="keepalive_seeded keepalive_applied keepalive_live staged_binding bundle_closure deps_installed stub_dep runtime_payload package_installed payload_sha256 package_version surfaces guard_fragment guard_loaded ssh_listening ssh_preauth bolt11_quote"
+    REMOTE_GATES="keepalive_seeded keepalive_applied keepalive_live staged_binding bundle_closure deps_installed stub_dep runtime_payload package_installed payload_sha256 package_version surfaces guard_fragment guard_loaded ssh_listening ssh_preauth bolt11_quote bolt11_degraded"
     TOP_KEYS="installer_version side router result remote_result fact_manifest_entries_ok fact_trust_mac fact_client_8090 fact_client_8443 fact_remote_exit_code"
 
     OUT="$(python3 - "$WORK/report.json" "$LAPTOP_GATES" "$REMOTE_GATES" "$TOP_KEYS" <<'PY' 2>&1
@@ -499,7 +599,10 @@ test_T20() {
     local bfix="" bctl="" staged_green expected_green expected_ship4
 
     check_gate() { # $1 desc, $2 gate name, $3 state, $4 haystack
-        if printf '%s' "$4" | grep -qE "^gate $2 +$3"; then
+        # hay_has_re, not `printf … | grep -qE`: a pipeline here is racy under pipefail
+        # (see the matching-helpers note in harness/lib.sh) and produced spurious
+        # "no '<state>' gate line" failures for output that plainly carried the line.
+        if hay_has_re "^gate $2 +$3" "$4"; then
             pass "$1"
         else
             fail "$1: no '$3' gate line for $2"
@@ -666,7 +769,433 @@ PY
         "$(grep -cF 'failed rc=$?' "$SCRIPTS_DIR/install-router.sh")"
 }
 
+# =============================================================== T21 fresh-box keepalive
+# The defect this group exists for: a FRESHLY FLASHED router has no /etc/config/nodogsplash
+# (nodogsplash is not installed yet).  The seed used to call
+# `uci add_list nodogsplash.@nodogsplash[0].trustedmac=…` straight away; real uci answers
+# `uci: Entry not found`, the seed still exits 0, the box trusts NOTHING, and the installer
+# correctly refuses (5).  VERIFIED ON REAL HARDWARE (freshly flashed Cudy WR3000,
+# 2026-09-27): create the file AND the anonymous section first, then seed.
+#
+# The uci double now models real section semantics (a write into a missing section fails),
+# so this suite can reproduce the fresh-box behaviour it never could before.  T21 runs the
+# SHIPPED seed against a fresh fixture router (the green half) and the PRE-FIX seed text as
+# a CONTROL (the refusal), so neither half can be vacuous.
+test_T21() {
+    local b stage seed_tpl="$SCRIPTS_DIR/templates/99z-mgmt-keepalive"
+    b="$(bundle_build "$WORK/b21")"
+
+    # (i) lexical drift guard: the shipped seed really creates the file + section first.
+    # The FILE line is asserted in the SHAPE the FEED BUILDER recognises
+    # (KEEPALIVE_FILE_ENSURE_RE, FreedomTechFeed/packages scripts/offline-bundle.py): if the
+    # pin's wording drifts out of that shape the builder stops taking its early return and
+    # inserts its own file-ensure step on top of a seed that already has one.  Rewriting it as
+    # `[ -f "$CONF_DIR/nodogsplash" ] || : > ...` still works on a router but silently loses
+    # that recognition, so the cross-repo contract is asserted here by shape (T29 too).
+    check_contains "the seed creates the nodogsplash config when it is absent" \
+        '|| : >' "$(cat "$seed_tpl")"
+    if printf '%s' "$(cat "$seed_tpl")" | python3 -c '
+import re, sys
+RE = (r"^\s*\[[^\]]*etc/config/nodogsplash\"[^\]]*\]\s*\|\|\s*:\s*>\s*"
+      r"\S*etc/config/nodogsplash\"")
+sys.exit(0 if len(re.findall(RE, sys.stdin.read(), re.M)) == 1 else 1)
+'; then
+        pass "the seed's file-ensure line is in the shape the FEED BUILDER's KEEPALIVE_FILE_ENSURE_RE recognises"
+    else
+        fail "the seed's file-ensure line is NOT in the feed builder's shape - a pinned seed would get the builder's step re-applied"
+    fi
+    check_contains "the seed adds the anonymous nodogsplash section" \
+        "uci add nodogsplash nodogsplash" "$(cat "$seed_tpl")"
+    check_contains "the seed guards the add with a -q get of the section" \
+        'if ! uci -q get nodogsplash.@nodogsplash[0]' "$(cat "$seed_tpl")"
+
+    stage_fixture() { # stage_fixture <keepalive-path-or-inline-file>
+        stage="$TGOFFLINE_HARNESS_ROOT/tmp/tgoffline"
+        mkdir -p "$stage/pkgs"
+        cp "$b"/pkgs/*.apk "$stage/pkgs/"
+        cp "$b/MANIFEST.sha256" "$stage/MANIFEST.sha256"
+        cp "$1" "$stage/99z-mgmt-keepalive"
+        chmod +x "$stage/99z-mgmt-keepalive"
+    }
+
+    # (ii) SHIPPED seed, FRESH box (no nodogsplash config at all): the pre-auth trust must
+    #      go LIVE.  This is what the pre-fix seed could never do.
+    router_root_new
+    check_eq "the fixture router starts with NO nodogsplash config" "" \
+        "$(ls "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    cp "$seed_tpl" "$WORK/b21-seed-shipped"
+    sed -i 's/__TRUST_MAC__/AA:BB:CC:DD:EE:FF/' "$WORK/b21-seed-shipped"
+    stage_fixture "$WORK/b21-seed-shipped"
+    run_remote_script "$stage"
+    if hay_has_re '^gate keepalive_applied +PASS' "$OUT"; then
+        pass "fresh box: the shipped seed makes the pre-auth trust live (keepalive_applied PASS)"
+    else
+        fail "fresh box: the shipped seed did not make the trust live"
+        printf '        --- output was ---\n%s\n' "$OUT"
+    fi
+    check_contains "fresh box: the committed config carries the workstation MAC" \
+        "AA:BB:CC:DD:EE:FF" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    check_contains "fresh box: …and 'allow tcp port 22' pre-auth" \
+        "allow tcp port 22" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+    check_not_contains "fresh box: the seed no longer reports the fresh-box uci failure" \
+        "REFUSED(5)" "$OUT"
+
+    # (iii) CONTROL: the PRE-FIX seed text (no file/section creation) on the SAME fresh box
+    #       must REFUSE with the lockout reason — proof the green half is not vacuous.
+    router_root_new
+    cat > "$WORK/b21-seed-prefix" <<'EOF'
+#!/bin/sh
+TRUST_MAC="AA:BB:CC:DD:EE:FF"
+TM=$(uci -q get nodogsplash.@nodogsplash[0].trustedmac 2>/dev/null || echo "")
+if ! echo "$TM" | grep -q "$TRUST_MAC"; then
+    uci add_list nodogsplash.@nodogsplash[0].trustedmac="$TRUST_MAC"
+fi
+UTR=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+if ! echo "$UTR" | grep -q "port 22"; then
+    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22'
+fi
+uci commit nodogsplash
+exit 0
+EOF
+    stage_fixture "$WORK/b21-seed-prefix"
+    run_remote_script "$stage"
+    check_rc "control: the pre-fix seed on a fresh box is REFUSED (5)" 5 "$RC"
+    check_contains "control: the refusal is the lockout reason" "pre-auth trust is NOT live" "$OUT"
+    check_not_contains "control: the pre-fix seed trusted NOTHING (no committed MAC)" \
+        "AA:BB:CC:DD:EE:FF" "$(cat "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" 2>/dev/null)"
+}
+
+# =============================================================== T22 WAN present
+# The FAKED-UPLINK half of the contract: the same install on the same fixture, with a
+# default route in the kernel's table.  Now every WAN-dependent expectation is asserted
+# exactly as it was before the fix — the surfaces AND the BOLT11 quote — and the report
+# says the quote WAS assertable.
+test_T22() {
+    router_root_new
+    router_feature uplink
+    local b; b="$(bundle_build "$WORK/b22")"
+    run_install "$b"
+    check_rc "with a faked uplink the install still exits 0" 0 "$RC"
+    check_contains "the result is PASS" "TGOFFLINE-RESULT PASS" "$OUT"
+
+    # the WAN-dependent check is ASSERTED, not skipped
+    check_eq "the report says the box has an uplink" "yes" "$(report_remote_field fact_wan)"
+    check_eq "the report says the quote WAS assertable" "yes" \
+        "$(report_remote_field fact_bolt11_assertable)"
+    check_eq "gate_bolt11_quote PASSes" "pass" "$(report_remote_field gate_bolt11_quote)"
+    check_contains "a real BOLT11 invoice was issued" "issued a BOLT11 invoice: lnbc" "$OUT"
+    check_not_contains "nothing is reported as not-assertable when the WAN is up" \
+        "quote not assertable" "$OUT"
+
+    # ... and the surfaces / client view are asserted with the real paths
+    check_eq "the portal splash is 200" "200" "$(report_remote_field fact_surface_2050)"
+    check_eq "the uhttpd portal site is 403" "403" "$(report_remote_field fact_surface_2051)"
+    check_eq "the surfaces gate passes" "pass" "$(report_remote_field gate_surfaces)"
+    check_eq "the br-lan client gate passes" "pass" "$(truthy_gate gate_client_surfaces)"
+
+    check_eq "no gate failed in the report" "0" \
+        "$(python3 "$HERE/harness/report.py" "$WORK/report.json" fails 2>/dev/null)"
+    check_eq "no gate failed in the router half either" "0" \
+        "$(python3 "$HERE/harness/report.py" "$WORK/report.json" remote-fails 2>/dev/null)"
+}
+
+# =============================================================== T23 non-vacuity: route gone
+# NON-VACUITY (a): WAN-less is NOT a licence to ship a dead payment surface.  The same
+# WAN-less box, with the /ln-invoice ROUTE missing (404), must still FAIL the run and say
+# why — the not-assertable branch must not swallow a genuinely broken endpoint.
+test_T23() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b23")"
+    router_feature ln-invoice-404
+    run_install "$b"
+    check_rc "a WAN-less box whose /ln-invoice route is gone fails (9)" 9 "$RC"
+    check_contains "the failure names the endpoint" "/ln-invoice" "$OUT"
+    check_contains "the failure says it did not degrade gracefully" "did not degrade gracefully" "$OUT"
+    check_contains "the failure names the wrong answer" "HTTP 404" "$OUT"
+    check_eq "the degradation gate is FAIL" "fail" "$(report_remote_field gate_bolt11_degraded)"
+    check_eq "the quote gate stays info — it was never assertable" "info" \
+        "$(report_remote_field gate_bolt11_quote)"
+    check_eq "the report says FAIL" "FAIL" "$(truthy_gate result)"
+}
+
+# =============================================================== T24 non-vacuity: no splash
+# NON-VACUITY (b): the portal really must serve its splash page.  Probe the path that
+# exists (not `/`), and prove that taking it away still FAILS the run, naming the surface.
+test_T24() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b24")"
+    router_feature splash-missing
+    run_install "$b"
+    check_rc "a missing portal splash page fails the run (9)" 9 "$RC"
+    check_contains "the surfaces gate names the portal path" ":2050/splash.html=404(want 200)" "$OUT"
+    check_eq "the surfaces gate is FAIL" "fail" "$(report_remote_field gate_surfaces)"
+    check_eq "the br-lan client gate fails too (the same page is gone from the client view)" \
+        "fail" "$(truthy_gate gate_client_surfaces)"
+}
+
+# =============================================================== T25 non-vacuity: port dead
+# NON-VACUITY (c): a surface that is not listening at all.  The accepted-code classes are
+# per-surface, so prove a DEAD port is not accepted by any of them.
+test_T25() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b25")"
+    router_feature port-dead=2051
+    run_install "$b"
+    check_rc "a surface with no listener fails the run (9)" 9 "$RC"
+    check_contains "the surfaces gate names the dead port" ":2051/=000(want 200/403)" "$OUT"
+    check_eq "the surfaces gate is FAIL" "fail" "$(report_remote_field gate_surfaces)"
+}
+
+# =============================================================== T26 WAN probe: resolver
+# The WAN probe must read the ROUTE **and** a RESOLVER.  The bench box's actual state was
+# "a route exists, but names do not resolve" (`kashu.me` had no address) — reading the
+# route alone as an uplink would fire the strict quote contract on a box that cannot
+# quote, which is the very defect class this lane exists to close.  Here the route IS
+# present and there is no resolver: the run must stay green, and the report must say why.
+test_T26() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b26")"
+    router_feature wan-route-only
+    run_install "$b"
+    check_rc "a route with no resolver is still WAN-less, and the install exits 0" 0 "$RC"
+    check_eq "the report records the route" "yes" "$(report_remote_field fact_wan_route)"
+    check_eq "the report records that no resolver was configured" "no" \
+        "$(report_remote_field fact_wan_resolver)"
+    check_eq "so the box is judged WAN-less" "no" "$(report_remote_field fact_wan)"
+    check_eq "the quote is reported NOT assertable, not failed" "info" \
+        "$(report_remote_field gate_bolt11_quote)"
+    check_eq "and the degraded contract is what was asserted" "pass" \
+        "$(report_remote_field gate_bolt11_degraded)"
+}
+
+# =============================================================== T27 the other portal shape
+# Two sources in this repo document `:2050 /` -> 200 (scripts/tollgate-port-sweep.sh,
+# lib/install_paths.py) while the hardware served `/splash.html` -> 200.  A correct box
+# must not fail just because it ships the OTHER documented shape — but the fallback must
+# not swallow a box that serves NEITHER (that is T24, which still fails).
+test_T27() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b27")"
+    router_feature portal-bare-root
+    run_install "$b"
+    check_rc "a portal that serves the documented bare-root shape still exits 0" 0 "$RC"
+    check_contains "the run names the alternate path it accepted" "surface_2050_alt_path" "$OUT"
+    check_eq "the surfaces gate passes on the alternate shape" "pass" \
+        "$(report_remote_field gate_surfaces)"
+    check_eq "the br-lan client gate passes on the alternate shape too" "pass" \
+        "$(truthy_gate gate_client_surfaces)"
+    check_eq "the report says PASS" "PASS" "$(truthy_gate result)"
+    check_eq "no gate failed" "0" \
+        "$(python3 "$HERE/harness/report.py" "$WORK/report.json" fails 2>/dev/null)"
+}
+
+# =============================================================== T28 the conditional is not
+# an escape hatch
+# ANTI-VACUITY for the conditional itself.  If an unreadable route table were read as
+# "WAN-less", blinding the probe would be a way to make the payment assertion vanish — the
+# exact failure mode the card warns about ("a WAN-less box silently skipping payment
+# assertions is how a broken box ships").  Here the probe can see nothing: the box is
+# judged WAN-PRESENT, the STRICT contract applies, and with no quote the run FAILS.
+test_T28() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b28")"
+    router_feature wan-unreadable
+    run_install "$b"
+    check_rc "an unreadable route table does NOT buy the lenient branch — the run fails (9)" 9 "$RC"
+    check_eq "the report says the route state could not be established" "unknown" \
+        "$(report_remote_field fact_wan_route)"
+    check_eq "so the box is judged WAN-PRESENT (strict)" "yes" "$(report_remote_field fact_wan)"
+    check_eq "the quote was therefore assertable, and it was asserted" "yes" \
+        "$(report_remote_field fact_bolt11_assertable)"
+    check_eq "the quote gate FAILS for the right reason" "fail" \
+        "$(report_remote_field gate_bolt11_quote)"
+    check_contains "and the failure says the uplink was assumed present" \
+        "WAN present but no BOLT11 invoice" "$OUT"
+}
+
 # =============================================================== runner
+# =============================================================== T29 keepalive seed, unit level
+# The SAME defect T21 covers end to end through install-router.sh, driven here at the SEED -
+# the level at which it is fixed - so this group can also pin the two things an end-to-end run
+# cannot: that a RE-RUN of the seed is idempotent, and that the file-ensure line stays in the
+# shape the FEED BUILDER recognises (if it drifts, a pinned seed gets the builder's own step
+# re-applied on top of it - the double-write class of bug feed PR #38 removed).
+#
+# The defect this group exists for: on a freshly flashed WAN-less box /etc/config has
+# NO nodogsplash — nodogsplash is one of the 38 packages the bundle DELIVERS, so it is
+# not installed yet when the keepalive seed runs.  Real `uci` cannot create a section in
+# a config file that does not exist: `uci add nodogsplash nodogsplash` prints
+# "uci: Entry not found" and exits 3 (measured on a bench MT3000, fresh flash, WAN-less,
+# 2026-09-28; with the file created first the very same call exits 0).  It cannot resolve
+# the anonymous section @nodogsplash[0] without the file either, so the seed's add_list
+# calls land NOTHING — and the seed ignores errors and exits 0 anyway.  install-router.sh's
+# keepalive_applied gate then finds no trustedmac / no 'allow tcp port 22' and REFUSES
+# with exit 5 on a first flash: a bundle refused by the gate for a package the bundle
+# itself delivers.
+#
+# The fix is in the seed, so this group drives the SEED directly (the router's own
+# shell, the uci double on PATH, TGOFFLINE_ROOT standing in for the filesystem):
+#   (a) fresh box, shipped seed    -> the config file is created, the section exists,
+#                                     the trust lands, and a RE-RUN is idempotent
+#   (b) fresh box, file-ensure line removed (scratch copy of the seed INSIDE the
+#       harness, never the repo file) -> the SAME assertions FAIL, and they fail for
+#       the right reason: no config file is created and the trust never lands.  The
+#       control also pins the mechanism itself (guard_rc=3 / uci: Entry not found
+#       without the file, rc=0 with it), so the green assertions cannot be vacuous.
+test_T29() {
+    # the scratch seed copy lives in $WORK, NOT under the harness root: router_root_new
+    # wipes the root between cases and would take the control seed with it
+    local seeded_ctl="$WORK/keepalive-control"
+    # the shipped template's hash, captured BEFORE the control runs, so the control can be
+    # proven not to have edited the repo file back
+    local seed_sha
+    seed_sha="$(sha256sum "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" | awk '{print $1}')"
+
+    # ---------------------------------------------------------- (a) fresh box, SHIPPED
+    router_root_new
+    check_eq "fresh box: /etc/config/nodogsplash is absent BEFORE the seed runs" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+
+    run_keepalive_seed
+    check_rc "fresh box: the seed itself still exits 0 (it ignores uci errors)" 0 "$RC"
+    keepalive_freshbox_asserts "fresh box:"
+
+    # idempotency: re-running the seed must not duplicate the list members, and the
+    # committed config must be byte-identical (uci add_list is a set; the section-ensure
+    # is guarded by a `uci -q get`; the file-ensure never clobbers an existing file)
+    local conf="$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" sha1 sha2
+    sha1="$(sha256sum "$conf" | awk '{print $1}')"
+    run_keepalive_seed
+    check_rc "fresh box: the re-run exits 0" 0 "$RC"
+    sha2="$(sha256sum "$conf" | awk '{print $1}')"
+    check_eq "fresh box: re-running the seed leaves the config byte-identical" "$sha1" "$sha2"
+    check_eq "fresh box: the MAC is not duplicated by a re-run" "1" \
+        "$(grep -c 'AA:BB:CC:DD:EE:FF' "$conf")"
+    check_eq "fresh box: the allow rule is not duplicated by a re-run" "1" \
+        "$(grep -c 'allow tcp port 22' "$conf")"
+    check_eq "fresh box: the anonymous section is not duplicated by a re-run" "1" \
+        "$(grep -c '^nodogsplash$' "$TGOFFLINE_HARNESS_ROOT/etc/config/.nodogsplash.sections")"
+
+    # ---------------------------------------------------------- (b) RED CONTROL
+    # Reverse the fix on a SCRATCH COPY inside the harness — the repo template is never
+    # touched.  Removing the file-ensure line is the whole fix under test, and the
+    # reversal is matched by the FEED BUILDER's own regex for that line, so this control
+    # cannot silently test something else.
+    router_root_new
+    mkdir -p "$seeded_ctl"
+    if OUT="$(python3 - "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" \
+                       "$seeded_ctl/99z-mgmt-keepalive" <<'PY' 2>&1
+import re, sys
+# the feed builder's KEEPALIVE_FILE_ENSURE_RE: the shape it recognises as "already
+# fresh-box safe".  Reversing BY THAT SHAPE proves the control removes exactly the
+# step the shipped seed (and the builder) rely on.
+RE = (r'^\s*\[[^\]]*etc/config/nodogsplash"[^\]]*\]\s*\|\|\s*:\s*>\s*'
+      r'\S*etc/config/nodogsplash"')
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding="utf-8").read()
+out, dropped = [], 0
+for line in text.splitlines(keepends=True):
+    if re.search(RE, line.rstrip("\n")):
+        dropped += 1
+        continue
+    out.append(line)
+open(dst, "w", encoding="utf-8").write("".join(out))
+if dropped != 1:
+    print("CONTROL-FAILURE: expected exactly one file-ensure line, removed %d" % dropped)
+    sys.exit(1)
+if re.search(RE, "".join(out), re.M):
+    print("CONTROL-FAILURE: a file-ensure line survived the reversal")
+    sys.exit(1)
+print("removed %d file-ensure line from the scratch seed copy" % dropped)
+PY
+)"; then
+        pass "keepalive control: the file-ensure line is removed from a scratch copy ($(printf '%s' "$OUT" | tail -n1))"
+    else
+        fail "keepalive control: could not build the no-file-ensure seed — $(printf '%s' "$OUT" | tail -n1)"
+    fi
+
+    # the mechanism, pinned directly: real uci refuses to add a section to a config file
+    # that does not exist (rc 3, "uci: Entry not found"), and succeeds once it does
+    check_eq "keepalive control: the config file is absent on the fresh control box" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    OUT="$(uci add nodogsplash nodogsplash 2>&1)"; RC=$?
+    check_rc "keepalive control: uci add REFUSES while the config file does not exist" 3 "$RC"
+    check_contains "keepalive control: the refusal is 'uci: Entry not found'" "uci: Entry not found" "$OUT"
+    if [ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ]; then
+        fail "keepalive control: uci add created the config file itself (it must not)"
+    else
+        pass "keepalive control: uci add did NOT create the config file"
+    fi
+    : > "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash"
+    OUT="$(uci add nodogsplash nodogsplash 2>&1)"; RC=$?
+    check_rc "keepalive control: the SAME uci add exits 0 once the file exists" 0 "$RC"
+
+    # now run the reversed seed on a fresh box and require the trust assertions to FAIL
+    router_root_new
+    run_keepalive_seed "$seeded_ctl/99z-mgmt-keepalive"
+    check_rc "keepalive control: the reversed seed still exits 0 (it ignores errors)" 0 "$RC"
+    check_contains "keepalive control: the reverse really lands no trust (uci: Entry not found emitted)" \
+        "uci: Entry not found" "$OUT"
+
+    # the SAME assertions that passed in (a), run against the reversed seed.  They run in
+    # a SUBSHELL so their (required) failures do not count against the suite: a non-vacuity
+    # control that itself failed the suite would be indistinguishable from a regression.
+    # The same fact is then asserted POSITIVELY below, the way T20's controls do, so the
+    # suite's own counts record it.
+    echo "   --- red control: the SAME fresh-box assertions, against the reversed seed ---"
+    echo "   --- (the FAILs below are REQUIRED and are NOT counted against the suite) ---"
+    local redfile="$WORK/keepalive-control-failures" redcount
+    ( b="$TESTS_FAILED"
+      keepalive_freshbox_asserts "keepalive control:"
+      printf '%s' "$((TESTS_FAILED - b))" > "$redfile" )
+    redcount="$(cat "$redfile" 2>/dev/null || echo 0)"
+    check_eq "keepalive control: the required verdict is that the config file is absent before/after the reversed seed" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    if [ "${redcount:-0}" -ge 1 ]; then
+        pass "keepalive control: the fresh-box assertions FAIL without the file-ensure line ($redcount of them, as required)"
+    else
+        fail "keepalive control: the fresh-box assertions PASSED with the file-ensure line removed — the green test is VACUOUS"
+    fi
+
+    # …and the same fact asserted POSITIVELY, so the control is recorded in the suite's
+    # own counts: with the file-ensure line removed there is no config file, no section
+    # and no trust at all — exactly the fresh-flash state that made install-router.sh
+    # REFUSE(5).
+    check_eq "keepalive control: no config file is created by the reversed seed" "no" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/etc/config/nodogsplash" ] && echo yes || echo no)"
+    check_eq "keepalive control: no anonymous nodogsplash section resolves" "" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0]' 2>/dev/null)"
+    check_not_contains "keepalive control: no trustedmac landed (the MAC the gate looks for)" \
+        "AA:BB:CC:DD:EE:FF" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].trustedmac' 2>/dev/null)"
+    check_not_contains "keepalive control: no users_to_router rule landed" "allow tcp port 22" \
+        "$(uci -q get 'nodogsplash.@nodogsplash[0].users_to_router' 2>/dev/null)"
+
+    # ------------------------------------------------ the shipped seed is untouched…
+    check_eq "the CONTROL did not modify the repo template (sha unchanged)" "$seed_sha" \
+        "$(sha256sum "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" | awk '{print $1}')"
+
+    # …and it still carries the ONE line the FEED BUILDER recognises via its
+    # KEEPALIVE_FILE_ENSURE_RE as "already fresh-box safe".  If this drifts, the builder
+    # stops recognising a pinned seed and RE-APPLIES its own file-ensure step — the
+    # double-apply class of bug the feed PR removed.  Same shape the control reverses,
+    # so the two can never disagree.
+    if OUT="$(python3 - "$SCRIPTS_DIR/templates/99z-mgmt-keepalive" <<'PY' 2>&1
+import re, sys
+RE = (r'^\s*\[[^\]]*etc/config/nodogsplash"[^\]]*\]\s*\|\|\s*:\s*>\s*'
+      r'\S*etc/config/nodogsplash"')
+text = open(sys.argv[1], encoding="utf-8").read()
+n = len(re.findall(RE, text, re.M))
+print("file-ensure lines matched by the feed builder's regex: %d" % n)
+sys.exit(0 if n == 1 else 1)
+PY
+)"; then
+        pass "the shipped seed carries exactly one line the FEED BUILDER's KEEPALIVE_FILE_ENSURE_RE recognises (so it is never re-applied) — $(printf '%s' "$OUT" | tail -n1)"
+    else
+        fail "the shipped seed no longer matches the feed builder's KEEPALIVE_FILE_ENSURE_RE — $(printf '%s' "$OUT" | tail -n1)"
+    fi
+}
+
 TITLES="
 T01|dry-run: verify the bundle, print the ordered plan, touch nothing
 T02|green path: keepalive first, deps by path, package, all gates, one report
@@ -688,8 +1217,17 @@ T17|the production scripts run under the router's shell (BusyBox ash / dash)
 T18|staging never uses scp (stdin redirect only)
 T19|the machine-readable report has every gate, in JSON, with the remote half embedded
 T20|the dependency closure on a FRESH box (as-shipped refusal + upgrade-box control)
+T21|the keepalive seed on a FRESH box (pre-fix refusal control + shipped seed makes trust live)
+T22|FAKED WAN: surfaces AND the BOLT11 quote asserted, quote reported assertable
+T23|non-vacuity: WAN-less with the /ln-invoice route gone still fails, naming it
+T24|non-vacuity: a missing portal splash page still fails, naming the surface
+T25|non-vacuity: a surface with no listener still fails, naming the port
+T26|the WAN probe needs a resolver, not just a route (the bench box's actual state)
+T27|the OTHER documented portal shape (bare root) is accepted, not failed
+T28|anti-vacuity: an unreadable WAN probe does NOT buy the lenient branch
+T29|the keepalive seed at the unit level (config file + section ensured; idempotent; feed-builder shape)
 "
-TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20"
+TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28 T29"
 if [ -n "${1:-}" ] && [ "${1:-}" = "--only" ]; then ONLY="${2:-}"; fi
 if [ -n "${TGOFFLINE_HARNESS_ONLY:-}" ]; then ONLY="$TGOFFLINE_HARNESS_ONLY"; fi
 

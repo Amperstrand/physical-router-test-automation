@@ -1,0 +1,28 @@
+---
+# local_qemu_lab — Ansible port of scripts/provision-local-lab.sh.
+# Provisions the bare-metal QEMU TollGate lab: vm-runner wrapper, bridge+NAT,
+# CDK fakewallet mint, OpenWrt VM (systemd), Debian client VM (systemd).
+lab_dir: "{{ ansible_env.HOME }}/tollgate-virtual-lab"
+openwrt_overlay: "{{ lab_dir }}/overlays/tollgate-poc.qcow2"
+debian_overlay: "{{ lab_dir }}/overlays/debian-client-local.qcow2"
+seed_iso: "{{ lab_dir }}/images/seed-local.iso"
+cdk_mintd_bin: /opt/cdk-mintd/cdk-mintd
+cdk_config_dir: /tmp/cdk-mintd-local
+tollgate_bin: /tmp/tollgate-wrt-allfeatures
+
+bridge_name: tg-poc-br
+host_ip: 10.99.99.2
+openwrt_ip: 10.99.99.1
+debian_ip: 10.99.99.100
+subnet: 10.99.99.0/24
+
+openwrt_mem_mb: 256
+openwrt_smp: 1
+debian_mem_mb: 1024
+debian_smp: 2
+
+cdk_mint_port: 8383
+cdk_mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+
+wait_openwrt_s: 60
+wait_debian_s: 120

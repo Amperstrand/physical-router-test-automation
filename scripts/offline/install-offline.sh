@@ -75,6 +75,33 @@ word_in() { # word_in <word> <space-separated list>
     for w in $2; do [ "$w" = "$1" ] && return 0; done
     return 1
 }
+
+# The same bounded wait the router side uses (see install-router.sh): the br-lan view
+# is taken right after the install, when the portal and the backend may still be
+# binding, so a 000 (nothing listening yet) is retried to the deadline while a wrong
+# answer still fails at once, and a port whose correct answer IS 000 (the admin-board
+# pair) never waits.  TGOFFLINE_PROBE_DEADLINE=0 disables the wait.
+SURFACE_PROBE_DEADLINE="${TGOFFLINE_PROBE_DEADLINE:-45}"
+SURFACE_PROBE_INTERVAL=2
+
+probe_code() { # probe_code <accepted-codes> <curl args...>  -> prints the HTTP code
+    probe_accept="$1"; shift
+    probe_waited=0
+    while :; do
+        probe_out="$(curl -s -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)"
+        [ -n "$probe_out" ] || probe_out=000
+        if word_in "$probe_out" "$probe_accept" || [ "$probe_out" != 000 ]; then
+            printf '%s' "$probe_out"
+            return 0
+        fi
+        if [ "$probe_waited" -ge "$SURFACE_PROBE_DEADLINE" ]; then
+            printf '%s' "$probe_out"
+            return 0
+        fi
+        sleep "$SURFACE_PROBE_INTERVAL"
+        probe_waited=$((probe_waited + SURFACE_PROBE_INTERVAL))
+    done
+}
 RP() { printf '%s%s' "$HARNESS_ROOT" "$1"; }   # router-side path, harness-prefixed
 
 # shellcheck disable=SC2329  # invoked indirectly, from the EXIT/INT/TERM trap
@@ -454,14 +481,12 @@ client_bad=""
 client_ok=""
 while IFS="|" read -r scheme port path accept; do
     [ -n "$port" ] || continue
-    got="$(curl -sk -o /dev/null -w '%{http_code}' -m 8 "$scheme://$ROUTER:$port$path" 2>/dev/null)"
-    [ -n "$got" ] || got=000
+    got="$(probe_code "$accept" -sk -m 8 "$scheme://$ROUTER:$port$path")"
     if ! word_in "$got" "$accept"; then
         # the primary answer is neither accepted nor refused: consult the ONE documented
         # alternate path for this port (if there is one) before declaring a failure.
         if [ "$port" = "$CLIENT_ALT_PORT" ]; then
-            alt="$(curl -sk -o /dev/null -w '%{http_code}' -m 8 "$scheme://$ROUTER:$CLIENT_ALT_PORT$CLIENT_ALT_PATH" 2>/dev/null)"
-            [ -n "$alt" ] || alt=000
+            alt="$(probe_code "$CLIENT_ALT_ACCEPT" -sk -m 8 "$scheme://$ROUTER:$CLIENT_ALT_PORT$CLIENT_ALT_PATH")"
             if word_in "$alt" "$CLIENT_ALT_ACCEPT"; then
                 got="$alt"
                 path="$CLIENT_ALT_PATH"

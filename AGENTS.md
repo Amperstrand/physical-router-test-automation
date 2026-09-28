@@ -2163,3 +2163,32 @@ infra. Diagnosis recipe when payments fail on any rig: read the full
 notice `content` first, then compare `ip neigh` with
 `cat /tmp/dhcp.leases` for the client IP — and when gate verdicts look
 impossible, check `ip route show cache` on the client.
+
+## Omarchy VM venue — cross-lane coordination (2026-09-28)
+
+The omarchy-cashu vm-testbed (repo `/home/ubuntu/omarchy-cashu`, runtime
+`~/tollgate-virtual-lab`) shares this host with PRTA's poc VMs. PRTA lanes
+occasionally hand this venue to other agents (first case: the omarchy-cashu
+plugin lane, 2026-09-28). Facts that made that handoff work:
+
+- **Launcher**: `~/tollgate-virtual-lab/labctl start omarchy-vm` (symlink to
+  `vm-testbed/host/relaunch-omarchy-vm.sh`), then ALWAYS
+  `vm-testbed/host/lab-net-up.sh` (idempotent, flock'd — see below).
+  Source `env.sh` + `env.local.sh` first: this rig's `VM_SSH_PORT=2223`.
+- **Topology**: guest has a real in-VM wifi stack (`mac80211_hwsim radios=3`
+  + hostapd APs in `/etc/omarchy-tb/`); TollGate AP SSID **TollGate-VM**
+  (NM profile of the same name; `sudo nmcli con up TollGate-VM` flips
+  cashud's `wifi.on_tollgate_ap=true`). Host side: `tg-om-toll-br`
+  (10.99.98.2 gateway) + `tg-om-home-br` (10.99.97.2, open) + fake internet
+  at 198.51.100.10 behind the nft gate valve.
+- **Guest shell**: `ssh -i ~/.ssh/id_ed25519 -p $VM_SSH_PORT omarchy@127.0.0.1`.
+- **Screendump**: QMP at `$LAB_ROOT/run/omarchy-qmp.sock`; helper
+  `uilib.sh:ui_shot` / `qmp_screendump`.
+- **Etiquette (both directions)**: never `labctl stop` (lab-wide — kills the
+  poc VMs); only `tg-om-*` resources; teardown via `stop-omarchy-vm.sh` +
+  `lab-net-down.sh`; leave bridges down; `tg-poc-*` untouched.
+- **Partial-teardown class (2026-09-28)**: daemons from prior sessions die
+  silently and pidfiles orphan (found: dead toll dnsmasq + a root-owned
+  `gate-daemon.sh` racing the current one). `lab-net-up.sh` re-asserts
+  everything — never assume the host side is still up. Documented in the
+  vm-testbed RUNBOOK (their repo) and enforced here by handoff convention.

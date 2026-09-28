@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `curl(1)` for tests/bench-device-identity/run-tests.sh.
+#
+# The guard uses curl for ONE thing: a TCP touch that is FORCED out of the
+# claimed source address (`curl --interface <src> http://<ip>:<port>/`), which
+# is what makes the kernel resolve the L2 address of the *claimed* path. This
+# double:
+#   * REFUSES to answer without `--interface <address>` (exit 3, logged) — a
+#     probe that is not source-bound is exactly the accident the guard prevents,
+#     so the double must not silently accept one;
+#   * resolves which interface that (ip, src) pair uses from the fake routes;
+#   * answers 0 (connected) only if the box on that interface is present AND the
+#     port is in that box's open-port list, else 7 (could not connect, the real
+#     curl code for a refused/unreachable connect);
+#   * POPULATES neigh-<iface> on success — the TCP exchange is what makes the
+#     neighbour entry appear, so the guard's `ip neigh` read is modelled, not
+#     bypassed;
+#   * logs the full argv + the interface it resolved, so a case can PROVE the
+#     traffic went out of the claimed source address.
+#
+# Never used against a real network.
+set -uo pipefail
+
+ROOT="${DI_FAKE_ROOT:-}"
+[ -n "$ROOT" ] || { echo "fake curl: DI_FAKE_ROOT unset" >&2; exit 250; }
+
+iface=""; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --interface) iface="$2"; shift 2 ;;
+    -o|--output|-m|--max-time|--connect-timeout|-w|--write-out) shift 2 ;;
+    -s|-S|--silent|--show-error) shift ;;
+    http://*|https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+
+rest="${url#*://}"          # host:port/path
+hostport="${rest%%/*}"
+ip="${hostport%%:*}"
+port="${hostport##*:}"
+[ -n "$port" ] && [ "$port" != "$ip" ] || port=80
+
+printf 'curl --interface %s %s\n' "$(printf '%s' "$iface" | sed 's/^ *//;s/ *$//')" "$url" >> "$ROOT/curl.log"
+
+if [ -z "$iface" ]; then
+  echo "fake curl: REFUSED — no --interface given; an unbound probe could hit either box" >> "$ROOT/curl.log"
+  echo "fake curl: REFUSED — no --interface given; an unbound probe could hit either box" >&2
+  exit 3
+fi
+
+dev="$(awk -v i="$ip" -v s="$iface" '$1==i && $2==s {print $3}' "$ROOT/routes" | head -1)"
+if [ -z "$dev" ]; then
+  printf 'curl RESULT unreachable (no route for %s from %s)\n' "$ip" "$iface" >> "$ROOT/curl.log"
+  exit 7
+fi
+mac="$(cat "$ROOT/boxmac-$dev" 2>/dev/null || true)"
+if [ -z "$mac" ]; then
+  printf 'curl RESULT unreachable (no box on %s)\n' "$dev" >> "$ROOT/curl.log"
+  exit 7
+fi
+if ! tr ' ' '\n' < "$ROOT/ports-$dev" 2>/dev/null | grep -qxF -- "$port"; then
+  printf 'curl RESULT unreachable (port %s closed on %s)\n' "$port" "$dev" >> "$ROOT/curl.log"
+  exit 7
+fi
+
+if [ -n "${DI_FAKE_NO_NEIGH:-}" ]; then
+  # reachable, but the kernel never produced a usable neighbour entry (models a
+  # box that answers while the L2 address cannot be read back)
+  printf 'curl RESULT connected %s:%s via %s but NO neigh entry (DI_FAKE_NO_NEIGH)\n' "$ip" "$port" "$dev" >> "$ROOT/curl.log"
+  exit 0
+fi
+
+printf '%s dev %s lladdr %s REACHABLE\n' "$ip" "$dev" "$mac" > "$ROOT/neigh-$dev"
+printf 'curl RESULT connected %s:%s via %s (box %s)\n' "$ip" "$port" "$dev" "$mac" >> "$ROOT/curl.log"
+exit 0

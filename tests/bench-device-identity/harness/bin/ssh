@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `ssh(1)` for tests/bench-device-identity/run-tests.sh.
+#
+# It models EXACTLY the one shape the guard's ssh MAC read uses, and it enforces
+# the property the 2026-09-28 fix depended on:
+#
+#   ssh -o BindAddress=<src> -o BatchMode=yes … root@<ip> '<remote command>'
+#
+# A call WITHOUT `-o BindAddress=` is REFUSED (exit 255, logged) — an ssh that
+# is not source-bound can land on whichever of the two routers answers first,
+# which is the accident. That refusal is what makes the guard's
+# "no binding, no check" rule testable.
+#
+# The remote command is not executed; only the two reads the guard performs are
+# modelled, out of the fake rig (harness/lib.sh):
+#   cat /sys/class/net/br-lan/address   -> boxmac-<iface>
+#   uci get system.@system[0].hostname  -> hostname-<iface>
+#
+# Never used against a real router.
+set -uo pipefail
+
+ROOT="${DI_FAKE_ROOT:-}"
+[ -n "$ROOT" ] || { echo "fake ssh: DI_FAKE_ROOT unset" >&2; exit 250; }
+
+bind=""
+target=""
+cmd=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) shift; [ $# -gt 0 ] || break
+        case "$1" in
+          BindAddress=*) bind="${1#BindAddress=}" ;;
+          *) : ;;
+        esac
+        shift ;;
+    -o*) case "$1" in -oBindAddress=*) bind="${1#-oBindAddress=}" ;; esac; shift ;;
+    BindAddress=*) bind="${1#BindAddress=}"; shift ;;
+    -[bcDEeFiIJlLmOpPqQRSVvXy46]*) shift ;;
+    root@*) target="$1"; shift ;;
+    # any other user@host shape — but NEVER the remote command's own tokens, which
+    # legitimately contain '@' (e.g. `uci get system.@system[0].hostname`)
+    *@*) case "$1" in
+           *" "*|*"["*|*";"*) cmd="$cmd $1" ;;
+           *) [ -n "$target" ] || target="$1" ;;
+         esac; shift ;;
+    *) cmd="$cmd $1"; shift ;;
+  esac
+done
+
+printf 'ssh bind=%s target=%s cmd=%s\n' "${bind:-<none>}" "${target:-<none>}" "$(printf '%s' "$cmd" | sed 's/^ *//')" >> "$ROOT/ssh.log"
+
+if [ -z "$bind" ]; then
+  echo "fake ssh: REFUSED — no -o BindAddress=<host source address>; the box answering could be either router" >> "$ROOT/ssh.log"
+  echo "fake ssh: REFUSED — refusing an unbounded ssh (either router could answer)" >&2
+  exit 255
+fi
+
+ip="${target#*@}"
+dev="$(awk -v i="$ip" -v s="$bind" '$1==i && $2==s {print $3}' "$ROOT/routes" | head -1)"
+if [ -z "$dev" ]; then
+  echo "fake ssh: no route to $ip from $bind" >&2
+  exit 255
+fi
+if ! printf '%s' "$cmd" | grep -q '/sys/class/net/br-lan/address'; then
+  echo "fake ssh: this double only models the guard's br-lan MAC read (got:${cmd})" >&2
+  exit 250
+fi
+mac="$(cat "$ROOT/boxmac-$dev" 2>/dev/null || true)"
+if [ -z "$mac" ]; then
+  echo "fake ssh: no box on $dev" >&2
+  exit 255
+fi
+printf '%s\n' "$mac"
+printf 'HOSTNAME=%s\n' "$(cat "$ROOT/hostname-$dev" 2>/dev/null || echo unknown)"

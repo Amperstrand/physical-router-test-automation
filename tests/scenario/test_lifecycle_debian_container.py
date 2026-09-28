@@ -64,10 +64,34 @@ def _router_ssh(cmd: str) -> str:
 
 @pytest.fixture(scope="module", autouse=True)
 def gate_reset():
-    """Guarantee the client starts deauthenticated (gate closed)."""
+    """Guarantee the client starts deauthenticated and routed via the DUT.
+
+    Rogue-DHCP lease poisoning (AGENTS.md 2026-09-28) can leave the
+    container default-routed via the host bridge (gate bypassed): pin
+    the default route via the router and deauth before every run.
+    """
     register_prta_adapters()
     from lib.router import remove_nds_auth_mark_rules
 
+    gateway_ip = os.environ.get("TOLLGATE_SSH_HOST", "10.99.99.1")
+    client = f"debian@{os.environ.get('TOLLGATE_DEBIAN_HOST', '10.99.99.100')}"
+    subprocess.run(
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            client,
+            f"sudo sysctl -wq net.ipv4.conf.ens3.accept_redirects=0; "
+            f"ip route replace default via {gateway_ip} dev ens3; "
+            f"ip route flush cache",
+        ],
+        capture_output=True,
+        timeout=15,
+    )
     _router_ssh(f"ndsctl deauth {CLIENT_MAC} 2>/dev/null || true")
     remove_nds_auth_mark_rules(_router_ssh, CLIENT_MAC)
 

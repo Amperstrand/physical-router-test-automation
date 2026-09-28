@@ -1,0 +1,26 @@
+# phone-adb — the bench phone (adb; serial from PHONE_SERIAL) paying a
+# physical TollGate gateway through the TIP-03 portal. Rig-agnostic by
+# design: every address comes from the environment so the SAME profile
+# runs against any physical gateway. Defaults target the WS-AP3915i
+# alpha rig — host plane 192.168.105.51, client (LAN) plane 192.168.1.1.
+client:
+  driver: phone_adb
+  serial: "${PHONE_SERIAL:-}"
+payment:
+  actor: portal_tip03
+  portal: "${TOLLGATE_PORTAL:-http://192.168.1.1:2050/}"
+  timeout_s: 90
+  sats: 4
+gateway:
+  driver: http_module
+  base: "${TOLLGATE_GW_BASE:-http://192.168.105.51:2121}"
+  client_base: "${TOLLGATE_CLIENT_BASE:-http://192.168.1.1:2121}"
+  token_source: fakewallet
+  mint_url: "${TOLLGATE_TEST_MINT_URL:-http://192.168.13.221:8383}"
+capture:
+  driver: evidence_recorder
+  serial: "${PHONE_SERIAL:-}"
+phases:
+  renewal: false
+  drain_and_fallback: false
+  wallet_fresh: drained

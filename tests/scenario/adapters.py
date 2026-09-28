@@ -46,13 +46,14 @@ from tollgate_lab.scenarios.contract import (
     PayReceipt,
     SessionState,
     Usage,
+    is_captive_redirect,
 )
 from tollgate_lab.scenarios.drivers import (
     CAPTURE_DRIVERS,
     CLIENT_DRIVERS,
     GATEWAY_DRIVERS,
     PAYMENT_ACTORS,
-    DriverEntry,
+    register_driver,
 )
 
 log = logging.getLogger("tollgate.scenario.adapters")
@@ -177,8 +178,8 @@ class TokenPasteActor:
 
     strategy = "token_paste"
 
-    def pay(self, client: ClientDriver, gateway: GatewayDriver) -> PayReceipt:
-        base = gateway.base_url
+    def pay(self, client: ClientDriver, gateway: GatewayDriver, *, sats: int) -> PayReceipt:
+        base = gateway.client_base_url
         host = urlparse(base).hostname
         token = client.staged_token
         if not token.startswith("cashu"):
@@ -193,7 +194,6 @@ class TokenPasteActor:
         repair = getattr(gateway, "open_gate_repair", None)
         if repair is not None:
             repair()
-        sats = getattr(gateway, "last_sats", 0) or 1
         return PayReceipt(sats=sats, strategy=self.strategy, token=token)
 
     @staticmethod
@@ -233,7 +233,7 @@ class PrtaPortalTip03Actor:
         self._timeout_s = timeout_s
         self.machine = _default_portal_machine
 
-    def pay(self, client: ClientDriver, gateway: GatewayDriver) -> PayReceipt:
+    def pay(self, client: ClientDriver, gateway: GatewayDriver, *, sats: int) -> PayReceipt:
         phone = getattr(client, "device", None)
         if phone is None:
             raise RuntimeError("portal_tip03 needs a PhoneAdbClient")
@@ -247,19 +247,30 @@ class PrtaPortalTip03Actor:
         repair = getattr(gateway, "open_gate_repair", None)
         if repair is not None:
             repair()
-        sats = getattr(gateway, "last_sats", 0) or 1
         return PayReceipt(sats=sats, strategy=self.strategy, token=client.staged_token)
 
 
 class PrtaHttpGateway:
     """GatewayDriver over the tollgate backend HTTP module (:2121)."""
 
-    def __init__(self, *, base: str, token_source: str = "fakewallet", mint_url: str = "") -> None:
+    def __init__(
+        self,
+        *,
+        base: str,
+        client_base: str = "",
+        token_source: str = "fakewallet",
+        mint_url: str = "",
+    ) -> None:
+        # base = host plane (advertisement, mint); client_base = what the
+        # paying client probes from inside its network segment. Identical
+        # on the flat virtual lab; differs on rigs whose router LAN
+        # address is not host-routable (e.g. WS-AP3915i: host sees
+        # 192.168.105.51, a joined phone sees 192.168.1.1).
         self.base_url = base.rstrip("/")
+        self.client_base_url = (client_base or base).rstrip("/")
         self._token_source = token_source
         self._mint_url = mint_url
         self._adv_mint_url = ""
-        self.last_sats = 0
 
     def advertisement(self) -> dict[str, Any]:
         import requests
@@ -284,11 +295,10 @@ class PrtaHttpGateway:
         token = HttpMinter(url).mint(sats)
         if not token:
             raise RuntimeError("fakewallet minted an empty token")
-        self.last_sats = sats
         return token
 
     def usage(self, client: ClientDriver) -> Usage | None:
-        body = client.run_command(f"curl -s -m 10 {self.base_url}/usage").strip()
+        body = client.run_command(f"curl -s -m 10 {self.client_base_url}/usage").strip()
         used, _, allotment = body.partition("/")
         if not (used.lstrip("-").isdigit() and allotment.lstrip("-").isdigit()):
             return Usage()
@@ -304,10 +314,7 @@ class PrtaHttpGateway:
         code, _, redirect = out.partition(" ")
         if not code.isdigit() or not 200 <= int(code) < 400:
             return False
-        # A 3xx whose target is the gateway's own portal is the captive
-        # redirect — that is the gate being CLOSED, not the internet.
-        host = urlparse(self.base_url).hostname or ""
-        return host not in redirect
+        return not is_captive_redirect(redirect, self.client_base_url)
 
     def open_gate_repair(self) -> None:
         """Insert the ndsNET auth-bit accept rule (NDS 5.0.2 mark bug).
@@ -323,7 +330,7 @@ class PrtaHttpGateway:
         router.fix_nodogsplash_auth_marks()
 
     def _client_probe(self, client: ClientDriver, path: str) -> dict | None:
-        body = client.run_command(f"curl -s -m 10 {self.base_url}{path}")
+        body = client.run_command(f"curl -s -m 10 {self.client_base_url}{path}")
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError:
@@ -374,12 +381,12 @@ class EvidenceRecorderCapture:
 
 def register_prta_adapters() -> None:
     """Fill the scenario-layer registry slots with PRTA-backed adapters."""
-    CLIENT_DRIVERS["debian_container"] = DriverEntry(DebianContainerClient, required=("ssh",))
-    CLIENT_DRIVERS["phone_adb"] = DriverEntry(PhoneAdbClient)
-    PAYMENT_ACTORS["token_paste"] = DriverEntry(TokenPasteActor)
-    PAYMENT_ACTORS["portal_tip03"] = DriverEntry(PrtaPortalTip03Actor)
-    GATEWAY_DRIVERS["http_module"] = DriverEntry(PrtaHttpGateway, required=("base",))
-    CAPTURE_DRIVERS["evidence_recorder"] = DriverEntry(EvidenceRecorderCapture)
+    register_driver(CLIENT_DRIVERS, "debian_container", DebianContainerClient, required=("ssh",))
+    register_driver(CLIENT_DRIVERS, "phone_adb", PhoneAdbClient)
+    register_driver(PAYMENT_ACTORS, "token_paste", TokenPasteActor)
+    register_driver(PAYMENT_ACTORS, "portal_tip03", PrtaPortalTip03Actor, replace=True)
+    register_driver(GATEWAY_DRIVERS, "http_module", PrtaHttpGateway, required=("base",), replace=True)
+    register_driver(CAPTURE_DRIVERS, "evidence_recorder", EvidenceRecorderCapture)
 
 
 register_prta_adapters()

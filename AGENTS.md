@@ -2117,3 +2117,46 @@ response 682ms. Upgrade-path story activates with `TOLLGATE_RELEASE_IPK`;
 concurrent-payment story with `TOLLGATE_DEBIAN_HOST`. Cross-implementation
 client routing: `TOLLGATE_STORY_CLIENT=debian-vm|omarchy-vm|android-phone`.
 
+
+## Lessons Learned — "kind 21023" was never rate limiting (2026-09-28)
+
+The api payment tests failed with `kind 21023` for hours on the
+virtual-lab VM, survived a backend restart, and was diagnosed (via the
+GO-backend precedent, tmbg #88) as rate limiting. Wrong on two counts:
+
+1. **kind 21023 is the GENERIC payment-failure notice on rust-basic**
+   (`src/http/routes/pay.rs`: "kind 1022 on success or kind 21023 +
+   HTTP 400 on failure"). The GO backend's 21023-means-rate-limit
+   mapping does NOT carry over — always read the `content`/`code` tags
+   before diagnosing.
+2. **The actual failure**: `failed to open gate: ndsctl auth
+   02:00:00:00:00:01 failed after 5 attempts` — the router's DHCP lease
+   table had been poisoned (`10.99.99.100 → 02:00:00:00:00:01`, a
+   locally-administered MAC from a rogue DHCP client during the
+   2026-09-28 route-flip window) while ARP held the true
+   `de:54:4e:91:49:da`. The backend resolves MAC from DHCP leases
+   first, authed a phantom MAC, and every payment consumed its token
+   then rolled back.
+
+**The "route flip" was ICMP redirects.** The poc router's WAN sits on
+the same bridge L2 as its LAN, so the router legitimately emits ICMP
+redirects ("reach 1.1.1.1 via 10.99.99.2 directly"). The Debian client
+(ens3 accept_redirects=1, the Linux default) learns a `<redirected>`
+route-cache exception for the probe destination — invisible to
+`ip route show`, visible only in `ip route show cache` — and then
+bypasses the router AND its NDS gate for that destination: false
+gate-closed failures and false gate-open successes, flapping with the
+exception's expiry. NOTE `all.accept_redirects=0` is NOT enough: Linux
+takes the max of all/per-interface — set `ens3` itself.
+
+**Durable fixes**: dnsmasq static host pinned (`dhcp.@host` mac=real,
+ip=10.99.99.100) so the lease table cannot be poisoned for the client
+IP; bogus lease purged; client `/etc/sysctl.d/99-no-icmp-redirects.conf`
+(all + default + ens3 = 0) persisted; the scenario fixture pins the
+default route via the DUT and flushes the route cache each run;
+`test_payment_regression._pay_with_retry` treats gate-open failure as
+skip-class lab state (like MAC-lookup failure) instead of failing on
+infra. Diagnosis recipe when payments fail on any rig: read the full
+notice `content` first, then compare `ip neigh` with
+`cat /tmp/dhcp.leases` for the client IP — and when gate verdicts look
+impossible, check `ip route show cache` on the client.

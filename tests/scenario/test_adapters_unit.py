@@ -59,7 +59,7 @@ class FakeClient:
 
 class FakeGateway:
     base_url = "http://10.99.99.1:2121"
-    last_sats = 4
+    client_base_url = "http://10.99.99.1:2121"
 
     def open_gate_repair(self) -> None:
         self.repaired = True
@@ -77,7 +77,7 @@ def test_registry_slots_filled():
 
 def test_profiles_validate_after_registration():
     register_prta_adapters()
-    for name in ("debian-container-real.yaml", "phone-adb-mt3000.yaml"):
+    for name in ("debian-container-real.yaml", "phone-adb.yaml"):
         profile = load_profile(HERE / "profiles" / name)
         assert profile.name == Path(name).stem
 
@@ -143,9 +143,9 @@ def test_token_paste_actor_posts_staged_token():
     )
     gw = FakeGateway()
 
-    receipt = TokenPasteActor().pay(client, gw)
+    receipt = TokenPasteActor().pay(client, gw, sats=7)
 
-    assert receipt == PayReceipt(sats=4, strategy="token_paste", token="cashuAUnit")
+    assert receipt == PayReceipt(sats=7, strategy="token_paste", token="cashuAUnit")
     assert gw.repaired is True
     assert any(":2050/" in c for c in client.commands), "must prime NDS portal first"
     assert any("--data-binary @/tmp/tg-scenario-token" in c for c in client.commands)
@@ -159,7 +159,7 @@ def test_token_paste_actor_raises_on_rejection():
         }
     )
     with pytest.raises(RuntimeError, match="rejected"):
-        TokenPasteActor().pay(client, FakeGateway())
+        TokenPasteActor().pay(client, FakeGateway(), sats=4)
 
 
 class FakeU2:
@@ -200,9 +200,10 @@ def test_portal_actor_wraps_the_prta_state_machine():
     actor = PrtaPortalTip03Actor(portal="http://192.168.1.1:2050/", timeout_s=45)
     actor.machine = fake_machine
 
-    receipt = actor.pay(client, FakeGateway())
+    receipt = actor.pay(client, FakeGateway(), sats=7)
 
     assert receipt.strategy == "portal_tip03"
+    assert receipt.sats == 7
     assert receipt.token == "cashuBUnit"
     assert seen == {"token": "cashuBUnit", "timeout": 45}
     assert "url:http://192.168.1.1:2050/" in fake_u2.calls
@@ -214,7 +215,7 @@ def test_portal_actor_raises_when_portal_stalls():
     actor.machine = lambda u2phone, token, timeout=75: "token_typing"
 
     with pytest.raises(RuntimeError, match="did not authenticate"):
-        actor.pay(client, FakeGateway())
+        actor.pay(client, FakeGateway(), sats=4)
 
 
 def test_container_client_ssid_maps_to_default_route():

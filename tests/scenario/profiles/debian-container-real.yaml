@@ -1,16 +1,16 @@
-# debian-container-real — PRTA virtual-lab QEMU path: the Debian container
-# client (10.99.99.100, wired on br-lan) pays the OpenWrt gateway
-# (10.99.99.1) by submitting the staged token at the backend API
-# (token_paste actor). Mint: the host fakewallet (10.99.99.2:8383).
+# debian-container-real — PRTA virtual-lab QEMU path: the Debian
+# container client pays the OpenWrt gateway by submitting the staged
+# token at the backend API (token_paste actor). Host plane == client
+# plane on the flat lab bridge, so client_base defaults to base.
 client:
   driver: debian_container
-  ssh: "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@10.99.99.100"
+  ssh: "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@${TOLLGATE_DEBIAN_HOST:-10.99.99.100}"
 payment:
   actor: token_paste
   sats: 4
 gateway:
   driver: http_module
-  base: "http://10.99.99.1:2121"
+  base: "http://${TOLLGATE_SSH_HOST:-10.99.99.1}:2121"
   token_source: fakewallet
 phases:
   renewal: false

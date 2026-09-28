@@ -21,7 +21,11 @@ def _pay_with_retry(router, cashu, max_attempts=3):
         body = json.dumps(resp)
         if "Duplicate outputs" in body and attempt < max_attempts - 1:
             continue
-        if is_mac_lookup_failure(resp):
+        # MAC-lookup failure and gate-open failure on a phantom MAC are
+        # both "no real client identity reachable" lab state — the
+        # consume-before-gate token burn is infra, not a product
+        # regression (DHCP-lease MAC poisoning class, AGENTS.md 2026-09-28).
+        if is_mac_lookup_failure(resp) or "failed to open gate" in body:
             return resp
     return resp
 

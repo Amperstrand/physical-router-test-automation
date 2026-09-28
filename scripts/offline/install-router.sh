@@ -318,6 +318,38 @@ word_in() { # word_in <word> <space-separated list>
     return 1
 }
 
+# --- bounded wait for a surface that is still coming up ----------------------------
+# A WAN-less install starts the portal and the backend as part of the install, and the
+# 2026-09-28 hardware run probed them before they had bound: every surface answered 000
+# and the run failed "wrong status" on a box that was merely still starting (a re-probe
+# of the SAME box minutes later was 200/200/403/200).  So a probe now waits BOUNDEDLY for
+# a port that has not answered yet, while still failing a port that answers WRONG at once
+# — a wrong answer is a defect, not startup lag — and never waiting on a port whose
+# correct answer IS 000 (the admin-board pair must stay refused, and LuCI may answer no
+# plain HTTP at all).  TGOFFLINE_PROBE_DEADLINE=0 disables the wait; the no-hardware
+# suite pins it to 0 so its negative controls stay instant.
+SURFACE_PROBE_DEADLINE="${TGOFFLINE_PROBE_DEADLINE:-45}"
+SURFACE_PROBE_INTERVAL=2
+
+probe_code() { # probe_code <accepted-codes> <curl args...>  -> prints the HTTP code
+    probe_accept="$1"; shift
+    probe_waited=0
+    while :; do
+        probe_out="$(curl -s -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)"
+        [ -n "$probe_out" ] || probe_out=000
+        if word_in "$probe_out" "$probe_accept" || [ "$probe_out" != 000 ]; then
+            printf '%s' "$probe_out"
+            return 0
+        fi
+        if [ "$probe_waited" -ge "$SURFACE_PROBE_DEADLINE" ]; then
+            printf '%s' "$probe_out"
+            return 0
+        fi
+        sleep "$SURFACE_PROBE_INTERVAL"
+        probe_waited=$((probe_waited + SURFACE_PROBE_INTERVAL))
+    done
+}
+
 # ------------------------------------------------------------------ argument parsing
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -649,8 +681,7 @@ surf_bad=""
 surf_ok=""
 while IFS="|" read -r p path accept what; do
     [ -n "$p" ] || continue
-    got="$(curl -s -o /dev/null -w '%{http_code}' -m 6 "http://127.0.0.1:$p$path" 2>/dev/null)"
-    [ -n "$got" ] || got=000
+    got="$(probe_code "$accept" -m 6 "http://127.0.0.1:$p$path")"
     if ! word_in "$got" "$accept"; then
         # Not the primary shape.  Try the portal's documented alternates before calling it
         # broken: a refusal (000) is not an alternate, and neither is a path that answers
@@ -660,8 +691,8 @@ while IFS="|" read -r p path accept what; do
         while IFS="|" read -r ap apath aaccept; do
             [ -n "$ap" ] || continue
             [ "$ap" = "$p" ] || continue
-            alt="$(curl -s -o /dev/null -w '%{http_code}' -m 6 "http://127.0.0.1:$ap$apath" 2>/dev/null)"
-            if [ -n "$alt" ] && word_in "$alt" "$aaccept"; then
+            alt="$(probe_code "$aaccept" -m 6 "http://127.0.0.1:$ap$apath")"
+            if word_in "$alt" "$aaccept"; then
                 alt_ok="$apath=$alt"
                 alt_accept="$aaccept"
                 got="$alt"
@@ -740,10 +771,21 @@ fact wan_route "$WAN_ROUTE"
 fact wan_resolver "$WAN_RESOLVER"
 [ -n "$WAN_DIAG" ] && fact wan_diag "$WAN_DIAG"
 
-invoice_code="$(curl -s -o "$WORK/ln-invoice.body" -w '%{http_code}' -m 10 -X POST \
-    -H 'Content-Type: application/json' -d '{"amount":21}' \
-    "http://127.0.0.1:$BACKEND_PORT/ln-invoice" 2>/dev/null)"
-[ -n "$invoice_code" ] || invoice_code=000
+# Same bounded-wait rule as the surfaces: a 000 here means the backend has not bound
+# yet (the same startup lag), so retry it to the deadline.  Any real answer — including
+# a documented degraded one (503 while the mint is unreachable WAN-less) — is taken
+# as-is, so a misrouted or rejected route still fails without waiting.
+invoice_waited=0
+while :; do
+    invoice_code="$(curl -s -o "$WORK/ln-invoice.body" -w '%{http_code}' -m 10 -X POST \
+        -H 'Content-Type: application/json' -d '{"amount":21}' \
+        "http://127.0.0.1:$BACKEND_PORT/ln-invoice" 2>/dev/null)"
+    [ -n "$invoice_code" ] || invoice_code=000
+    [ "$invoice_code" != 000 ] && break
+    [ "$invoice_waited" -ge "$SURFACE_PROBE_DEADLINE" ] && break
+    sleep "$SURFACE_PROBE_INTERVAL"
+    invoice_waited=$((invoice_waited + SURFACE_PROBE_INTERVAL))
+done
 invoice_body="$(cat "$WORK/ln-invoice.body" 2>/dev/null)"
 fact ln_invoice_code "$invoice_code"
 invoice_pfx="$(printf '%s' "$invoice_body" | grep -o 'lnbc[a-z0-9]*' | head -1 | cut -c1-24)"

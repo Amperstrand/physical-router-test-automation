@@ -70,6 +70,12 @@ fi
 export SH_BIN
 export TGOFFLINE_HARNESS_SH="$SH_BIN"
 
+# The surface probes wait BOUNDEDLY for a service that has not bound yet; the harness
+# models every answer exactly and does not start anything, so the wait is disabled here
+# (a port modelled as refused must fail at once, not after the deadline). T26 turns it
+# back on to prove the wait recovers from a one-shot 000.
+export TGOFFLINE_PROBE_DEADLINE=0
+
 echo "offline-install suite"
 echo "  workdir      : $WORK"
 echo "  scripts under test: $SCRIPTS_DIR"
@@ -1196,6 +1202,31 @@ PY
     fi
 }
 
+# =============================================================== T30 bounded wait
+# The 2026-09-28 hardware defect: the install probed the surfaces before the services
+# had bound, every one answered 000, and the run failed "wrong status" on a box that was
+# merely still starting (a re-probe of the SAME box was 200/200/403/200).  The bounded
+# wait must turn a one-shot 000 into a pass, while a port whose correct answer IS 000
+# (the admin-board pair) still never waits — that is what the deadline=0 controls above
+# rely on.
+test_T30() {
+    router_root_new
+    local b; b="$(bundle_build "$WORK/b30")"
+    # The FIRST probe of :2121 answers 000 and consumes this marker; only the bounded
+    # wait can turn that into surface_2121=200.
+    : > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/slow_once_2121"
+    local saved="${TGOFFLINE_PROBE_DEADLINE:-}"
+    export TGOFFLINE_PROBE_DEADLINE=5
+    run_install "$b"
+    if [ -n "$saved" ]; then export TGOFFLINE_PROBE_DEADLINE="$saved"; else unset TGOFFLINE_PROBE_DEADLINE; fi
+    check_rc "a surface that answers 000 once still installs green" 0 "$RC"
+    check_contains "the run says PASS after the bounded wait" "TGOFFLINE-RESULT PASS" "$OUT"
+    check_eq "the backend surface recovered to 200" "200" "$(report_remote_field fact_surface_2121)"
+    check_eq "the surfaces gate passes after the wait" "pass" "$(report_remote_field gate_surfaces)"
+    check_eq "the one-shot marker was consumed (the 000 really happened)" "absent" \
+        "$([ -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/slow_once_2121" ] && echo present || echo absent)"
+}
+
 TITLES="
 T01|dry-run: verify the bundle, print the ordered plan, touch nothing
 T02|green path: keepalive first, deps by path, package, all gates, one report
@@ -1226,8 +1257,9 @@ T26|the WAN probe needs a resolver, not just a route (the bench box's actual sta
 T27|the OTHER documented portal shape (bare root) is accepted, not failed
 T28|anti-vacuity: an unreadable WAN probe does NOT buy the lenient branch
 T29|the keepalive seed at the unit level (config file + section ensured; idempotent; feed-builder shape)
+T30|a surface that answers 000 once is recovered by the bounded wait (the hardware startup shape)
 "
-TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28 T29"
+TESTS="T01 T02 T03 T04 T05 T06 T07 T08 T09 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28 T29 T30"
 if [ -n "${1:-}" ] && [ "${1:-}" = "--only" ]; then ONLY="${2:-}"; fi
 if [ -n "${TGOFFLINE_HARNESS_ONLY:-}" ]; then ONLY="$TGOFFLINE_HARNESS_ONLY"; fi
 

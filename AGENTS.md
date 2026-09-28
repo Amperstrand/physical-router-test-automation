@@ -1966,11 +1966,14 @@ Environment traps found while verifying:
   a gated client fails. The Debian client's steady-state resolver must be
   the router (cloud-init's 10.99.99.2 default only answers during
   provisioning; its resolv.conf is a symlink — `rm` it before writing).
-- **Backend rate limit (tmbg#88)**: post-merge-14 wraps the payment root in
-  `RateLimitMiddleware` — 10 req/min per client IP. Suite payment cadence +
-  reruns trip it (`kind 21023` / `rate limit exceeded`); absent in
-  post-merge-12. Env knob `TOLLGATE_RATE_LIMIT_RPM` exists but is not
-  persistable through the init script.
+- **Backend rate limit (tmbg#88, Go backend only)**: post-merge-14 wraps the
+  payment root in `RateLimitMiddleware` — 10 req/min per client IP. Suite
+  payment cadence + reruns trip it (`kind 21023` / `rate limit exceeded`);
+  absent in post-merge-12. Env knob `TOLLGATE_RATE_LIMIT_RPM` exists but is
+  not persistable through the init script. **Correction (2026-09-28)**: the
+  21023-means-rate-limit mapping is Go-only — on rust-basic `kind 21023` is
+  the GENERIC payment-failure kind; see the "kind 21023 was never rate
+  limiting" section below.
 - **reveal-seed is a derivation oracle now** (recontracted 2026-09-06, PRTA
   #102): `POST /identity/reveal-seed` takes a raw 12-word BIP39 mnemonic as
   the body (not JSON) and returns the identity derived from it — it no longer
@@ -2127,3 +2130,78 @@ PRTA drives physical routers on the bench/house network. The authority map and e
 3. **A story that needs a DHCP server runs inside an isolated VLAN** (one VLAN, one server, owned by the segment owner).
 4. After package installs on fixtures, verify dnsmasq/odhcpd did not auto-start (the `apk add dnsmasq` lesson).
 5. Detection tripwire: on the ERX, `Drop-Lab-Rogue-*` firewall counters/log hits = a rogue is transmitting — find and quiet it before continuing the run.
+
+## Lessons Learned — "kind 21023" was never rate limiting (2026-09-28)
+
+The api payment tests failed with `kind 21023` for hours on the
+virtual-lab VM, survived a backend restart, and was diagnosed (via the
+GO-backend precedent, tmbg #88) as rate limiting. Wrong on two counts:
+
+1. **kind 21023 is the GENERIC payment-failure notice on rust-basic**
+   (`src/http/routes/pay.rs`: "kind 1022 on success or kind 21023 +
+   HTTP 400 on failure"). The GO backend's 21023-means-rate-limit
+   mapping does NOT carry over — always read the `content`/`code` tags
+   before diagnosing.
+2. **The actual failure**: `failed to open gate: ndsctl auth
+   02:00:00:00:00:01 failed after 5 attempts` — the router's DHCP lease
+   table was being poisoned (`10.99.99.100 → 02:00:00:00:00:01`) while
+   ARP held the true `de:54:4e:91:49:da`. The backend resolves MAC from
+   DHCP leases first, authed a phantom MAC, and every payment consumed
+   its token then rolled back. **The poisoner was PRTA itself**:
+   `tests/conftest.py`'s container client defaulted to the CLOUD-lab
+   container NIC MAC (`02:00:00:00:00:01` — correct only there) and
+   `ensure_dhcp_lease()` injects it into `/tmp/dhcp.leases` on every
+   `--client=container` run. Fixed: MAC now resolves env
+   (`TOLLGATE_CLIENT_MAC`) → router ARP truth → legacy constant.
+
+**The "route flip" was ICMP redirects.** The poc router's WAN sits on
+the same bridge L2 as its LAN, so the router legitimately emits ICMP
+redirects ("reach 1.1.1.1 via 10.99.99.2 directly"). The Debian client
+(ens3 accept_redirects=1, the Linux default) learns a `<redirected>`
+route-cache exception for the probe destination — invisible to
+`ip route show`, visible only in `ip route show cache` — and then
+bypasses the router AND its NDS gate for that destination: false
+gate-closed failures and false gate-open successes, flapping with the
+exception's expiry. NOTE `all.accept_redirects=0` is NOT enough: Linux
+takes the max of all/per-interface — set `ens3` itself.
+
+**Durable fixes**: dnsmasq static host pinned (`dhcp.@host` mac=real,
+ip=10.99.99.100) so the lease table cannot be poisoned for the client
+IP; bogus lease purged; client `/etc/sysctl.d/99-no-icmp-redirects.conf`
+(all + default + ens3 = 0) persisted; the scenario fixture pins the
+default route via the DUT and flushes the route cache each run;
+`test_payment_regression._pay_with_retry` treats gate-open failure as
+skip-class lab state (like MAC-lookup failure) instead of failing on
+infra. Diagnosis recipe when payments fail on any rig: read the full
+notice `content` first, then compare `ip neigh` with
+`cat /tmp/dhcp.leases` for the client IP — and when gate verdicts look
+impossible, check `ip route show cache` on the client.
+
+## Omarchy VM venue — cross-lane coordination (2026-09-28)
+
+The omarchy-cashu vm-testbed (repo `/home/ubuntu/omarchy-cashu`, runtime
+`~/tollgate-virtual-lab`) shares this host with PRTA's poc VMs. PRTA lanes
+occasionally hand this venue to other agents (first case: the omarchy-cashu
+plugin lane, 2026-09-28). Facts that made that handoff work:
+
+- **Launcher**: `~/tollgate-virtual-lab/labctl start omarchy-vm` (symlink to
+  `vm-testbed/host/relaunch-omarchy-vm.sh`), then ALWAYS
+  `vm-testbed/host/lab-net-up.sh` (idempotent, flock'd — see below).
+  Source `env.sh` + `env.local.sh` first: this rig's `VM_SSH_PORT=2223`.
+- **Topology**: guest has a real in-VM wifi stack (`mac80211_hwsim radios=3`
+  + hostapd APs in `/etc/omarchy-tb/`); TollGate AP SSID **TollGate-VM**
+  (NM profile of the same name; `sudo nmcli con up TollGate-VM` flips
+  cashud's `wifi.on_tollgate_ap=true`). Host side: `tg-om-toll-br`
+  (10.99.98.2 gateway) + `tg-om-home-br` (10.99.97.2, open) + fake internet
+  at 198.51.100.10 behind the nft gate valve.
+- **Guest shell**: `ssh -i ~/.ssh/id_ed25519 -p $VM_SSH_PORT omarchy@127.0.0.1`.
+- **Screendump**: QMP at `$LAB_ROOT/run/omarchy-qmp.sock`; helper
+  `uilib.sh:ui_shot` / `qmp_screendump`.
+- **Etiquette (both directions)**: never `labctl stop` (lab-wide — kills the
+  poc VMs); only `tg-om-*` resources; teardown via `stop-omarchy-vm.sh` +
+  `lab-net-down.sh`; leave bridges down; `tg-poc-*` untouched.
+- **Partial-teardown class (2026-09-28)**: daemons from prior sessions die
+  silently and pidfiles orphan (found: dead toll dnsmasq + a root-owned
+  `gate-daemon.sh` racing the current one). `lab-net-up.sh` re-asserts
+  everything — never assume the host side is still up. Documented in the
+  vm-testbed RUNBOOK (their repo) and enforced here by handoff convention.

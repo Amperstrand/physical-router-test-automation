@@ -1,0 +1,15 @@
+[info]
+url = "http://{{ host_ip }}:{{ cdk_mint_port }}/"
+listen_host = "0.0.0.0"
+listen_port = {{ cdk_mint_port }}
+mnemonic = "{{ cdk_mnemonic }}"
+[database]
+engine = "sqlite"
+[ln]
+ln_backend = "fakewallet"
+[fake_wallet]
+supported_units = ["sat"]
+fee_percent = 0
+reserve_fee_min = 0
+min_delay_time = 0
+max_delay_time = 0

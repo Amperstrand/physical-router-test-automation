@@ -27,19 +27,39 @@ t_begin() { _CUR="$1"; TESTS_RUN=$((TESTS_RUN + 1)); printf '\n== %s %s\n' "$(pr
 pass() { printf '   ok   - %s\n' "$1"; }
 fail() { TESTS_FAILED=$((TESTS_FAILED + 1)); printf '   FAIL - %s\n' "$1"; }
 
+# --- matching helpers ---------------------------------------------------------
+# `printf '%s' "$hay" | grep -qF -- "$needle"` is RACY under `set -o pipefail`, which this
+# file sets: `grep -q` exits the moment it matches, and if the writer still has bytes to
+# push it takes SIGPIPE (141).  pipefail then makes the PIPELINE non-zero, so the `if`
+# reads a HIT as "not found" — a silent false-negative.  Measured on this suite's own
+# ~10 KiB driver output: 16 false-FAILs in 400 runs (~4%) of exactly this shape, which is
+# how T17/T23/Baseline-T20 reported "output does not contain X" while the dumped output
+# visibly contained X.  Every match below therefore runs WITHOUT a pipeline: `case` for a
+# literal needle (the quoted expansion keeps glob characters literal), and a captured
+# command substitution — whose status can never reach an `if` — for an ERE.
+hay_has() { # $1=literal needle, $2=haystack -> 0 when present
+    case "$2" in
+        *"$1"*) return 0 ;;
+    esac
+    return 1
+}
+hay_has_re() { # $1=ERE, $2=haystack -> 0 when any line matches
+    [ -n "$(printf '%s\n' "$2" | grep -E -- "$1" 2>/dev/null || true)" ]
+}
+
 check_rc() { # $1 desc, $2 expected rc, $3 actual rc
     if [ "$2" = "$3" ]; then pass "$1 (rc=$3)"; else
         fail "$1: expected rc=$2, got rc=$3"
     fi
 }
 check_contains() { # $1 desc, $2 needle, $3 haystack
-    if printf '%s' "$3" | grep -qF -- "$2"; then pass "$1"; else
+    if hay_has "$2" "$3"; then pass "$1"; else
         fail "$1: output does not contain '$2'"
         printf '        --- output was ---\n%s\n        ------------------\n' "$3"
     fi
 }
 check_not_contains() { # $1 desc, $2 needle, $3 haystack
-    if printf '%s' "$3" | grep -qF -- "$2"; then
+    if hay_has "$2" "$3"; then
         fail "$1: output unexpectedly contains '$2'"
         printf '        --- output was ---\n%s\n        ------------------\n' "$3"
     else pass "$1"; fi
@@ -72,6 +92,14 @@ https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routi
 EOF
     # the WAN-less precondition the card asks to PROVE rather than assume
     : > "$root/var/lib/tgoffline-harness/no-uplink"
+    # ... and the same fact the way the KERNEL says it, which is what the production WAN
+    # probe reads: a fresh-flash WAN-less box has NO default route (only link routes) and
+    # NO resolver handed to it (no DHCP/PPP lease -> nothing wrote resolv.conf.auto).
+    # `router_feature uplink` supplies both.
+    cat > "$root/proc/net/route" <<'EOF'
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+br-lan	0002A8C0	00000000	0001	0	0	0	00FFFFFF	0	0	0
+EOF
     # /proc/net/tcp with :22 (0x0016) LISTENing — what `ssh_listening` parses
     cat > "$root/proc/net/tcp" <<'EOF'
   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -96,13 +124,25 @@ libc 1.2.5-r5
 libgcc 14.3.0-r4
 kernel 6.12.60-r1
 EOF
-    # the HTTP surface model the curl double reads (port → code).  8090/8443 are
-    # derived from the guard state on purpose (see harness/bin/curl).
+    # the HTTP surface model the curl double reads (port → default code for any path).
+    # 8090/8443 are derived from the guard state on purpose (see harness/bin/curl).
     cat > "$root/var/lib/tgoffline-harness/http_codes" <<'EOF'
 2051 200
 2050 200
 2121 200
 8080 307
+EOF
+    # ... and the per-PATH answers of a CORRECT fresh install (port path code), which the
+    # double consults FIRST.  These are the shapes the 2026-09-28 WAN-less hardware run
+    # measured: the portal serves /splash.html (bare `/` is 404), the uhttpd portal site
+    # denies its directory listing with 403, and :8080 answers nothing at all over plain
+    # HTTP (redirect_https) — so a bare 307 is NOT required.
+    cat > "$root/var/lib/tgoffline-harness/http_path_codes" <<'EOF'
+2051 / 403
+2051 /index.html 404
+2050 / 404
+2050 /splash.html 200
+8080 / 000
 EOF
     for feat in "$@"; do
         case "$feat" in
@@ -113,11 +153,63 @@ EOF
     export TGOFFLINE_HARNESS_ROOT="$root"
 }
 
+# set the per-PATH answer of a surface (port path code), replacing any earlier entry
+http_path_set() { # $1=port $2=path $3=code
+    local f="$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/http_path_codes"
+    awk -v p="$1" -v q="$2" '!($1 == p && $2 == q)' "$f" 2>/dev/null > "$f.new"
+    printf '%s %s %s\n' "$1" "$2" "$3" >> "$f.new"
+    mv "$f.new" "$f"
+}
+
 router_feature() { # $1=feature  — flip a feature on the CURRENT root
     case "$1" in
         no-bolt11) : > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/no-bolt11" ;;
-        uplink) rm -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/no-uplink" ;;
-        8080-200) sed -i 's/^8080 307$/8080 200/' "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/http_codes" ;;
+        # the SAME box WITH an uplink: the kernel now has a default route, AND the DHCP
+        # lease has handed it a resolver — which is what a quoting box needs (the mint is
+        # addressed by NAME).  Both facts are what the production WAN probe reads.
+        uplink)
+            rm -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/no-uplink"
+            cat > "$TGOFFLINE_HARNESS_ROOT/proc/net/route" <<'EOF'
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+br-lan	0002A8C0	00000000	0001	0	0	0	00FFFFFF	0	0	0
+wan	00000000	0102A8C0	0003	0	0	0	00000000	0	0	0
+EOF
+            printf 'nameserver 192.168.8.1\nsearch lan\n' > "$TGOFFLINE_HARNESS_ROOT/tmp/resolv.conf"
+            ;;
+        # the portal's splash page is gone (bare `/` was always 404; now the real path is too)
+        splash-missing) http_path_set 2050 /splash.html 404 ;;
+        # the OTHER documented portal shape: `/splash.html` is not served, but the bare `/`
+        # is (two in-repo sources document exactly this — scripts/tollgate-port-sweep.sh and
+        # lib/install_paths.py).  The gate must accept it rather than fail a correct box.
+        portal-bare-root)
+            http_path_set 2050 /splash.html 404
+            http_path_set 2050 / 200
+            ;;
+        # a default route IS present, but the box has NO resolver: the state the WAN-less
+        # bench box was actually in (`kashu.me` had no address — its DHCP/PPP lease never
+        # handed it a nameserver).  This is the control that proves the resolver half of the
+        # WAN probe is load-bearing: the route alone must NOT be read as an uplink, or the
+        # strict quote contract would fire on a box that cannot quote.
+        wan-route-only)
+            cat > "$TGOFFLINE_HARNESS_ROOT/proc/net/route" <<'EOF'
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+br-lan	0002A8C0	00000000	0001	0	0	0	00FFFFFF	0	0	0
+wan	00000000	0102A8C0	0003	0	0	0	00000000	0	0	0
+EOF
+            rm -f "$TGOFFLINE_HARNESS_ROOT/tmp/resolv.conf" "$TGOFFLINE_HARNESS_ROOT/etc/resolv.conf"
+            rm -rf "$TGOFFLINE_HARNESS_ROOT/tmp/resolv.conf.d"
+            ;;
+        # the route table is UNREADABLE.  This is the anti-vacuity control for the whole
+        # conditional design: ambiguity must NOT buy the lenient branch, or "make the probe
+        # blind" would be an escape hatch out of the payment assertion.  The box is judged
+        # WAN-PRESENT and the STRICT quote contract applies.
+        wan-unreadable) rm -f "$TGOFFLINE_HARNESS_ROOT/proc/net/route" ;;
+        # a port that is not listening at all: no HTTP answer on any path
+        port-dead=*) : > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/port_dead_${1#port-dead=}" ;;
+        # the /ln-invoice ROUTE is gone (404) — a genuinely broken payment surface, even
+        # though it is WAN-less
+        ln-invoice-404) printf '404 {"error":"not found"}\n' > "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/ln_invoice_answer" ;;
+        8080-200) http_path_set 8080 / 200 ;;
         no-guard-state) rm -f "$TGOFFLINE_HARNESS_ROOT/var/lib/tgoffline-harness/nft_admin_board_input_guard" ;;
         # the SAME box after a previous install: the packages the dependency stage does
         # not offer (nodogsplash's iptables closure) are already in the DB, so the

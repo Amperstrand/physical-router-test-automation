@@ -1,0 +1,12 @@
+[Unit]
+Description=Debian client VM (TollGate lab)
+After=network-online.target openwrt-vm.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vm-runner -enable-kvm -cpu host -m {{ debian_mem_mb }} -smp {{ debian_smp }} -drive file={{ debian_overlay }},format=qcow2,if=virtio,file.locking=off -drive file={{ seed_iso }},media=cdrom -netdev bridge,id=net0,br={{ bridge_name }} -device virtio-net-pci,netdev=net0 -nographic -serial file:/tmp/debian-boot.log
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

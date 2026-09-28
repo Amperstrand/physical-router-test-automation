@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# TEST DOUBLE — a stand-in `ip(8)` for tests/bench-device-identity/run-tests.sh.
+#
+# It answers only the forms the guard actually uses, from the fake rig layout
+# described in harness/lib.sh, so the PRODUCTION guard text is exercised
+# unmodified. It is installed on PATH by run-tests.sh and is never used against
+# a real network. Unsupported forms exit 2 loudly: a double that silently
+# answers something it does not model is a false-pass generator.
+set -uo pipefail
+
+ROOT="${DI_FAKE_ROOT:-}"
+[ -n "$ROOT" ] || { echo "fake ip: DI_FAKE_ROOT unset" >&2; exit 250; }
+
+verbose=0
+args=()
+for a in "$@"; do
+  case "$a" in
+    -o|-4|-6|-o4|-4o|-4on|-br|-brief) : ;;
+    *) args+=("$a") ;;
+  esac
+done
+set -- "${args[@]:-}"
+verb="${1:-}"; shift || true
+sub="${1:-}"; shift || true
+case "$verb" in
+  link|addr|neigh|route) : ;;
+  *) echo "fake ip: unsupported: ip $*" >&2; exit 2 ;;
+esac
+
+iface_from_flags() {   # `dev X` in the remaining args
+  local prev="" a
+  for a in "$@"; do
+    [ "$prev" = "dev" ] && { printf '%s' "$a"; return 0; }
+    prev="$a"
+  done
+  return 1
+}
+
+iface_field() {   # $1=iface $2=field index (2=state, 3=addrs)
+  awk -v i="$1" -v f="$2" '$1==i {print $f}' "$ROOT/ifaces" 2>/dev/null | head -1
+}
+
+case "$verb:$sub" in
+  link:show)
+    want="$(iface_from_flags "$@" || true)"
+    [ -n "$want" ] || { echo "fake ip: link show needs dev X" >&2; exit 2; }
+    state="$(iface_field "$want" 2)"
+    [ -n "$state" ] || exit 1
+    if [ "$state" = UP ]; then flags="<BROADCAST,MULTICAST,UP,LOWER_UP>"; else flags="<BROADCAST,MULTICAST>"; fi
+    printf '2: %s: %s mtu 1500 qdisc fq_codel state %s group default qlen 1000\n' \
+      "$want" "$flags" "$([ "$state" = UP ] && echo UP || echo DOWN)"
+    ;;
+
+  addr:show)
+    want="$(iface_from_flags "$@" || true)"
+    if [ -n "$want" ]; then
+      state="$(iface_field "$want" 2)"
+      [ -n "$state" ] || exit 1
+      awk -v i="$want" '$1==i { n=split($3,a,","); for (k=1;k<=n;k++) if (a[k]!="") printf "2: %s    inet %s brd 192.168.1.255 scope global %s\n", i, a[k], i }' "$ROOT/ifaces"
+    else
+      awk '{ n++; c=split($3,a,","); for (k=1;k<=c;k++) if (a[k]!="") printf "%d: %s    inet %s scope global %s\n", n, $1, a[k], $1 }' "$ROOT/ifaces"
+    fi
+    ;;
+
+  neigh:show)
+    want="$(iface_from_flags "$@" || true)"
+    [ -n "$want" ] || { echo "fake ip: neigh show needs dev X" >&2; exit 2; }
+    [ -f "$ROOT/neigh-$want" ] || { exit 0; }
+    if [ "${1:-}" = "to" ]; then
+      awk -v ip="$2" '$1==ip' "$ROOT/neigh-$want"
+    else
+      cat "$ROOT/neigh-$want"
+    fi
+    ;;
+
+  route:get)
+    ip="${1:-}"; shift || true
+    src=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        from) src="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    dev=""
+    if [ -n "$src" ]; then
+      dev="$(awk -v i="$ip" -v s="$src" '$1==i && $2==s {print $3}' "$ROOT/routes" | head -1)"
+    fi
+    [ -n "$dev" ] || dev="$(awk -v i="$ip" '$1==i && $2=="-" {print $3}' "$ROOT/routes" | head -1)"
+    [ -n "$dev" ] || exit 1
+    printf '%s%s dev %s%s uid 1000\n' "$ip" "${src:+ from $src}" "$dev" "${src:+ src $src}"
+    ;;
+
+  *) echo "fake ip: unsupported: ip $verb $sub" >&2; exit 2 ;;
+esac

@@ -15,26 +15,39 @@
 #
 # WHY IT CREATES THE CONFIG FILE AND THE SECTION FIRST (measured on a fresh flash)
 # A freshly flashed box has /etc/config but NO /etc/config/nodogsplash: nodogsplash is
-# one of the 38 packages the offline bundle DELIVERS, so it is not installed yet when
-# this seed runs.  Real `uci` cannot create a section in a config file that does not
-# exist — `uci add nodogsplash nodogsplash` exits 3 with "uci: Entry not found" — and it
+# one of the packages the offline bundle DELIVERS, so it is not installed yet when this
+# seed runs.  Real `uci` cannot create a section in a config file that does not exist —
+# `uci add nodogsplash nodogsplash` prints "uci: Entry not found" and exits 3 — and it
 # cannot resolve the anonymous section @nodogsplash[0] without that file either, so the
 # add_list calls below would land NOTHING (this script ignores errors and still exits 0).
 # install-router.sh's keepalive_applied gate then finds no trustedmac / no 'allow tcp
-# port 22' and REFUSES with exit 5 on a first flash (bench MT3000, WAN-less, 2026-09-28;
-# control: `: > /etc/config/nodogsplash` first made the very same `uci add` exit 0).
+# port 22' and REFUSES with exit 5 on a first flash: a bundle refused by the gate for a
+# package the bundle itself delivers.  Measured twice — bench MT3000, fresh flash,
+# WAN-less, 2026-09-28 (control: `: > /etc/config/nodogsplash` first made the very same
+# `uci add` exit 0) and a freshly flashed Cudy WR3000 v1, 2026-09-27.
 # So: create the (empty) config file idempotently, then ensure the anonymous section
 # exists, before the first add_list.  `[ -f X ] || : > X` never clobbers an existing
 # config and `:` is a shell builtin (no touch binary, BusyBox-ash safe).
 TRUST_MAC="__TRUST_MAC__"
 
-# Test seam (never set on a router): a harness root that stands in for the router's
-# filesystem, exactly as install-router.sh uses it.  Empty ⇒ real /etc/config/….
-# Keep this line in the shape the feed's offline-bundle repair recognises as
-# "already fresh-box safe", so the builder never re-applies it.
+# Root prefix: empty on a router.  Set to a throw-away root by the no-hardware harness
+# (TGOFFLINE_ROOT, see tests/offline-install) so this production text can run unmodified
+# against a fake router filesystem.
+R="${TGOFFLINE_ROOT:-}"
+CONF_DIR="$R/etc/config"
+
+# Create the config FILE before anything touches a section in it, then the anonymous
+# section.  The FILE line below is BYTE-IDENTICAL to the file-ensure step the feed's
+# offline-bundle builder inserts (FreedomTechFeed/packages,
+# .github/workflows/scripts/offline-bundle.py: KEEPALIVE_FILE_ENSURE_RE), so a pinned
+# seed is recognised as already fresh-box safe and is never re-applied — no rewrite, no
+# double write.  Reword it only in that same shape (a literal `etc/config/nodogsplash"`
+# inside `[ … ]` followed by `|| : > …`), or the builder starts fighting the pin.
+[ -d "$CONF_DIR" ] || mkdir -p "$CONF_DIR" 2>/dev/null || true
 [ -f "${TGOFFLINE_ROOT:-}/etc/config/nodogsplash" ] || : > "${TGOFFLINE_ROOT:-}/etc/config/nodogsplash"
 if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
     uci add nodogsplash nodogsplash
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
 fi
 
 TM=$(uci -q get nodogsplash.@nodogsplash[0].trustedmac 2>/dev/null || echo "")

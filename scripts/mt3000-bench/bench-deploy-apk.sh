@@ -42,6 +42,16 @@
 #   7 substituted/stale-staged artifact or package_path refusal (nothing installed)
 #   8 installed identity MISMATCH (loud) | 9 transfer failed (nothing installed)
 #   10 install did not complete
+#   11 the DEVICE pin refused (wrong box on this address — nothing staged, nothing installed)
+#
+# THE DEVICE PIN (fail closed when this bench is pinned). Two routers can answer on ONE
+# address (measured 2026-09-28: the GL-MT3000 on this host's enp0s31f6 and a Cudy WR3000 on
+# a USB dongle, both at 192.168.1.1) and an install then lands on the box nobody meant to
+# touch. If `BENCH_BOX` names a box record (or `BENCH_DEVICE_IDENTITY` names one file) the
+# pin is verified HERE, before anything is staged, and any refusal stops the deploy:
+#   scripts/bench/device-identity.sh verify --name "$BENCH_BOX" || exit $?
+# Unset it and this deploy says so out loud (one line) but still runs — the guard cannot
+# make an unpinned caller safe. `--require-identity` makes an unset pin a refusal (exit 11).
 #
 # CREDENTIALS: never on argv, never in this file. The lab credential is read from
 # $BENCH_ROUTER_PW_FILE (default ~/.tg-e2e/pw) or, as a warned fallback,
@@ -66,6 +76,7 @@ EX_SUBSTITUTED=7
 EX_IDENTITY=8
 EX_TRANSFER=9
 EX_INSTALL=10
+EX_DEVICE=11
 
 ROUTER="${BENCH_ROUTER_IP:-192.168.1.1}"
 APK=""
@@ -78,6 +89,7 @@ DRY_RUN=0
 REFUSE_FOREIGN=0
 CLEAR_PACKAGE_PATH=0
 INSTALL_TIMEOUT="${BENCH_INSTALL_TIMEOUT:-300}"
+REQUIRE_IDENTITY="${BENCH_REQUIRE_IDENTITY:-0}"
 R_TMP="${BENCH_ROUTER_TMP:-/tmp}"
 KNOWN_HOSTS="${BENCH_KNOWN_HOSTS:-$HOME/.hermes/state/bench-mt3000.known_hosts}"
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
@@ -101,6 +113,7 @@ while [ $# -gt 0 ]; do
     --refuse-foreign-staged) REFUSE_FOREIGN=1; shift ;;
     --clear-package-path) CLEAR_PACKAGE_PATH=1; shift ;;
     --install-timeout) INSTALL_TIMEOUT="$2"; shift 2 ;;
+    --require-identity) REQUIRE_IDENTITY=1; shift ;;
     -h|--help) usage ;;
     *) die "$EX_USAGE" "unknown option '$1' (see --help)" ;;
   esac
@@ -110,6 +123,33 @@ done
 
 [ -x "$LOCK" ] || die "$EX_LOCAL" "missing $LOCK (the bench lock is mandatory)"
 "$LOCK" require || die "$EX_NO_LOCK" "refusing to touch the bench: the lock gate said no (exit $?)."
+
+# ---------------------------------------------------------------- 0b. the device, when pinned
+# Fail closed BEFORE anything is staged. The lock says "nobody else is using the bench";
+# this says "the box on the other end of THIS host's interface is the one we think it is".
+# The two are independent failures, and 2026-09-28 was the second one (two routers, one
+# address, the wrong one flashed) — see docs/bench-device-identity.md.
+DEVICE_ID="$HERE/../bench/device-identity.sh"
+BOX="${BENCH_BOX:-}"
+BOX_IDFILE="${BENCH_DEVICE_IDENTITY:-}"
+if [ -n "$BOX" ] || [ -n "$BOX_IDFILE" ]; then
+  [ -x "$DEVICE_ID" ] || die "$EX_DEVICE" \
+    "a device pin was requested ($([ -n "$BOX_IDFILE" ] && echo "BENCH_DEVICE_IDENTITY=$BOX_IDFILE" || echo "BENCH_BOX=$BOX")) but $DEVICE_ID is missing or not executable"
+  if [ -n "$BOX_IDFILE" ]; then
+    DEV_OUT="$("$DEVICE_ID" verify --file "$BOX_IDFILE" 2>&1)"; DEV_RC=$?
+  else
+    DEV_OUT="$("$DEVICE_ID" verify --name "$BOX" 2>&1)"; DEV_RC=$?
+  fi
+  printf '%s\n' "$DEV_OUT"
+  [ "$DEV_RC" = 0 ] || die "$EX_DEVICE" \
+    "DEVICE IDENTITY REFUSED (guard exit $DEV_RC) — nothing staged, nothing installed. Fix the rig/record first (scripts/bench/boxes/README.md)"
+  log "DEVICE PIN $(printf '%s' "$DEV_OUT" | grep '^device-identity: OK' | head -1)"
+elif [ "$REQUIRE_IDENTITY" = 1 ]; then
+  die "$EX_DEVICE" \
+    "--require-identity: this bench is not pinned (BENCH_BOX / BENCH_DEVICE_IDENTITY unset). Refusing to install to an unnamed box: claim it first (scripts/bench/device-identity.sh claim --name <box> --iface <iface> --src <addr>)"
+else
+  log "device-identity: PIN NOT SET (BENCH_BOX unset) — this install is NOT guarded against the wrong-router accident (2026-09-28). See docs/bench-device-identity.md"
+fi
 
 # ---------------------------------------------------------------- 1. name the artifact
 

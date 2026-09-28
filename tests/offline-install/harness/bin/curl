@@ -39,8 +39,17 @@ esac
 [ -n "$port" ] || port=80
 
 guard_loaded() { [ -f "$HSTATE/nft_admin_board_input_guard" ]; }
+port_dead() { [ -f "$HSTATE/port_dead_$1" ]; }
 
-code_for() { # $1=port
+# Codes come from the per-PATH model first (<root>/var/lib/tgoffline-harness/
+# http_path_codes: `port path code`), then the per-PORT default (http_codes: `port code`).
+# The path model exists because the surfaces do NOT all answer on `/`: the portal serves
+# /splash.html (bare `/` is 404) and :8080 answers no plain HTTP at all.  Probing `/` and
+# calling 404 a failure is exactly the defect this model pins down.
+code_for() { # $1=port  $2=path
+    if port_dead "$1"; then printf '000'; return; fi
+    explicit="$(awk -v p="$1" -v q="$2" '$1 == p && $2 == q { print $3 }' "$HSTATE/http_path_codes" 2>/dev/null | head -1)"
+    if [ -n "$explicit" ]; then printf '%s' "$explicit"; return; fi
     explicit="$(awk -v p="$1" '$1 == p { print $2 }' "$HSTATE/http_codes" 2>/dev/null | head -1)"
     if [ -n "$explicit" ]; then printf '%s' "$explicit"; return; fi
     case "$1" in
@@ -50,15 +59,28 @@ code_for() { # $1=port
 }
 
 body=""
-code="$(code_for "$port")"
+code="$(code_for "$port" "$path")"
 
-# the BOLT11 quote endpoint (the module's real route: POST /ln-invoice {"amount":21})
+# the BOLT11 quote endpoint (the module's real route: POST /ln-invoice {"amount":21}).
+# Which answer it gives depends on the UPLINK, exactly as the hardware showed:
+#   * with an uplink       -> 200 + a BOLT11 invoice
+#   * without one          -> 503 "merchant is still initializing" (kashu.me DNS failed on
+#                             the 2026-09-28 WAN-less run) and NO quote: degraded, not wedged
+#   * `ln_invoice_answer`  -> an explicitly modelled answer (the "route missing" control)
+#   * `no-bolt11`          -> 500 {"error":"no wallet configured"} (the no-quote control)
 case "$path" in
     /ln-invoice)
         if [ "$method" = POST ]; then
             if [ -f "$HSTATE/no-bolt11" ]; then
                 code=500
                 body='{"error":"no wallet configured"}'
+            elif [ -f "$HSTATE/ln_invoice_answer" ]; then
+                code="$(awk '{print $1}' "$HSTATE/ln_invoice_answer" | head -1)"
+                body="$(cut -d' ' -f2- "$HSTATE/ln_invoice_answer" | head -1)"
+                [ -n "$code" ] || code=500
+            elif [ -f "$HSTATE/no-uplink" ]; then
+                code=503
+                body='{"error":"merchant is still initializing: mint unreachable (no uplink)","payment_request":null}'
             else
                 code=200
                 body='{"quote":"harness-quote-1","payment_hash":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","payment_request":"lnbc21n1p3harness20bolt11invoice20stand20in20for20tests20only20qqqqqqqqqqqqqqqqqqqqqqq"}'

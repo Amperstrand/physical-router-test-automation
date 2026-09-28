@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
 # TEST DOUBLE for uci (OpenWrt's config CLI).  It implements the operations the offline
-# installer uses — get / add / add_list / set / commit / show — over one file per package
+# installer uses - get / add / add_list / set / commit / show - over one file per package
 # under <root>/etc/config, with the flattened key names uci uses
 # (@nodogsplash[0].trustedmac).  List members are stored |-separated and printed the way
 # real uci prints them: pkg.section.key='item one' 'item two'.
 #
-# It deliberately models the two REAL-uci behaviours a fresh box exercises, because they
-# are what the fresh-box keepalive defect turns on (measured on a bench MT3000,
-# 2026-09-28, fresh flash, WAN-less):
+# It deliberately models the two REAL-uci behaviours a fresh box exercises, because they are
+# what the fresh-box keepalive defect turns on (measured on a bench MT3000 / Cudy WR3000,
+# fresh flash, 2026-09-27/28):
 #
-#   * a config FILE must exist before uci can act on that package — `uci add <cfg>
-#     <type>` exits 3 with "uci: Entry not found" while /etc/config/<cfg> does not
-#     exist (`: > /etc/config/<cfg>` first → the same call exits 0);
-#   * an anonymous SECTION must exist before `pkg.@type[idx].opt` resolves, and
-#     add_list into a section that is not there exits non-zero.
+#   * a config FILE must exist before uci can act on that package - `uci add <cfg> <type>`
+#     exits 3 with "uci: Entry not found" while /etc/config/<cfg> does not exist
+#     (`: > /etc/config/<cfg>` first -> the same call exits 0);
+#   * an anonymous SECTION must exist before `pkg.@type[idx].opt` resolves, and a write into
+#     a section that is not there fails, like the real tool.
 #
-# So the double refuses exactly where real uci refuses.  A seed that creates neither the
-# file nor the section therefore lands nothing here, as it does on the router — which is
-# what makes the fresh-box tests able to detect the defect at all.
+# So the double refuses exactly where real uci refuses.  A seed that creates neither the file
+# nor the section therefore lands nothing here, as it does on the router - which is what makes
+# the fresh-box tests able to detect the defect at all.
+#
+# SECTION SEMANTICS ARE FAITHFUL, NOT LENIENT.  Real uci refuses
+# `add_list pkg.@type[0].key=…` / `set pkg.@type[0].key=…` with `uci: Entry not found`
+# when the SECTION does not exist yet — which is exactly what bit a freshly flashed
+# router (no /etc/config/nodogsplash until nodogsplash is installed).  An anonymous
+# section is modelled as a sentinel row (`@nodogsplash[0]` -> `nodogsplash`) that
+# `uci add <pkg> <type>` creates; a write into a missing section fails, like the real
+# tool.  Without this the double would silently create sections and the fresh-box
+# defect could never be reproduced here (see T21).
 #
 # TGOFFLINE_HARNESS_UCI_IGNORE=1 makes `commit` DISCARD the staged writes, which models
 # "the keepalive seed applied but the trust did not take" — the negative control for the
@@ -40,6 +49,8 @@ arg="${1:-}"
 
 pkg_of() { printf '%s' "$1" | cut -d. -f1; }
 key_of() { printf '%s' "$1" | cut -d. -f2-; }
+# the section part of a pkg.section.key path (@nodogsplash[0] out of the flattened key)
+section_of() { printf '%s' "$(key_of "$1")" | sed 's/\.[^.]*$//'; }
 committed() { printf '%s/%s' "$CONF" "$(pkg_of "$1")"; }
 staged() { printf '%s/.%s.staged' "$CONF" "$(pkg_of "$1")"; }
 sec_committed() { printf '%s/.%s.sections' "$CONF" "$(pkg_of "$1")"; }
@@ -69,12 +80,12 @@ section_ok() { # $1 = pkg.key -> 0 when an anonymous ref's section exists (named
 }
 
 lookup() { # lookup <pkg.key> -> raw value (staged wins), rc=1 when absent
-    staged_file="$(staged "$1")"; committed_file="$(committed "$1")"
-    key="$(key_of "$1")"
-    value=""
-    for f in "$staged_file" "$committed_file"; do
+    local sf cf k v f value=""
+    sf="$(staged "$1")"; cf="$(committed "$1")"
+    k="$(key_of "$1")"
+    for f in "$sf" "$cf"; do
         [ -f "$f" ] || continue
-        v="$(awk -F'\t' -v k="$key" '$1 == k { print $2 }' "$f" | head -1)"
+        v="$(awk -F'	' -v k="$k" '$1 == k { print $2 }' "$f" | head -1)"
         [ -n "$v" ] && value="$v"
     done
     [ -n "$value" ] || return 1
@@ -83,6 +94,12 @@ lookup() { # lookup <pkg.key> -> raw value (staged wins), rc=1 when absent
 
 entry_not_found() { # the message real uci prints; -q suppresses it
     [ "$quiet" = 1 ] || echo "uci: Entry not found" >&2
+}
+
+require_section() { # require_section <pkg.section.key>  -> 0 when its section exists
+    # a REAL uci write into a section that does not exist fails with `Entry not found`; the
+    # section sentinel is looked up exactly like any other key.
+    lookup "$(pkg_of "$1").$(section_of "$1")" >/dev/null 2>&1
 }
 
 case "$op" in
@@ -103,16 +120,20 @@ case "$op" in
         exit 1
         ;;
     add)
-        # uci add <config> <type> — the config FILE must exist first (real uci: rc 3)
+        # add <package> <type> [<name>] - creates an anonymous section.  The config FILE must
+        # exist first (real uci: rc 3, "uci: Entry not found"), which is the fresh-box defect.
         config_file_exists "$arg" || { entry_not_found; exit 3; }
-        typ="${2:-}"
-        [ -n "$typ" ] || { echo "uci(double): add needs a section type" >&2; exit 2; }
+        pkg="${1:-}"; typ="${2:-}"
+        [ -n "$typ" ] || { echo "uci(double): add needs <package> <type>" >&2; exit 2; }
         sec_s="$(sec_staged "$arg")"
         if [ ! -f "$sec_s" ]; then
             sec_c="$(sec_committed "$arg")"
             if [ -f "$sec_c" ]; then cp "$sec_c" "$sec_s"; else : > "$sec_s"; fi
         fi
+        n="$(grep -c "^$typ\$" "$sec_s" 2>/dev/null || true)"
+        [ -n "${n:-}" ] || n=0
         printf '%s\n' "$typ" >> "$sec_s"
+        printf '@%s[%s]\n' "$typ" "$((n))"   # what real uci prints back (its anonymous name)
         exit 0
         ;;
     add_list)
@@ -122,7 +143,7 @@ case "$op" in
         staged_file="$(staged "$arg")"; committed_file="$(committed "$arg")"
         [ -f "$staged_file" ] || { [ -f "$committed_file" ] && cp "$committed_file" "$staged_file" || : > "$staged_file"; }
         key_only="$(key_of "$key")"
-        cur="$(awk -F'\t' -v k="$key_only" '$1 == k { print $2 }' "$staged_file" | head -1)"
+        cur="$(awk -F'	' -v k="$key_only" '$1 == k { print $2 }' "$staged_file" | head -1)"
         # real uci is a set: adding an existing member is a no-op
         case "|$cur|" in
             *"|$value|"*) ;;

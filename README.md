@@ -486,6 +486,7 @@ All 26 scripts in `scripts/`:
 | `build-firmware.py` | Build clean OpenWrt firmware images via ASU API with embedded SSH key and random root password. Reads from `config/routers.json`. Usage: `--router ID`, `--flash`, `--key <path>` |
 | `uboot-recover.py` | Automated U-Boot recovery for bricked routers. Supports GL.iNet GL-MT3000 and D-Link COVR-X1860. Uses pcap monitoring and event-driven state machine. Voice guidance on macOS |
 | `flash-routers.mjs` | Bulk ethernet hotplug sysupgrade flashing. Disabled unless `TOLLGATE_ENABLE_SYSUPGRADE_FLASHING=true` |
+| `bench/device-identity.sh` | **Fail-closed device pin** — claim a box (host interface + source address + its br-lan MAC), then verify before ANY destructive step. Two routers can answer on one address (2026-09-28: the wrong one was flashed); an address is not an identity — see [docs/bench-device-identity.md](docs/bench-device-identity.md) |
 
 ### Reporting and publishing
 

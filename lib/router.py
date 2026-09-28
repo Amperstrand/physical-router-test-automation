@@ -29,6 +29,39 @@ from lib.backend import BackendConfig
 log = logging.getLogger("tollgate.router")
 
 
+def remove_nds_auth_mark_rules(run_ssh, client_mac: str | None = None) -> int:
+    """Remove leaked per-client ndsOUT mangle rules (auth-mark cleanup).
+
+    Companion to ``Router.fix_nodogsplash_auth_marks``: the OLD workaround
+    rewrote NDS's per-client ``--set-xmark 0x30000/0x30000`` rule in place
+    (``-R`` → ``--or-mark 0x20000``), but ``ndsctl deauth`` removes only
+    the exact rule NDS inserted — the rewritten rule leaks and the client
+    stays accepted at the firewall while NDS shows Preauthenticated.
+    Bench-proven on the local-lab OpenWrt VM (2026-09-28): auth → rewrite
+    → deauth leaves the rule behind; without the rewrite, deauth removes
+    NDS's own rule. The current repair inserts a client-agnostic ndsNET
+    accept rule instead (no leak), but rules leaked by the old approach
+    persist on benches until swept.
+
+    Deletes any ``-A ndsOUT`` rule matching ``client_mac`` (all mark
+    forms; every per-client rule when ``client_mac`` is None). Idempotent;
+    returns the number of rules removed.
+
+    ``run_ssh`` is any callable(cmd) -> stdout executing on the router.
+    """
+    rules = run_ssh("iptables -t mangle -S ndsOUT 2>/dev/null")
+    removed = 0
+    for line in rules.splitlines():
+        if not line.startswith("-A ndsOUT "):
+            continue
+        if client_mac and client_mac.lower() not in line.lower():
+            continue
+        spec = line.split("-A ndsOUT ", 1)[1]
+        run_ssh(f"iptables -t mangle -D ndsOUT {spec}")
+        removed += 1
+    return removed
+
+
 class Router:
     def __init__(self, host: str, phone_ip: str, phone_mac: str, domain: str,
                  identity_file: str | None = None, jump_host: str | None = None,
@@ -396,6 +429,15 @@ class Router:
         except Exception as e:
             log.warning(f"Could not fix nodogsplash auth marks: {e}")
 
+    def remove_nds_auth_marks(self, mac: str | None = None) -> int:
+        """Sweep leaked per-client ndsOUT auth-mark rules for a client.
+
+        See remove_nds_auth_mark_rules — call after ``ndsctl deauth`` so
+        rules leaked by the old rewrite workaround cannot keep a
+        deauthenticated client firewalled-authenticated.
+        """
+        return remove_nds_auth_mark_rules(self.ssh, mac or self.phone_mac)
+
     def disable_ipv6_on_lan(self):
         """Disable IPv6 on the LAN interface to prevent captive portal bypass.
 
@@ -668,6 +710,9 @@ class Router:
         self.restart_backend()
         time.sleep(3)
         self.ssh(f"ndsctl deauth {mac} 2>&1 || true")
+        swept = remove_nds_auth_mark_rules(self.ssh, mac)
+        if swept:
+            log.info(f"reset_state swept {swept} leaked ndsOUT auth-mark rule(s)")
         self.ssh("echo '' > /tmp/tollgate-portal.log")
         self.ssh("echo '' > /www/pending-token.txt")
 

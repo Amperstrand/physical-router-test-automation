@@ -92,6 +92,16 @@ case "$path" in
         ;;
 esac
 
+# A one-shot "not up yet" model: <root>/var/lib/tgoffline-harness/slow_once_<port>
+# makes the FIRST probe of that port answer 000 and consumes the marker, so a test can
+# prove the bounded wait recovers from a service that is still starting (the exact
+# 2026-09-28 hardware shape, where the surfaces answered 000 and a re-probe was 200).
+if [ -f "$HSTATE/slow_once_$port" ]; then
+    rm -f "$HSTATE/slow_once_$port"
+    code=000
+    body=""
+fi
+
 if [ -n "$write_out" ] && [ "$write_out" != "/dev/null" ]; then
     printf '%s' "$body" > "$write_out"
 fi

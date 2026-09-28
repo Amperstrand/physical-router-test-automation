@@ -29,7 +29,7 @@ single-owner and make "what got installed" a verified fact instead of an assumpt
 |---|---|
 | `bench-lock.sh` | the flock lock: `status` / `take` / `exec` / `require` / `release` |
 | `bench-with-lock.sh` | the sanctioned wrapper: acquire the lock, run your command, release |
-| `bench-deploy-apk.sh` | deploy ONE named apk; rotate stale staged apks; verify the installed binary |
+| `bench-deploy-apk.sh` | deploy ONE named apk; rotate stale staged apks; verify the installed binary; **refuse to install if the DEVICE pin fails** (see below) |
 | `router-snapshot.sh` | read-only router state dump (`snapshot`), the ssh transport for any local script (`run`), and `render` — the payload printed locally, no ssh, no lock |
 | `second-purchase-e2e.sh` | does a SECOND purchase re-open the gate? fresh-MAC buy → exhaust → post-exhaustion → `ndsctl deauth` → buy again → **PHASE 5b FORCES the drift** (a deliberate, attributable nodogsplash restart) and asserts the module states the client is gone. **Dry run by default** |
 | `bench-token.py` | `mint` (unsigned NUT-04 quote, no `20008`) and `verify` (NUT-07: every proof must be UNSPENT) |
@@ -121,6 +121,40 @@ From inside a script, as its first action:
 error names the current holder. Watchdogs may **report**, never install: they must take the
 lock with `--wait 0` and exit silently when it is held (see the `tg-e2e-watch.sh` rewrite in
 the manager script repo).
+
+## The device pin — the lock's sibling, and why both are needed
+
+The lock answers *"is anyone else using the bench?"*. It does **not** answer *"is the box on the
+other end of this cable the box I think it is?"* — and on 2026-09-28 that was the live failure:
+**two routers both answered on `192.168.1.1`** (the GL-MT3000 via this host's `enp0s31f6`, a Cudy
+WR3000 via a USB dongle), the first two WAN-less install attempts silently addressed the wrong
+device, and the Cudy may have been flashed. An address is not an identity.
+
+`scripts/bench/device-identity.sh` pins a box once and then fails closed on every later check:
+
+```sh
+# once, per box (writes scripts/bench/boxes/<name>.identity)
+scripts/bench/device-identity.sh claim --name bench-mt3000 --iface enp0s31f6 --src 192.168.1.200
+
+# before ANY destructive step: flash, apk add, install, sysupgrade, reboot, a paid E2E
+scripts/bench/device-identity.sh verify --name bench-mt3000 || exit $?
+```
+
+`verify` proves the binding, not just reachability: it forces the traffic out of the claimed
+interface/source (`ip route get <ip> from <src>` must say `dev <iface>`; probes use
+`curl --interface <src>`; ssh reads use `-o BindAddress=<src>`), re-reads the box's **LAN MAC** and
+compares it with the record. A different box answering on that address is exit `3` with both MACs
+and the interface named; a missing/ambiguous record is `6`; unreachable `4`; a source or interface
+that cannot be bound `5`; an unreadable MAC `7`. Every refusal prints
+`DO NOT FLASH, INSTALL, REBOOT OR sysupgrade`.
+
+`bench-deploy-apk.sh` runs the preflight itself when `BENCH_BOX` (or `BENCH_DEVICE_IDENTITY`) is
+set — it refuses with exit `11` on any guard refusal, before anything is staged — and says so, once,
+when the bench is unpinned (`--require-identity` turns that into a refusal too).
+
+Full rationale, the two MAC-read methods and what each proves, exit codes, and the 28-test offline
+suite (`make device-identity-tests`): **[docs/bench-device-identity.md](../../docs/bench-device-identity.md)**,
+records: [`scripts/bench/boxes/README.md`](../../scripts/bench/boxes/README.md).
 
 ## The deploy helper
 

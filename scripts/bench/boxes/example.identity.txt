@@ -1,0 +1,14 @@
+# EXAMPLE — copy to <name>.identity and re-claim; the MAC below is a placeholder.
+#
+# verify it before ANY destructive step:
+#   scripts/bench/device-identity.sh verify --name bench-mt3000 || exit $?
+box=bench-mt3000
+iface=enp0s31f6
+src_addr=192.168.1.200
+router_ip=192.168.1.1
+lan_mac=02:00:00:00:00:01
+hostname=GL-MT3000
+device_code=mt3000
+claimed_at=1970-01-01T00:00:00Z
+claimed_by=example
+claimed_via=neigh

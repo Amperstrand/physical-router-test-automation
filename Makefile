@@ -1152,7 +1152,8 @@ BENCH_TOKEN_ARGS     ?=
 TOKEN_FILE           ?=
 
 .PHONY: second-purchase-e2e second-purchase-detached bench-snapshot bench-snapshot-payload \
-        bench-token-mint bench-token-verify bench-tests
+        bench-token-mint bench-token-verify bench-tests device-identity-tests \
+        device-identity-claim device-identity-verify
 
 second-purchase-e2e: ## Second purchase on the bench: DRY RUN default (ARGS=--purchase TOKEN_1=.. TOKEN_2=.. spends)
 	@bash scripts/mt3000-bench/second-purchase-e2e.sh $(SECOND_PURCHASE_ARGS)
@@ -1176,6 +1177,29 @@ bench-token-verify: ## NUT-07: TOKEN_FILE must read back fully UNSPENT before it
 
 bench-tests: ## Offline negative-control suite: the bench lock (hermetic: never the production lock), the e2e lanes, the snapshot payload, and the live-run guard controls (no router)
 	@bash tests/mt3000-bench/run-tests.sh
+
+# --- The bench DEVICE PIN (docs/bench-device-identity.md)
+#
+# Two routers can answer on ONE address (2026-09-28: GL-MT3000 on enp0s31f6 + Cudy WR3000 on a
+# USB dongle, both at 192.168.1.1) and a flash/install then lands on the wrong box. Pin the box
+# once, then call the preflight before ANY destructive step:
+#
+#   scripts/bench/device-identity.sh verify --name bench-mt3000 || exit $?
+#
+# bench-deploy-apk.sh runs it itself when BENCH_BOX (or BENCH_DEVICE_IDENTITY) is set.
+DEVICE_BOX ?= bench-mt3000
+DEVICE_IFACE ?=
+DEVICE_SRC ?=
+
+device-identity-claim: ## Pin a box, e.g. make device-identity-claim DEVICE_BOX=bench-mt3000 DEVICE_IFACE=enp0s31f6 DEVICE_SRC=192.168.1.200
+	@test -n "$(DEVICE_IFACE)" || { echo "set DEVICE_IFACE=<host interface> (and DEVICE_SRC=<host address on it>)"; exit 2; }
+	@scripts/bench/device-identity.sh claim --name $(DEVICE_BOX) --iface $(DEVICE_IFACE) $(if $(DEVICE_SRC),--src $(DEVICE_SRC),)
+
+device-identity-verify: ## Fail-closed preflight: is the box on this address the box we claimed?
+	@scripts/bench/device-identity.sh verify --name $(DEVICE_BOX)
+
+device-identity-tests: ## Offline suite for the device pin: 28 tests, no router, PATH doubles + non-vacuity and mutation controls
+	@bash tests/bench-device-identity/run-tests.sh
 
 pytest-hardware-smoke: ## Migrated smoke-* scenario subset
 	$(call require_hardware_lock)

@@ -33,6 +33,15 @@
 # from the workstation that is actually on br-lan, and merged into the final
 # report.
 #
+# ACCEPTANCE IS CONDITIONAL ON THE UPLINK.  A fresh-flash box has no WAN, so a
+# BOLT11 quote is impossible by construction; the quote gate therefore asserts
+# GRACEFUL DEGRADATION there (the /ln-invoice route must answer, in a documented
+# degraded shape, without wedging) and says so explicitly in the report
+# (`gate_bolt11_quote=info`, `fact_bolt11_assertable=no`) instead of failing a
+# correct install.  With an uplink the original strict contract applies, unchanged.
+# Surface probes use the path each service ACTUALLY serves (see SURFACE_CONTRACT):
+# the bare `/` is not the portal's page.
+#
 # Exit codes (identical in install-offline.sh):
 #   0  pass
 #   2  usage
@@ -204,6 +213,109 @@ ssh_listening() {
     [ -f "$R/proc/net/tcp" ] || return 1
     awk -v p=":$port_hex" 'NR > 1 && $2 ~ p"$" && $4 == "0A" { found = 1 } END { exit !found }' \
         "$R/proc/net/tcp"
+}
+
+# --- WAN availability: the ONE input that decides which payment contract applies -----
+# A BOLT11 quote is minted by a REMOTE mint that is addressed by NAME, so it needs an
+# uplink.  A fresh-flash WAN-less GL-MT3000 has none, and the 2026-09-28 hardware run is
+# the evidence: `logread` showed the mint (kashu.me) failing DNS and `merchant is still
+# initializing`, and the endpoint never produced a quote.  Demanding one unconditionally
+# made a CORRECT WAN-less install fail its own acceptance gates (exit 9).
+#
+# The probe is router-local, does no package/HTTP I/O, and mirrors the failure the
+# hardware actually showed (`kashu.me` had no address): a quote needs the mint's NAME to
+# resolve, so it needs BOTH
+#   * a default route — the kernel's own answer to "is there an uplink"
+#     (/proc/net/route; busybox `ip route` is not guaranteed on a minimal image), and
+#   * a nameserver to resolve with — read as FILES, deliberately: BusyBox ash resolves
+#     `nslookup`/`ping` as INTERNAL applets and ignores PATH, so a command-based DNS probe
+#     is neither harness-drivable nor safe to read as evidence.
+# A route with no resolver is NOT an uplink for quoting purposes.
+#
+# AMBIGUITY IS NOT AN ESCAPE HATCH.  The WAN-LESS branch is taken only on POSITIVE
+# evidence — the route table was read and holds no default route, or it holds one and the
+# box has no resolver.  If the route table cannot be read at all the box is judged
+# WAN-PRESENT, so the STRICT quote contract applies: you cannot make the payment
+# assertion disappear by blinding the probe (T28 pins exactly that).
+# Sets WAN_ROUTE (yes|no|unknown) / WAN_RESOLVER (yes|no|n/a) and WAN_DIAG;
+# returns 0 iff a quote is reachable.
+resolvers_configured() {
+    for f in "$R/tmp/resolv.conf.d/resolv.conf.auto" "$R/tmp/resolv.conf" "$R/etc/resolv.conf"; do
+        [ -f "$f" ] || continue
+        grep -q '^[[:space:]]*nameserver[[:space:]]' "$f" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+wan_probe() {
+    WAN_ROUTE=unknown
+    WAN_RESOLVER=n/a
+    WAN_DIAG=""
+    if [ -f "$R/proc/net/route" ]; then
+        if awk '$2 == "00000000" && $1 != "lo" { found = 1 } END { exit !found }' "$R/proc/net/route"; then
+            WAN_ROUTE=yes
+        else
+            WAN_ROUTE=no
+            WAN_DIAG="no default route in /proc/net/route"
+        fi
+    else
+        WAN_DIAG="/proc/net/route is unreadable — cannot prove the box is WAN-less"
+    fi
+    if [ "$WAN_ROUTE" = yes ]; then
+        if resolvers_configured; then
+            WAN_RESOLVER=yes
+        else
+            WAN_RESOLVER=no
+            WAN_DIAG="a default route exists but no nameserver is configured (the mint is addressed by name)"
+        fi
+    fi
+    # strict unless positively disproven
+    [ "$WAN_ROUTE" = yes ] || [ "$WAN_ROUTE" = unknown ] || return 1
+    [ "$WAN_RESOLVER" != no ] || return 1
+    return 0
+}
+
+# --- the surface contract ------------------------------------------------------------
+# The path each surface ACTUALLY serves, and the answers that are CORRECT for it.  Every
+# entry here is evidence, not taste (2026-09-28 WAN-less GL-MT3000 run + the repo's own
+# scripts/tollgate-port-sweep.sh and lib/install_paths.py):
+#   :2121 /            200       tollgate backend API
+#   :2050 /splash.html 200       nodogsplash serves its splash at /splash.html; the bare
+#                                `/` the gate used to probe is 404 on this artifact.
+#                                `/` 200 is accepted as the FALLBACK portal shape (two
+#                                in-repo sources document it), but only when the splash
+#                                path itself is not 200 — so a box serving NEITHER still
+#                                fails, which is the control T24 pins.
+#   :2051 /            200|403   uhttpd captive-portal site: no index -> 403 (the
+#                                documented answer in scripts/tollgate-port-sweep.sh);
+#                                200 accepted for a site that ships an index
+#   :8080 /            307|000   LuCI with redirect_https: the plain-HTTP listener either
+#                                answers the redirect (307) or nothing at all (000) — it
+#                                was 000 on the hardware run, so a plain 307 may NOT be
+#                                required.  Any OTHER answer (e.g. 200) means the admin UI
+#                                is served over plain HTTP without its TLS redirect, and
+#                                that still FAILS.
+SURFACE_CONTRACT='2121|/|200|tollgate backend API
+2050|/splash.html|200|nodogsplash portal splash
+2051|/|200 403|uhttpd captive-portal site
+8080|/|307 000|LuCI admin over plain HTTP (redirect_https)'
+
+# The portal's documented alternates: path -> accepted code.  Consulted ONLY when the
+# primary probe found neither an accepted code nor a refusal, so a box that serves none of
+# them still fails.  Both shapes are documented in this repo (`scripts/tollgate-port-sweep.sh`
+# and `lib/install_paths.py` say `:2050 /` -> 200) and one is what the hardware served
+# (`/splash.html` -> 200).
+SURFACE_ALTERNATES='2050|/|200'
+
+# --- the BOLT11 contract's degraded class -------------------------------------------
+# The HTTP answers that mean "the payment path is unavailable/not ready" rather than
+# "the endpoint is misrouted or broken".  Anything outside this set on a WAN-less box
+# (000 no answer, 3xx redirect, 400/405/415/422 a rejected or absent route) still FAILS.
+DEGRADED_INVOICE_CODES="200 202 402 500 501 502 503 504"
+
+word_in() { # word_in <word> <space-separated list>
+    for w in $2; do [ "$w" = "$1" ] && return 0; done
+    return 1
 }
 
 # ------------------------------------------------------------------ argument parsing
@@ -530,17 +642,56 @@ case "$ver" in
 esac
 
 # surfaces (router-local; the br-lan client view is asserted by the driver)
+# Probes the path each surface actually serves (see SURFACE_CONTRACT above) instead of
+# the bare `/` the gate used to guess at — that guess is what made a correct install
+# report `:2050=404(want 200)`, `:2051=403(want 200)` and `:8080=(want 307)`.
 surf_bad=""
-for spec in "2051:200" "2050:200" "2121:200" "8080:307"; do
-    p="${spec%:*}"; want="${spec#*:}"
-    got="$(curl -s -o /dev/null -w '%{http_code}' -m 6 "http://127.0.0.1:$p/" 2>/dev/null)"
+surf_ok=""
+while IFS="|" read -r p path accept what; do
+    [ -n "$p" ] || continue
+    got="$(curl -s -o /dev/null -w '%{http_code}' -m 6 "http://127.0.0.1:$p$path" 2>/dev/null)"
+    [ -n "$got" ] || got=000
+    if ! word_in "$got" "$accept"; then
+        # Not the primary shape.  Try the portal's documented alternates before calling it
+        # broken: a refusal (000) is not an alternate, and neither is a path that answers
+        # NOTHING anywhere — a box that serves none of the documented shapes still fails.
+        alt_ok=""
+        alt_accept=""
+        while IFS="|" read -r ap apath aaccept; do
+            [ -n "$ap" ] || continue
+            [ "$ap" = "$p" ] || continue
+            alt="$(curl -s -o /dev/null -w '%{http_code}' -m 6 "http://127.0.0.1:$ap$apath" 2>/dev/null)"
+            if [ -n "$alt" ] && word_in "$alt" "$aaccept"; then
+                alt_ok="$apath=$alt"
+                alt_accept="$aaccept"
+                got="$alt"
+                fact "surface_${p}_alt_path" "$apath"
+            fi
+        done <<EOF
+$SURFACE_ALTERNATES
+EOF
+        if [ -n "$alt_ok" ]; then
+            path="$alt_ok"
+            accept="$alt_accept"
+        fi
+    fi
     fact "surface_$p" "$got"
-    [ "$got" = "$want" ] || surf_bad="$surf_bad :$p=$got(want $want)"
-done
+    if word_in "$got" "$accept"; then
+        if [ "$p" = 8080 ] && [ "$got" = 000 ]; then
+            surf_ok="$surf_ok :8080=no-plain-HTTP-answer(redirect_https: not assertable over plain HTTP)"
+        else
+            surf_ok="$surf_ok :$p=$got($what)"
+        fi
+    else
+        surf_bad="$surf_bad :$p$path=$got(want $(printf '%s' "$accept" | tr ' ' '/'))"
+    fi
+done <<EOF
+$SURFACE_CONTRACT
+EOF
 if [ -n "$surf_bad" ]; then
     gate_fail surfaces "wrong status:$surf_bad"
 else
-    gate_pass surfaces ":2051 200, :2050 200, :2121 200, :8080 307"
+    gate_pass surfaces "$surf_ok"
 fi
 
 # guard fragment present AND loaded with no manual reload
@@ -573,12 +724,50 @@ else
     gate_fail ssh_preauth "pre-auth trust gone after the package install"
 fi
 
-invoice_body="$(curl -s -m 10 -X POST -H 'Content-Type: application/json' \
-    -d '{"amount":21}' "http://127.0.0.1:$BACKEND_PORT/ln-invoice" 2>/dev/null)"
+# --- BOLT11 quote: CONDITIONAL on the uplink, and never silently skipped -------------
+# With no uplink a quote is impossible by construction (the mint is addressed by name).
+# The check is therefore not deleted and not silently skipped: on a WAN-less box it
+# becomes an assertion about GRACEFUL DEGRADATION — the /ln-invoice route must still
+# answer, in a documented degraded shape, without wedging, and must not hand back a bogus
+# quote.  A missing/misrouted route (404/405), a rejected request (400/422) or no answer
+# at all (000) still FAILS: "WAN-less" is not a licence to ship a dead payment surface.
+# The report says which contract was applied, machine-readably: fact_wan and
+# fact_bolt11_assertable, plus gate_bolt11_quote (info == not assertable, never a pass).
+wan_state=no
+wan_probe && wan_state=yes
+fact wan "$wan_state"
+fact wan_route "$WAN_ROUTE"
+fact wan_resolver "$WAN_RESOLVER"
+[ -n "$WAN_DIAG" ] && fact wan_diag "$WAN_DIAG"
+
+invoice_code="$(curl -s -o "$WORK/ln-invoice.body" -w '%{http_code}' -m 10 -X POST \
+    -H 'Content-Type: application/json' -d '{"amount":21}' \
+    "http://127.0.0.1:$BACKEND_PORT/ln-invoice" 2>/dev/null)"
+[ -n "$invoice_code" ] || invoice_code=000
+invoice_body="$(cat "$WORK/ln-invoice.body" 2>/dev/null)"
+fact ln_invoice_code "$invoice_code"
+invoice_pfx="$(printf '%s' "$invoice_body" | grep -o 'lnbc[a-z0-9]*' | head -1 | cut -c1-24)"
+
 if printf '%s' "$invoice_body" | grep -q 'lnbc'; then
-    gate_pass bolt11_quote "POST /ln-invoice issued a BOLT11 invoice: $(printf '%s' "$invoice_body" | grep -o 'lnbc[a-z0-9]*' | head -1 | cut -c1-24)…"
+    fact bolt11_assertable yes
+    if [ "$wan_state" = yes ]; then
+        gate_pass bolt11_quote "POST /ln-invoice issued a BOLT11 invoice: $invoice_pfx…"
+    else
+        gate_pass bolt11_quote "WAN unavailable, yet /ln-invoice issued a BOLT11 invoice ($invoice_pfx…) — asserted anyway"
+    fi
+    gate_info bolt11_degraded "not applicable: a BOLT11 quote was issued and asserted"
+elif [ "$wan_state" = yes ]; then
+    fact bolt11_assertable yes
+    gate_fail bolt11_quote "WAN present but no BOLT11 invoice in the /ln-invoice response (HTTP $invoice_code): $(printf '%s' "$invoice_body" | cut -c1-120)"
+    gate_info bolt11_degraded "not applicable: an uplink is present, so the quote is asserted directly"
+elif word_in "$invoice_code" "$DEGRADED_INVOICE_CODES"; then
+    fact bolt11_assertable no
+    gate_info bolt11_quote "WAN unavailable: quote not assertable — ${WAN_DIAG:-no uplink}"
+    gate_pass bolt11_degraded "/ln-invoice answered HTTP $invoice_code in a documented degraded shape, with no quote and no wedge: $(printf '%s' "$invoice_body" | cut -c1-100)"
 else
-    gate_fail bolt11_quote "no BOLT11 invoice in the /ln-invoice response: $(printf '%s' "$invoice_body" | cut -c1-120)"
+    fact bolt11_assertable no
+    gate_info bolt11_quote "WAN unavailable: quote not assertable — ${WAN_DIAG:-no uplink}"
+    gate_fail bolt11_degraded "/ln-invoice did not degrade gracefully: HTTP $invoice_code is not a documented degraded shape (route missing/misrouted, request rejected, or no answer): $(printf '%s' "$invoice_body" | cut -c1-120)"
 fi
 
 # The overall verdict is the gates: any failing gate is a failed install, and the

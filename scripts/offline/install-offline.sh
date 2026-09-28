@@ -24,10 +24,13 @@
 #   2. stage the package closure through `ssh 'cat > …'` stdin redirects.  Never
 #      scp: `scp -O` fails on a fresh dropbear because there is no sftp-server.
 #   3. run the ordered router-side sequence and pass its exit code through.
-#   4. probe the br-lan client view (:2051/:2050/:2121 200, :8080 307, and
+#   4. probe the br-lan client view with the same surface contract the router side
+#      uses (`/splash.html` on the portal, :2051 200|403, :8080 307|no plain-HTTP
+#      answer — a plain 307 may not be required with redirect_https — and
 #      :8090/:8443 refused) — a router cannot test its own br-lan drops, so this
 #      half of the verification belongs to the workstation that is actually on
 #      br-lan — then merge both halves into one machine-readable report.
+#      The BOLT11/quote assertion is uplink-conditional and lives on the router side.
 #
 # Exit codes (identical to install-router.sh, plus the two laptop-side ones):
 #   0 pass · 2 usage · 3 the bundle failed its own manifest check · 4 missing
@@ -68,6 +71,10 @@ gate_pass() { gate pass "$1" "$2"; }
 gate_fail() { gate fail "$1" "$2"; }
 fact() { printf '%s\t%s\n' "$1" "$2" >> "$FACTS"; }
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+word_in() { # word_in <word> <space-separated list>
+    for w in $2; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
 RP() { printf '%s%s' "$HARNESS_ROOT" "$1"; }   # router-side path, harness-prefixed
 
 # shellcheck disable=SC2329  # invoked indirectly, from the EXIT/INT/TERM trap
@@ -261,9 +268,12 @@ if [ "$DRY_RUN" = 1 ]; then
 11. router: apk add ... <tollgate-wrt_*.apk>   (its postinst reloads the firewall and
             restarts nodogsplash — that is what compiles the pre-auth rules from the
             keepalive seeded in step 4. The installer never reloads fw4 itself.)
-12. router: assert payload sha256 == the artifact's payload, version, :2051/:2050/:2121
-            up, :8080 307, guard fragment present AND loaded with NO manual reload,
-            SSH 22 alive, real BOLT11 quote issued
+12. router: assert payload sha256 == the artifact's payload, version, the surfaces at the
+            paths they actually serve (:2051 200|403, :2050 /splash.html 200, :2121 200,
+            :8080 307|no plain-HTTP answer), guard fragment present AND loaded with NO
+            manual reload, SSH 22 alive, and the /ln-invoice contract that fits the
+            uplink: a real BOLT11 quote when a WAN is present, and a documented
+            graceful-degradation answer (explicitly "not assertable") when there is none
 13. laptop: probe the br-lan client view: :8090/:8443 refused, and merge one report
 EOF
     echo ""
@@ -408,23 +418,78 @@ fi
 # ------------------------------------------------------------------ 4. br-lan client view
 echo ""
 echo "=== (4) br-lan client view (the client half of the surface assertions) ==="
+# The SAME surface contract the router side asserts, observed from a br-lan client.
+# Each entry is `scheme|port|path|accepted-codes`; the path is the one the surface
+# actually serves and the codes are the correct answers for it:
+#   :2051 /          200|403  uhttpd captive-portal site (403 = directory listing denied,
+#                             the documented answer in scripts/tollgate-port-sweep.sh)
+#   :2050 /splash.html   200  nodogsplash serves its splash there; the bare `/` is 404
+#   :2121 /              200  tollgate backend API
+#   :8080 /          307|000  LuCI with redirect_https: the plain-HTTP listener answers the
+#                             redirect or nothing at all — a plain 307 may NOT be required.
+#                             Anything else (e.g. 200) means the admin UI is served over
+#                             plain HTTP without its TLS redirect, which still FAILS.
+#   :8090/:8443          000  the admin-board pair must stay REFUSED from br-lan
+CLIENT_SURFACE_CONTRACT='http|2051|/|200 403
+http|2050|/splash.html|200
+http|2121|/|200
+http|8080|/|307 000
+http|8090|/|000
+https|8443|/|000'
+
+# The portal's documented alternate shape, same rule as the router side: consulted only
+# when the primary probe is neither accepted nor refused, so a box serving NEITHER the
+# splash path nor `/` still fails.
+#
+# Expressed as three scalars and probed EXPLICITLY, not as a nested `while read … done
+# <<EOF` inside the outer `while read … done <<EOF` loop: a here-doc read loop nested
+# inside another here-doc read loop is a portability footgun under BusyBox ash (the
+# router's own shell), and the router side needs no such construct here because there is
+# exactly one documented alternate shape.
+CLIENT_ALT_PORT=2050
+CLIENT_ALT_PATH=/
+CLIENT_ALT_ACCEPT='200'
+
 client_bad=""
-for spec in "http:2051:200" "http:2050:200" "http:2121:200" "http:8080:307" "http:8090:000" "https:8443:000"; do
-    scheme="${spec%%:*}"; rest="${spec#*:}"; port="${rest%%:*}"; want="${rest#*:}"
-    got="$(curl -sk -o /dev/null -w '%{http_code}' -m 8 "$scheme://$ROUTER:$port/" 2>/dev/null)"
+client_ok=""
+while IFS="|" read -r scheme port path accept; do
+    [ -n "$port" ] || continue
+    got="$(curl -sk -o /dev/null -w '%{http_code}' -m 8 "$scheme://$ROUTER:$port$path" 2>/dev/null)"
     [ -n "$got" ] || got=000
+    if ! word_in "$got" "$accept"; then
+        # the primary answer is neither accepted nor refused: consult the ONE documented
+        # alternate path for this port (if there is one) before declaring a failure.
+        if [ "$port" = "$CLIENT_ALT_PORT" ]; then
+            alt="$(curl -sk -o /dev/null -w '%{http_code}' -m 8 "$scheme://$ROUTER:$CLIENT_ALT_PORT$CLIENT_ALT_PATH" 2>/dev/null)"
+            [ -n "$alt" ] || alt=000
+            if word_in "$alt" "$CLIENT_ALT_ACCEPT"; then
+                got="$alt"
+                path="$CLIENT_ALT_PATH"
+                accept="$CLIENT_ALT_ACCEPT"
+                fact "client_${port}_alt_path" "$CLIENT_ALT_PATH"
+            fi
+        fi
+    fi
     fact "client_$port" "$got"
-    case "$port" in
-        8090|8443)
-            [ "$got" = 000 ] || client_bad="$client_bad :$port=$got(want refused)" ;;
-        *)
-            [ "$got" = "$want" ] || client_bad="$client_bad :$port=$got(want $want)" ;;
-    esac
-done
+    if word_in "$got" "$accept"; then
+        case "$port" in
+            8080)
+                [ "$got" = 000 ] \
+                    && client_ok="$client_ok :8080=no-plain-HTTP-answer" \
+                    || client_ok="$client_ok :8080=$got" ;;
+            8090|8443) client_ok="$client_ok :$port=refused" ;;
+            *) client_ok="$client_ok :$port=$got" ;;
+        esac
+    else
+        client_bad="$client_bad :$port$path=$got(want $(printf '%s' "$accept" | tr ' ' '/'))"
+    fi
+done <<EOF
+$CLIENT_SURFACE_CONTRACT
+EOF
 if [ -n "$client_bad" ]; then
     gate_fail client_surfaces "wrong status from a br-lan client:$client_bad"
 else
-    gate_pass client_surfaces "from br-lan: :2051 200, :2050 200, :2121 200, :8080 307, :8090/:8443 refused"
+    gate_pass client_surfaces "from br-lan:$client_ok"
 fi
 
 # ------------------------------------------------------------------ report

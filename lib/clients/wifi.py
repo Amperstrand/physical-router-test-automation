@@ -3,6 +3,14 @@ import time
 import logging
 import os
 
+from lib.ssid import (
+    DEFAULT_CAPTIVE_PREFIX,
+    captive_prefixes_from_env,
+    extract_ssids,
+    matches_prefix,
+    normalize_prefix,
+)
+
 log = logging.getLogger("tollgate.wifi")
 
 
@@ -11,10 +19,19 @@ def _is_desktop_client(adb):
 
 
 class WiFi:
-    def __init__(self, adb, router, ssid: str):
+    def __init__(self, adb, router, ssid: str, captive_prefixes: list[str] | None = None):
         self.adb = adb
         self.router = router
-        self.ssid_prefix = ssid.split("-")[0] if "-" in ssid else ssid
+        # Brand prefix varies per router (TollGate- default, Net4sats- branded).
+        self.captive_prefixes = (
+            [normalize_prefix(p) for p in captive_prefixes if normalize_prefix(p)]
+            if captive_prefixes
+            else captive_prefixes_from_env()
+        )
+        if not self.captive_prefixes:
+            self.captive_prefixes = [DEFAULT_CAPTIVE_PREFIX]
+        # Backward-compat attribute; scanning uses the full prefix list now.
+        self.ssid_prefix = self.captive_prefixes[0]
         self.ssid = self._resolve_ssid(ssid)
 
     def _ensure_phone_can_connect(self):
@@ -22,26 +39,30 @@ class WiFi:
         self.router.disable_ipv6_on_lan()
 
     def _resolve_ssid(self, fallback: str) -> str:
-        try:
-            out = self.router.ssh("iwinfo 2>/dev/null | grep ESSID | grep -v private")
-            for line in out.strip().split("\n"):
-                m = re.search(r'ESSID:\s*"([^"]+)"', line)
-                if m and m.group(1).startswith(self.ssid_prefix + "-"):
-                    log.info(f"Auto-detected SSID: {m.group(1)}")
-                    return m.group(1)
-        except Exception as e:
-            log.debug("SSID auto-detection via iwinfo failed: %s", e)
-        try:
-            out = self.router.ssh("uci show wireless 2>/dev/null | grep '\\.ssid=' | grep -v private")
-            for line in out.strip().split("\n"):
-                _, _, val = line.partition("=")
-                val = val.strip("'\"")
-                if val.startswith(self.ssid_prefix + "-"):
-                    log.info(f"Auto-detected SSID from config: {val}")
-                    return val
-        except Exception as e:
-            log.debug("SSID auto-detection via uci failed: %s", e)
+        """Pick the router's captive SSID by matching ANY configured prefix.
+
+        Probes live radios (iwinfo) then UCI config; the dead
+        'grep -v private' heuristic is gone — private SSIDs are excluded by
+        prefix classification, not by name substring.
+        """
+        for cmd in (
+            "iwinfo 2>/dev/null | grep ESSID",
+            "uci show wireless 2>/dev/null | grep '\\.ssid='",
+        ):
+            try:
+                out = self.router.ssh(cmd)
+            except Exception as e:
+                log.debug("SSID auto-detection via %r failed: %s", cmd.split()[0], e)
+                continue
+            for ssid in extract_ssids(out):
+                if any(matches_prefix(ssid, p) for p in self.captive_prefixes):
+                    log.info("Auto-detected SSID: %s", ssid)
+                    return ssid
         return fallback
+
+    def _scan_prefix_pattern(self) -> str:
+        """Regex alternation matching any captive prefix + '-suffix'."""
+        return "(?:" + "|".join(re.escape(p) for p in self.captive_prefixes) + ")-[^\"]*"
 
     def _tap_ssid(self, xml: str, ssid: str) -> bool:
         if _is_desktop_client(self.adb):
@@ -162,7 +183,7 @@ class WiFi:
                 log.info(f"Found {self.ssid} on scan attempt {attempt}")
                 found = True
                 break
-            m = re.search(f'text="({self.ssid_prefix}-[^"]*)"', xml)
+            m = re.search(f'text="({self._scan_prefix_pattern()})"', xml)
             if m:
                 self.ssid = m.group(1)
                 log.info(f"Found SSID via prefix match: {self.ssid}")
@@ -175,7 +196,7 @@ class WiFi:
                 log.info(f"Found {self.ssid} after scrolling on attempt {attempt}")
                 found = True
                 break
-            m = re.search(f'text="({self.ssid_prefix}-[^"]*)"', xml)
+            m = re.search(f'text="({self._scan_prefix_pattern()})"', xml)
             if m:
                 self.ssid = m.group(1)
                 log.info(f"Found SSID via prefix match after scroll: {self.ssid}")

@@ -19,7 +19,7 @@ from lib.helpers import nodogsplash_allow_entries, nodogsplash_allows_port
 # present (the admin board) and :443 is not.
 PRE14_CONFIG = """config nodogsplash
 \toption enabled '1'
-\toption gatewayname 'c08r4d0r-1A2B Portal'
+\toption gatewayname 'TollGate-1A2B Portal'
 \toption gatewayinterface 'br-lan'
 \toption gatewayport '2050'
 \toption sessiontimeout '86400'

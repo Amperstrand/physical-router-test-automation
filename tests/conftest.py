@@ -78,6 +78,8 @@ _INVENTORY_ENV_MAP = {
     "arch": "TOLLGATE_ROUTER_ARCH",
     "wifiInterface": "TOLLGATE_WIFI_INTERFACE",
     "tollgateSsidPrefix": "TOLLGATE_SSID_PREFIX",
+    "captiveSsidPrefixes": "TOLLGATE_CAPTIVE_SSID_PREFIXES",
+    "privateSsidPrefix": "TOLLGATE_PRIVATE_SSID_PREFIX",
     "jumpHost": "TOLLGATE_SSH_JUMP_HOST",
     "sshPort": "TOLLGATE_SSH_PORT",
 }
@@ -108,6 +110,8 @@ def _load_router_inventory():
     entry = routers[router_id]
     for field, env_var in _INVENTORY_ENV_MAP.items():
         value = entry.get(field)
+        if isinstance(value, (list, tuple)):
+            value = ",".join(str(v) for v in value)
         if value:
             os.environ[env_var] = value
     log.info("Loaded router inventory: %s (%s)", router_id, entry.get("model", "unknown"))
@@ -651,7 +655,11 @@ def all_routers(backend):
 @pytest.fixture(scope="session")
 def wifi(adb, router):
     ssid = os.environ.get("TOLLGATE_SSID", "TollGate")
-    return WiFi(adb=adb, router=router, ssid=ssid)
+    prefixes = (
+        [p for p in os.environ.get("TOLLGATE_CAPTIVE_SSID_PREFIXES", "").split(",") if p]
+        or None
+    )
+    return WiFi(adb=adb, router=router, ssid=ssid, captive_prefixes=prefixes)
 
 
 @pytest.fixture(autouse=True)

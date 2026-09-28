@@ -191,7 +191,7 @@ This ImageBuilder release writes to `bin/targets/mediatek/filogic/` **flat**, no
 
 ## Where the artifact is published
 
-**No upload path was available for this 18.4 MB file, so it is NOT published.** Stated plainly
+**The image itself is NOT published** — no upload path accepted an 18.4 MB file. Stated plainly
 rather than papered over:
 
 - `https://drive.cashu.email` (the preferred host): the server requires Cashu payment for files
@@ -214,8 +214,24 @@ sha256 908d64c575c08c2623c12710811e9f4cb7c77fbb9deaae9cc2345897dc06a594
 size   18401569 bytes
 ```
 
-To hand it to a tester, transfer it out of band and have them check
-`sha256sum` against the value above before flashing.
+To hand it to a tester, transfer it out of band and have them check `sha256sum` against the value
+above before flashing.
+
+### A metadata bundle WAS published (free tier) — it is not the image
+
+The 16 KB side-car bundle published to the free tier is **not flashable**. Its only job is to let a
+tester confirm that whatever file they were handed is the right bytes:
+
+```
+URL    https://drive.cashu.email/53bc115763d2eaf2b6f6f6722848253e0acd4e179cf87aeb7c2837b6533ef45f.gz
+sha256 53bc115763d2eaf2b6f6f6722848253e0acd4e179cf87aeb7c2837b6533ef45f
+size   16165 bytes
+expiry 2026-10-05T00:29:25Z (7-day free-tier retention — re-upload if it lapses)
+```
+
+It contains `IMAGE-SHA256.txt` (the image's sha256/size), the image's `.manifest`, this page, and
+the build + first-boot scripts. Retrieval was verified round-trip: a fresh `curl` of that URL
+returns 16,165 bytes whose sha256 equals the value above. **Do not flash it.**
 
 ## What is verified vs not
 

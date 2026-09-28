@@ -166,7 +166,7 @@ Router: GL.iNet MT3000 (glinet_gl-mt3000)
 OpenWrt: 24.10.1 (mediatek/filogic)
 
 Build firmware with this key? [y/N] y
-Generated password: aB3xK9mQ2pR7vN5tW1cY
+Generated password: <redacted>
 Submitting build to ASU...
 Polling... done.
 Downloaded: /tmp/openwrt-24.10.1-glinet_gl-mt3000-sysupgrade.bin

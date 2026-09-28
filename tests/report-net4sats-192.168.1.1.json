@@ -68,7 +68,7 @@
         {
           "title": "captive portal splash page",
           "file": "browser/captive_portal.spec.mjs",
-          "line": 12,
+          "line": 7,
           "column": 6,
           "specs": [
             {
@@ -87,12 +87,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1253,
+                      "duration": 2100,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:14:54.690Z",
+                      "startTime": "2026-07-03T11:01:30.751Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -118,12 +118,12 @@
               ],
               "id": "1fa84eb4502f6eadb5e7-7e638e747d3a3625ed07",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 14,
+              "line": 9,
               "column": 2
             },
             {
               "title": "splash page has payment form element",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -136,19 +136,38 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 533,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 16575,
+                      "error": {
+                        "message": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.",
+                        "stack": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:30:36",
+                        "location": {
+                          "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                          "column": 36,
+                          "line": 30
+                        },
+                        "snippet": "  28 | \t\tawait page.goto(SPLASH_PATH, { waitUntil: 'domcontentloaded' });\n  29 |\n> 30 | \t\tconst hasTokenInput = await page.waitForFunction(\n     | \t\t                                 ^\n  31 | \t\t\t() => {\n  32 | \t\t\t\tconst inputs = document.querySelectorAll('input, textarea');\n  33 | \t\t\t\tfor (const el of inputs) {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                            "column": 36,
+                            "line": 30
+                          },
+                          "message": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.\n\n  28 | \t\tawait page.goto(SPLASH_PATH, { waitUntil: 'domcontentloaded' });\n  29 |\n> 30 | \t\tconst hasTokenInput = await page.waitForFunction(\n     | \t\t                                 ^\n  31 | \t\t\t() => {\n  32 | \t\t\t\tconst inputs = document.querySelectorAll('input, textarea');\n  33 | \t\t\t\tfor (const el of inputs) {\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:30:36"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:14:56.266Z",
+                      "startTime": "2026-07-03T11:01:33.510Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-0cdc4-ge-has-payment-form-element/test-finished-1.png"
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-0cdc4-ge-has-payment-form-element/test-failed-1.png"
                         },
                         {
                           "name": "video",
@@ -156,24 +175,34 @@
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-0cdc4-ge-has-payment-form-element/video.webm"
                         },
                         {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-0cdc4-ge-has-payment-form-element/error-context.md"
+                        },
+                        {
                           "name": "trace",
                           "contentType": "application/zip",
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-0cdc4-ge-has-payment-form-element/trace.zip"
                         }
-                      ]
+                      ],
+                      "errorLocation": {
+                        "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                        "column": 36,
+                        "line": 30
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "1fa84eb4502f6eadb5e7-c5f4ded542e298188ce9",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 32,
+              "line": 27,
               "column": 2
             },
             {
               "title": "splash page has connect or pay button",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -184,21 +213,40 @@
                   "projectName": "",
                   "results": [
                     {
-                      "workerIndex": 0,
+                      "workerIndex": 1,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 618,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 16933,
+                      "error": {
+                        "message": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.",
+                        "stack": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:49:32",
+                        "location": {
+                          "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                          "column": 32,
+                          "line": 49
+                        },
+                        "snippet": "  47 | \t\tawait page.goto(SPLASH_PATH, { waitUntil: 'domcontentloaded' });\n  48 |\n> 49 | \t\tconst hasButton = await page.waitForFunction(\n     | \t\t                             ^\n  50 | \t\t\t() => {\n  51 | \t\t\t\tconst buttons = document.querySelectorAll('button, input[type=\"submit\"], [role=\"button\"]');\n  52 | \t\t\t\tfor (const btn of buttons) {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                            "column": 32,
+                            "line": 49
+                          },
+                          "message": "TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.\n\n  47 | \t\tawait page.goto(SPLASH_PATH, { waitUntil: 'domcontentloaded' });\n  48 |\n> 49 | \t\tconst hasButton = await page.waitForFunction(\n     | \t\t                             ^\n  50 | \t\t\t() => {\n  51 | \t\t\t\tconst buttons = document.querySelectorAll('button, input[type=\"submit\"], [role=\"button\"]');\n  52 | \t\t\t\tfor (const btn of buttons) {\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:49:32"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:14:56.844Z",
+                      "startTime": "2026-07-03T11:01:52.573Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-c1efe-e-has-connect-or-pay-button/test-finished-1.png"
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-c1efe-e-has-connect-or-pay-button/test-failed-1.png"
                         },
                         {
                           "name": "video",
@@ -206,19 +254,29 @@
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-c1efe-e-has-connect-or-pay-button/video.webm"
                         },
                         {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-c1efe-e-has-connect-or-pay-button/error-context.md"
+                        },
+                        {
                           "name": "trace",
                           "contentType": "application/zip",
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-c1efe-e-has-connect-or-pay-button/trace.zip"
                         }
-                      ]
+                      ],
+                      "errorLocation": {
+                        "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                        "column": 32,
+                        "line": 49
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "1fa84eb4502f6eadb5e7-1508a77fec6987c1195e",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 61,
+              "line": 46,
               "column": 2
             },
             {
@@ -234,15 +292,15 @@
                   "projectName": "",
                   "results": [
                     {
-                      "workerIndex": 0,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2807,
+                      "duration": 3975,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:14:57.525Z",
+                      "startTime": "2026-07-03T11:02:12.292Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -268,7 +326,7 @@
               ],
               "id": "1fa84eb4502f6eadb5e7-c0cf7e6e2f8ec44f918d",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 88,
+              "line": 63,
               "column": 2
             },
             {
@@ -284,15 +342,15 @@
                   "projectName": "",
                   "results": [
                     {
-                      "workerIndex": 0,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2773,
+                      "duration": 3357,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:15:00.459Z",
+                      "startTime": "2026-07-03T11:02:17.022Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -318,57 +376,56 @@
               ],
               "id": "1fa84eb4502f6eadb5e7-70c314f5df0449bcad68",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 98,
+              "line": 73,
               "column": 2
             },
             {
               "title": "NDS intercepts HTTP traffic and redirects to splash",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
                   "timeout": 90000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "description": "NDS intercept only works from WiFi client side — test machine is on trusted ethernet LAN",
-                      "location": {
-                        "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
-                        "line": 111,
-                        "column": 8
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
+                  "annotations": [],
+                  "expectedStatus": "passed",
                   "projectId": "",
                   "projectName": "",
                   "results": [
                     {
-                      "workerIndex": 0,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 243,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 979,
+                      "error": {
+                        "message": "Error: Expected NDS redirect but got url=https://example.com/ status=200\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: Expected NDS redirect but got url=https://example.com/ status=200\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:101:5",
+                        "location": {
+                          "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                          "column": 5,
+                          "line": 101
+                        },
+                        "snippet": "   99 | \t\t\tredirectedToNDS || isNDSPage || isRedirect,\n  100 | \t\t\t`Expected NDS redirect but got url=${url} status=${response?.status()}`,\n> 101 | \t\t).toBeTruthy();\n      | \t\t  ^\n  102 | \t});\n  103 | });\n  104 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                            "column": 5,
+                            "line": 101
+                          },
+                          "message": "Error: Expected NDS redirect but got url=https://example.com/ status=200\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n   99 | \t\t\tredirectedToNDS || isNDSPage || isRedirect,\n  100 | \t\t\t`Expected NDS redirect but got url=${url} status=${response?.status()}`,\n> 101 | \t\t).toBeTruthy();\n      | \t\t  ^\n  102 | \t});\n  103 | });\n  104 |\n    at /home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs:101:5"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-03T14:15:03.345Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "description": "NDS intercept only works from WiFi client side — test machine is on trusted ethernet LAN",
-                          "location": {
-                            "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
-                            "line": 111,
-                            "column": 8
-                          }
-                        }
-                      ],
+                      "startTime": "2026-07-03T11:02:20.588Z",
+                      "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-68e0c-fic-and-redirects-to-splash/test-finished-1.png"
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-68e0c-fic-and-redirects-to-splash/test-failed-1.png"
                         },
                         {
                           "name": "video",
@@ -376,19 +433,29 @@
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-68e0c-fic-and-redirects-to-splash/video.webm"
                         },
                         {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-68e0c-fic-and-redirects-to-splash/error-context.md"
+                        },
+                        {
                           "name": "trace",
                           "contentType": "application/zip",
                           "path": "/home/c03rad0r/physical-router-test-automation/test-results/browser-captive_portal-cap-68e0c-fic-and-redirects-to-splash/trace.zip"
                         }
-                      ]
+                      ],
+                      "errorLocation": {
+                        "file": "/home/c03rad0r/physical-router-test-automation/tests/browser/captive_portal.spec.mjs",
+                        "column": 5,
+                        "line": 101
+                      }
                     }
                   ],
-                  "status": "skipped"
+                  "status": "unexpected"
                 }
               ],
               "id": "1fa84eb4502f6eadb5e7-9791baa0d3cafcfdb734",
               "file": "browser/captive_portal.spec.mjs",
-              "line": 108,
+              "line": 83,
               "column": 2
             }
           ]
@@ -414,10 +481,10 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 1,
+                  "workerIndex": 3,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 26778,
+                  "duration": 29444,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
@@ -425,26 +492,26 @@
                   "steps": [
                     {
                       "title": "Load net4sats admin panel (LuCI)",
-                      "duration": 3125
+                      "duration": 3205
                     },
                     {
                       "title": "Load configurationwizzard net4sats portal",
-                      "duration": 7906
+                      "duration": 7662
                     },
                     {
                       "title": "Load captive portal at port 2050",
-                      "duration": 8531
+                      "duration": 8453
                     },
                     {
                       "title": "Check tollgate API status",
-                      "duration": 1331
+                      "duration": 1402
                     },
                     {
                       "title": "Show net4sats admin panel final view",
-                      "duration": 2995
+                      "duration": 3145
                     }
                   ],
-                  "startTime": "2026-07-03T14:15:04.640Z",
+                  "startTime": "2026-07-03T11:02:23.776Z",
                   "annotations": [],
                   "attachments": [
                     {
@@ -478,11 +545,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-07-03T14:14:53.717Z",
-    "duration": 39529.632999999994,
-    "expected": 6,
-    "skipped": 1,
-    "unexpected": 0,
+    "startTime": "2026-07-03T11:01:28.391Z",
+    "duration": 89482.556,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 3,
     "flaky": 0
   }
 }

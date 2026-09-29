@@ -65,10 +65,20 @@ class U2Phone:
 
         Force-stops background apps (2026-09-29: eight idle Chrome tabs kept
         firing Google connectivity probes through takes, polluting captures
-        and muddying captive-portal verdicts) and cycles airplane mode for a
-        clean radio + network stack before the join."""
+        and muddying captive-portal verdicts), disables screen-time
+        lockouts that hijack the UI after local midnight (2026-09-29: a
+        take at 00:11 died to a Digital Wellbeing "Pause is on" overlay —
+        evidence screenshots showed the bedtime screen, not the portal),
+        and cycles airplane mode for a clean radio + network stack."""
         for pkg in ("com.android.chrome",):
             self.shell(f"am force-stop {pkg}")
+        for setting in (
+            "settings put secure bedtime_schedule_enabled 0",
+            "settings put secure wellbeing_suspend_enabled 0",
+            "settings put global bedtime_mode 0",
+            "settings put secure downtime_override 0",
+        ):
+            self.shell(setting)
         self.shell("cmd connectivity airplane-mode enable")
         time.sleep(2)
         self.shell("cmd connectivity airplane-mode disable")

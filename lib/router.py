@@ -762,6 +762,65 @@ class Router:
             time.sleep(interval)
         return False
 
+    # --- on-device testnut mint (cdk-mintd, fakewallet, /tmp state) ---
+    # Binary + settings template live in the lab kit (see
+    # docs/bench-environments.md env 2 and the device-mint staging dir).
+    # All state under /tmp on the router: RAM-backed, zero flash writes,
+    # fresh mint every boot — a feature for tests.
+    DEVICE_MINT_PORT = 8487
+    DEVICE_MINT_URL = f"http://127.0.0.1:{DEVICE_MINT_PORT}"
+    DEVICE_MINT_WORKDIR = "/tmp/mintd-work"
+    DEVICE_MINT_MNEMONIC_ENV = "TOLLGATE_DEVICE_MINT_MNEMONIC"
+
+    def start_device_mint(self, local_binary: str, local_settings: str) -> bool:
+        """Sideload and start the on-device fakewallet mint.
+
+        Requires TOLLGATE_DEVICE_MINT_MNEMONIC in the environment (the
+        mint refuses to start without one; pin per-bench). Returns True if
+        /v1/info answers on loopback after startup.
+        """
+        mnemonic = os.environ.get(self.DEVICE_MINT_MNEMONIC_ENV, "")
+        if not mnemonic:
+            log.warning(
+                "device mint not started: %s unset", self.DEVICE_MINT_MNEMONIC_ENV
+            )
+            return False
+        self.ssh(f"mkdir -p {self.DEVICE_MINT_WORKDIR}")
+        self.scp_to(local_binary, "/tmp/cdk-mintd")
+        self.ssh("chmod +x /tmp/cdk-mintd")
+        self.scp_to(local_settings, "/tmp/mint-settings.toml")
+        # One-time init when the workdir has never served a mint (fresh /tmp).
+        self.ssh(
+            "cd /tmp && [ -f mintd-work/cdk-mintd.db ] || "
+            f"CDK_MINTD_MNEMONIC={shlex.quote(mnemonic)} /tmp/cdk-mintd "
+            f"-w {self.DEVICE_MINT_WORKDIR} config init --new-mint "
+            "--file /tmp/mint-settings.toml",
+            timeout=30,
+        )
+        self.ssh(
+            "cd /tmp && killall cdk-mintd 2>/dev/null; sleep 1; "
+            f"CDK_MINTD_MNEMONIC={shlex.quote(mnemonic)} setsid /tmp/cdk-mintd "
+            f"-w {self.DEVICE_MINT_WORKDIR} > /tmp/cdk-mintd.log 2>&1 < /dev/null &",
+            timeout=10,
+        )
+        for _ in range(10):
+            if (
+                self.ssh(
+                    f"curl -s -m 2 -o /dev/null -w '%{{http_code}}' "
+                    f"http://127.0.0.1:{self.DEVICE_MINT_PORT}/v1/info",
+                    timeout=5,
+                ).strip()
+                == "200"
+            ):
+                log.info("device mint up at %s", self.DEVICE_MINT_URL)
+                return True
+            time.sleep(1)
+        log.warning("device mint did not answer /v1/info; see /tmp/cdk-mintd.log")
+        return False
+
+    def stop_device_mint(self) -> None:
+        self.ssh("killall cdk-mintd 2>/dev/null; true")
+
     def restart_backend(self, timeout: int = 30):
         """Restart the backend service and wait for readiness."""
         self.ssh("service tollgate-wrt restart 2>/dev/null; service tollgate restart 2>/dev/null; true", timeout=15)

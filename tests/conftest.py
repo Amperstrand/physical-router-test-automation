@@ -641,6 +641,24 @@ def cashu():
 
 
 @pytest.fixture(scope="session")
+def m5_mint():
+    """M5 Atom hardware Cashu mint, when one is attached over USB serial.
+
+    Skips the test when no device is present, so M5-backed tests are
+    additive on benches that have the Atom and invisible elsewhere.
+    """
+    from lib.m5 import M5Mint, M5MintUnavailable
+
+    try:
+        mint = M5Mint.from_env()
+        url = mint.ensure_online()
+    except M5MintUnavailable as exc:
+        pytest.skip(f"M5 hardware mint unavailable: {exc}")
+    log.info("M5 hardware mint online: %s (keyset %s)", url, mint.keyset_id())
+    return mint
+
+
+@pytest.fixture(scope="session")
 def all_routers(backend):
     identity_file = os.environ.get("TOLLGATE_SSH_KEY", "")
     inventory_path = os.environ.get(

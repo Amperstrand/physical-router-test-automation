@@ -39,6 +39,8 @@ def test_user_pays_and_gets_internet(story_video, no_session, tollgate_ssid,
     rate_limiter()
     assert device.submit_token(token), \
         f"{device.name}: token submission failed"
+    from tests.stories.conftest import _fix_nds_auth_marks
+    _fix_nds_auth_marks()
     log.info("[%s] token accepted", device.name)
     story_evidence.shot("02-token-accepted",
                         f"{device.name} token accepted by TollGate backend")

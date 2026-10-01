@@ -45,8 +45,12 @@ echo "SSID:   $SSID"
 echo "Tests:  $STORY_PATH"
 echo ""
 
-# Verify router reachable
-if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@$ROUTER" "echo ok" >/dev/null 2>&1; then
+# Verify router reachable (password-authed VM labs route via sshpass)
+SSH_PREFIX=()
+if [[ -n "${TOLLGATE_SSH_PASSWORD:-}" ]]; then
+    SSH_PREFIX=(sshpass -p "$TOLLGATE_SSH_PASSWORD")
+fi
+if ! "${SSH_PREFIX[@]}" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@$ROUTER" "echo ok" >/dev/null 2>&1; then
     echo "ERROR: router not reachable at $ROUTER"
     exit 1
 fi

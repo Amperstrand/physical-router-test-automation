@@ -710,11 +710,25 @@ def _router_ssh(cmd: str) -> str:
     host = os.environ.get("TOLLGATE_SSH_HOST", "")
     if not host:
         return ""
+    base = ["ssh", "-o", "ConnectTimeout=5",
+            "-o", "StrictHostKeyChecking=no",
+            f"root@{host}", cmd]
+    password = os.environ.get("TOLLGATE_SSH_PASSWORD", "")
+    if password:
+        base = ["sshpass", "-p", password] + base
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5",
-         "-o", "StrictHostKeyChecking=no",
-         f"root@{host}", cmd],
-        capture_output=True, text=True, timeout=15).stdout.strip()
+        base, capture_output=True, text=True,
+        timeout=15).stdout.strip()
+
+
+def _fix_nds_auth_marks() -> None:
+    """Post-payment valve repair — nodogsplash 5.0.2 re-inserts broken
+    auth-mark rules on every auth (see lib/router.fix_nds_auth_mark_rules);
+    re-run after each successful payment so the gate actually opens."""
+    from lib.router import fix_nds_auth_mark_rules
+    fixed = fix_nds_auth_mark_rules(_router_ssh)
+    if fixed:
+        log.info("nds auth-mark workaround: repaired %d rule(s)", fixed)
 
 
 def _device_mac(device) -> str:
@@ -778,7 +792,10 @@ def _mint_and_pay(device) -> bool:
                               "http://192.168.13.221:8383")
     minter = HttpMinter(mint_url)
     token = minter.mint(4)
-    return device.submit_token(token)
+    paid = device.submit_token(token)
+    if paid:
+        _fix_nds_auth_marks()
+    return paid
 
 
 @pytest.fixture(scope="session")

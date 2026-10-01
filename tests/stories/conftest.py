@@ -126,6 +126,20 @@ class ADBClientDevice:
             f"-d '{token}' http://{gateway}:2121/")
         return "1022" in out
 
+    def prime_portal(self) -> bool:
+        # §9.5: NDS only tracks MACs it has seen traffic from — payment
+        # against an untracked client fails with kind 21023
+        # "client-not-registered" (Go build ≥2026-09-28 enforces this
+        # upfront). One HTTP fetch through the portal registers the MAC.
+        gateway = self._shell(
+            "ip route show table all | grep 'default via' | awk '{print $3}' | head -1")
+        if not gateway:
+            return False
+        out = self._shell(
+            f"curl -s -o /dev/null -w '%{{http_code}}' -m 8 "
+            f"http://{gateway}:2050/")
+        return out not in ("", "000")
+
     def portal_detected(self) -> bool:
         # Not behind a portal if we can reach the internet
         if self.has_internet():
@@ -310,6 +324,20 @@ class SSHClientDevice:
             f"curl -s -m 20 -X POST -H 'Content-Type: text/plain' "
             f"-d '{token}' http://{gateway}:2121/")
         return "1022" in out
+
+    def prime_portal(self) -> bool:
+        # §9.5: NDS only tracks MACs it has seen traffic from — payment
+        # against an untracked client fails with kind 21023
+        # "client-not-registered" (Go build ≥2026-09-28 enforces this
+        # upfront). One HTTP fetch through the portal registers the MAC.
+        gateway = self._ssh(
+            "ip route | grep default | awk '{print $3}' | head -1")
+        if not gateway:
+            return False
+        out = self._ssh(
+            f"curl -s -o /dev/null -w '%{{http_code}}' -m 8 "
+            f"http://{gateway}:2050/")
+        return out not in ("", "000")
 
     def portal_detected(self) -> bool:
         out = self._ssh(
@@ -790,6 +818,8 @@ def _mint_and_pay(device) -> bool:
     from lib.cashu import HttpMinter
     mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL",
                               "http://192.168.13.221:8383")
+    if hasattr(device, "prime_portal"):
+        device.prime_portal()
     minter = HttpMinter(mint_url)
     token = minter.mint(4)
     paid = device.submit_token(token)
@@ -858,6 +888,10 @@ def no_session(tollgate_ssid, rate_limiter):
                 "re-authenticated the client even after a backend "
                 "restart — expire or clear that session before "
                 "requesting no_session")
+    # §9.5: register the MAC with NDS (portal fetch) so payment does not
+    # fail with kind 21023 "client-not-registered".
+    if hasattr(device, "prime_portal"):
+        device.prime_portal()
     yield device
 
 

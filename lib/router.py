@@ -29,6 +29,40 @@ from lib.backend import BackendConfig
 log = logging.getLogger("tollgate.router")
 
 
+def ensure_nds_gate_rules(run_ssh) -> dict:
+    """Ensure ndsNET passes authenticated traffic on all topologies.
+
+    Two idempotent runtime repairs after ``ndsctl auth`` (both lost on
+    NDS restart — re-run after every payment):
+
+    1. NDS 5.0.2 marks authed clients' packets 0x30000, but ndsNET's
+       accept tests ``0x20000/0x30000`` (equality) — insert the
+       client-agnostic bit-test accept ``0x20000/0x20000`` (same repair
+       as ``Router.fix_nodogsplash_auth_marks``; rewriting per-client
+       ndsOUT rules instead leaks past deauth).
+    2. Single-NIC routers (local-lab VM: upstream via br-lan) see return
+       traffic ingress br-lan UNMARKED — without a conntrack
+       ESTABLISHED,RELATED accept it falls to ndsNET's REJECT: flows
+       complete handshakes but data starves. Separate-WAN routers
+       (NR7101) never show this.
+
+    Returns ``{"auth_bit": bool, "established": bool}`` — True when the
+    rule was inserted (absent before).
+
+    ``run_ssh`` is any callable(cmd) -> stdout executing on the router.
+    """
+    result = {"auth_bit": False, "established": False}
+    net = run_ssh("iptables -S ndsNET 2>/dev/null")
+    if "-m mark --mark 0x20000/0x20000 -j ACCEPT" not in net:
+        run_ssh("iptables -I ndsNET 1 -m mark --mark 0x20000/0x20000 -j ACCEPT")
+        result["auth_bit"] = True
+    if "ESTABLISHED,RELATED" not in net:
+        run_ssh("iptables -I ndsNET 1 "
+                "-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        result["established"] = True
+    return result
+
+
 def remove_nds_auth_mark_rules(run_ssh, client_mac: str | None = None) -> int:
     """Remove leaked per-client ndsOUT mangle rules (auth-mark cleanup).
 

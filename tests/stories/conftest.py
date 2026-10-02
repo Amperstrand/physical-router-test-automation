@@ -278,14 +278,13 @@ class SSHClientDevice:
             "| awk '{print $2}' | cut -d/ -f1 | head -1")
 
     def has_internet(self, host: str = "8.8.8.8") -> bool:
-        # HTTP truth, not ping: the VM lab's NDS lets ICMP through
-        # pre-auth while HTTP is 307'd to the portal — ping lies for
-        # Linux clients behind that ruleset. generate_204 answers 204
-        # only when the full user path (DNS + HTTP) is open.
+        # IP-literal probe (lab canon: DNS rides the gated path and must
+        # not gate the probe — the VM's dnsmasq upstream can be dead
+        # while routing is fine). NDS preauth answers :80 with 307-to-
+        # splash; the open internet answers 301 from 1.1.1.1.
         out = self._ssh(
-            "curl -s -o /dev/null -w '%{http_code}' -m 8 "
-            "http://connectivitycheck.gstatic.com/generate_204")
-        return out == "204"
+            "curl -s -o /dev/null -w '%{http_code}' -m 8 http://1.1.1.1/")
+        return out == "301"
 
     def screenshot(self, path: str) -> bool:
         # A headless Linux client has no pixels — its "screenshot" is a
@@ -751,12 +750,14 @@ def _router_ssh(cmd: str) -> str:
 
 def _fix_nds_auth_marks() -> None:
     """Post-payment valve repair — nodogsplash 5.0.2 re-inserts broken
-    auth-mark rules on every auth (see lib/router.fix_nds_auth_mark_rules);
-    re-run after each successful payment so the gate actually opens."""
-    from lib.router import fix_nds_auth_mark_rules
-    fixed = fix_nds_auth_mark_rules(_router_ssh)
-    if fixed:
-        log.info("nds auth-mark workaround: repaired %d rule(s)", fixed)
+    auth-mark rules on every auth, and single-NIC routers need the
+    conntrack ESTABLISHED accept for return traffic (see
+    lib/router.ensure_nds_gate_rules); re-run after each successful
+    payment so the gate actually opens."""
+    from lib.router import ensure_nds_gate_rules
+    fixed = ensure_nds_gate_rules(_router_ssh)
+    if any(fixed.values()):
+        log.info("nds gate rules repaired: %s", fixed)
 
 
 def _device_mac(device) -> str:

@@ -9,7 +9,7 @@ NDS cannot delete it at deauth, granting permanent access).
 
 import pytest
 
-from lib.router import Router
+from lib.router import Router, ensure_nds_gate_rules
 
 BUGGY = (
     "-A ndsOUT -s 10.99.99.186/32 -m mac --mac-source aa:bb:cc:dd:ee:ff "
@@ -145,3 +145,40 @@ def test_remove_nds_auth_marks_scopes_to_requested_mac():
     assert removed == 1
     assert calls[1] == DELETE_BUGGY
     assert len(calls) == 2
+
+
+def test_ensure_nds_gate_rules_inserts_both():
+    calls = []
+
+    def run_ssh(cmd):
+        calls.append(cmd)
+        if cmd.startswith("iptables -S ndsNET"):
+            return ("-P ndsNET ACCEPT\n"
+                    "-A ndsNET -m mark --mark 0x10000/0x30000 -j DROP\n"
+                    "-A ndsNET -m mark --mark 0x20000/0x30000 -j ACCEPT\n"
+                    "-A ndsNET -j REJECT --reject-with icmp-port-unreachable")
+        return ""
+
+    fixed = ensure_nds_gate_rules(run_ssh)
+
+    assert fixed == {"auth_bit": True, "established": True}
+    assert "iptables -I ndsNET 1 -m mark --mark 0x20000/0x20000 -j ACCEPT" in calls
+    assert ("iptables -I ndsNET 1 -m conntrack --ctstate ESTABLISHED,RELATED "
+            "-j ACCEPT") in calls
+
+
+def test_ensure_nds_gate_rules_idempotent():
+    calls = []
+
+    def run_ssh(cmd):
+        calls.append(cmd)
+        if cmd.startswith("iptables -S ndsNET"):
+            return ("-A ndsNET -m conntrack --ctstate ESTABLISHED,RELATED "
+                    "-j ACCEPT\n"
+                    "-A ndsNET -m mark --mark 0x20000/0x20000 -j ACCEPT")
+        return ""
+
+    fixed = ensure_nds_gate_rules(run_ssh)
+
+    assert fixed == {"auth_bit": False, "established": False}
+    assert calls == ["iptables -S ndsNET 2>/dev/null"]

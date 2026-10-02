@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,6 +20,30 @@ const viewports = {
 	mobile: { width: 375, height: 812 },
 };
 
+// Which browser binary to launch.
+//
+// Playwright's bundled chromium cannot be installed on every host: on
+// ubuntu26.04-x64 `playwright install chromium` refuses with
+// "ERROR: Playwright does not support chromium on ubuntu26.04-x64" (measured
+// 2026-10-02), which leaves the whole browser suite unrunnable even though a
+// perfectly good system Chrome is present. Prefer an explicit override, then a
+// known system browser, and only then fall back to the bundled build (an empty
+// object = Playwright's default).
+function chromiumLaunchOptions() {
+	const explicit = process.env.PLAYWRIGHT_CHROME || process.env.CHROME_PATH;
+	if (explicit) return { executablePath: explicit };
+	for (const p of [
+		'/usr/bin/google-chrome',
+		'/usr/bin/google-chrome-stable',
+		'/usr/bin/chromium',
+		'/usr/bin/chromium-browser',
+		'/snap/bin/chromium',
+	]) {
+		if (existsSync(p)) return { executablePath: p, args: ['--no-sandbox', '--disable-dev-shm-usage'] };
+	}
+	return {};
+}
+
 // Projects enforce ordering: non-destructive tests run first,
 // destructive tests (reboot, firmware) run last since they leave
 // the router in a transitional state.
@@ -36,6 +60,7 @@ export default defineConfig({
 	],
 	use: {
 		baseURL: process.env.TOLLGATE_LUCI_URL ?? 'http://192.168.1.1:8080',
+		launchOptions: chromiumLaunchOptions(),
 		screenshot: 'on',
 		trace: 'on-first-retry',
 		actionTimeout: 10000,
@@ -49,7 +74,7 @@ export default defineConfig({
 		},
 		{
 			name: `${viewport}-portal`,
-			testMatch: 'captive-portal.spec.mjs',
+			testMatch: 'captive_portal.spec.mjs',
 			use: { viewport: viewports[viewport] || viewports.desktop },
 		},
 		{

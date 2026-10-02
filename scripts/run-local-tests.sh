@@ -202,7 +202,7 @@ check_vms() {
 configure_mint() {
   log "Configuring OpenWrt to use local mint..."
   sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" "
-    jq '.accepted_mints = [{\"url\": \"${MINT_URL}\", \"min_balance\": 0, \"balance_tolerance_percent\": 0, \"price_per_step\": 1, \"price_unit\": \"sats\", \"purchase_min_steps\": 0}]' /etc/tollgate/config.json > /tmp/cfg.json
+    jq '.accepted_mints = [{\"url\": \"${MINT_URL}\", \"min_balance\": 0, \"balance_tolerance_percent\": 0, \"price_per_step\": 1, \"price_unit\": \"sats\", \"purchase_min_steps\": 1}]' /etc/tollgate/config.json > /tmp/cfg.json
     mv /tmp/cfg.json /etc/tollgate/config.json
     /etc/init.d/tollgate-wrt restart
   " 2>&1 | tail -3

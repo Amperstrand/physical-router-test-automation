@@ -218,6 +218,16 @@ configure_mint() {
   log "WARNING: Backend health check timed out"
 }
 
+assert_venue_config() {
+  local cur
+  cur=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+    "jq -r '.accepted_mints[0].url' /etc/tollgate/config.json 2>/dev/null")
+  if [ "${cur}" != "${MINT_URL}" ]; then
+    log "Venue config drifted (accepted_mints[0]=${cur:-none}) — re-asserting local mint"
+    configure_mint
+  fi
+}
+
 run_tests() {
   local targets=() flags=()
   local arg
@@ -321,6 +331,7 @@ run_tests() {
     local junit_file
     junit_file="${junit_dir}/$(printf '%03d' "${i}")-${base}.xml"
     log "[${i}/${#targets[@]}] ${t}"
+    assert_venue_config
     rc=0
     "${timeout_cmd[@]}" python3 -m pytest "${t}" "${pytest_common[@]}" \
       ${client_default} --junitxml="${junit_file}" "${flags[@]}" || rc=$?

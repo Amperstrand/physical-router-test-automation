@@ -207,15 +207,22 @@ configure_mint() {
     /etc/init.d/tollgate-wrt restart
   " 2>&1 | tail -3
 
-  for i in $(seq 1 20); do
+  # Ad serving the LOCAL mint's URL = direct, version-proof recovery
+  # signal (registration log wording differs across backend builds).
+  # Multi-mint configs left by churning tests made restarts take
+  # minutes (per-mint network timeouts); the old 40s ad-only probe
+  # false-alarmed and tests raced a half-registered backend (the
+  # 429/503 class, 2026-10-02). Single-mint venue restarts serve the
+  # ad in ~2s (measured).
+  for i in $(seq 1 90); do
     if sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
-      "wget -qO- --timeout=3 http://127.0.0.1:2121/ 2>/dev/null | head -c 20" 2>/dev/null | grep -q "10021\|21023"; then
-      log "Backend healthy with local mint"
+      "wget -qO- --timeout=3 http://127.0.0.1:2121/ 2>/dev/null" 2>/dev/null | grep -q "${MINT_URL}"; then
+      log "Backend healthy, ad serves the local mint (${i} polls)"
       return
     fi
     sleep 2
   done
-  log "WARNING: Backend health check timed out"
+  log "WARNING: Backend health check timed out (180s)"
 }
 
 assert_venue_config() {

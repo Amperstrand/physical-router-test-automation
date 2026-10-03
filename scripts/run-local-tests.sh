@@ -202,20 +202,37 @@ check_vms() {
 configure_mint() {
   log "Configuring OpenWrt to use local mint..."
   sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" "
-    jq '.accepted_mints = [{\"url\": \"${MINT_URL}\", \"min_balance\": 0, \"balance_tolerance_percent\": 0, \"price_per_step\": 1, \"price_unit\": \"sats\", \"purchase_min_steps\": 0}]' /etc/tollgate/config.json > /tmp/cfg.json
+    jq '.accepted_mints = [{\"url\": \"${MINT_URL}\", \"min_balance\": 0, \"balance_tolerance_percent\": 0, \"price_per_step\": 1, \"price_unit\": \"sats\", \"purchase_min_steps\": 1}]' /etc/tollgate/config.json > /tmp/cfg.json
     mv /tmp/cfg.json /etc/tollgate/config.json
     /etc/init.d/tollgate-wrt restart
   " 2>&1 | tail -3
 
-  for i in $(seq 1 20); do
+  # Ad serving the LOCAL mint's URL = direct, version-proof recovery
+  # signal (registration log wording differs across backend builds).
+  # Multi-mint configs left by churning tests made restarts take
+  # minutes (per-mint network timeouts); the old 40s ad-only probe
+  # false-alarmed and tests raced a half-registered backend (the
+  # 429/503 class, 2026-10-02). Single-mint venue restarts serve the
+  # ad in ~2s (measured).
+  for i in $(seq 1 90); do
     if sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
-      "wget -qO- --timeout=3 http://127.0.0.1:2121/ 2>/dev/null | head -c 20" 2>/dev/null | grep -q "10021\|21023"; then
-      log "Backend healthy with local mint"
+      "wget -qO- --timeout=3 http://127.0.0.1:2121/ 2>/dev/null" 2>/dev/null | grep -q "${MINT_URL}"; then
+      log "Backend healthy, ad serves the local mint (${i} polls)"
       return
     fi
     sleep 2
   done
-  log "WARNING: Backend health check timed out"
+  log "WARNING: Backend health check timed out (180s)"
+}
+
+assert_venue_config() {
+  local cur
+  cur=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+    "jq -r '.accepted_mints[0].url' /etc/tollgate/config.json 2>/dev/null")
+  if [ "${cur}" != "${MINT_URL}" ]; then
+    log "Venue config drifted (accepted_mints[0]=${cur:-none}) — re-asserting local mint"
+    configure_mint
+  fi
 }
 
 run_tests() {
@@ -321,6 +338,7 @@ run_tests() {
     local junit_file
     junit_file="${junit_dir}/$(printf '%03d' "${i}")-${base}.xml"
     log "[${i}/${#targets[@]}] ${t}"
+    assert_venue_config
     rc=0
     "${timeout_cmd[@]}" python3 -m pytest "${t}" "${pytest_common[@]}" \
       ${client_default} --junitxml="${junit_file}" "${flags[@]}" || rc=$?

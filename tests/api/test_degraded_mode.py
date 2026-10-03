@@ -87,16 +87,24 @@ def _block_mints(router, mint_ip_map):
 
 
 def _unblock_mints(router, rules):
-    """Remove iptables rules that were added to block mints."""
+    """Remove iptables rules that were added to block mints.
+
+    _block_mints uses -I (insert), so retries can leave DUPLICATE rules;
+    a single -D removes only one instance. Loop-delete until the rule
+    spec is gone — leftover REJECTs poisoned every later payment test
+    with 'mint check-state request failed' (2026-10-02: three stale
+    rules across two runs, 38 test failures).
+    """
     for rule in rules:
         if len(rule) == 3:
             url, ip, port = rule
         else:
             url, ip = rule
             port = 443
+        spec = f"-d {ip} -p tcp --dport {port} -j REJECT"
         router.ssh(
-            f"iptables -D OUTPUT -d {ip} -p tcp --dport {port} -j REJECT"
-            f" 2>/dev/null || true"
+            f"while iptables -C OUTPUT {spec} 2>/dev/null; do"
+            f" iptables -D OUTPUT {spec}; done 2>/dev/null || true"
         )
 
 
@@ -149,7 +157,14 @@ def _has_reject_rules(router):
 def _check_and_reset_after_block(router):
     if _has_reject_rules(router):
         log.info("Found leftover iptables REJECT rules, removing them")
-        router.ssh("iptables -D OUTPUT -j REJECT 2>/dev/null || true")
+        # The old single "-D OUTPUT -j REJECT" matched no installed spec
+        # (rules carry -d/-p/--dport) and silently failed — loop-delete
+        # every REJECT in OUTPUT instead.
+        router.ssh(
+            "while iptables -L OUTPUT -n 2>/dev/null | grep -q REJECT; do"
+            " R=$(iptables -L OUTPUT -n --line-numbers | awk '/REJECT/{print $1; exit}');"
+            " iptables -D OUTPUT $R; done 2>/dev/null || true"
+        )
 
     code = router.api_status("/")
     if code != 200:

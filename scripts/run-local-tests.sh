@@ -196,6 +196,13 @@ check_vms() {
   else
     log "WARNING: Debian VM not reachable at ${DEBIAN_IP} (payment tests will skip)"
   fi
+  # Venue dependencies the tests assume: jq (configure_mint rewrite) and
+  # curl (router-side probes in portal/NDS/degraded tests). Both have
+  # been silently missing on lab VMs — every router-side probe returned
+  # empty and portal tests failed constantly (2026-10-03 forensics).
+  sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+    "command -v jq >/dev/null && command -v curl >/dev/null || { opkg update >/dev/null 2>&1; opkg install jq curl libcurl4 >/dev/null 2>&1; }; command -v jq && command -v curl" \
+    2>/dev/null | grep -q curl || log "WARNING: could not provision jq+curl on the VM — portal/NDS tests will fail"
   log "VMs OK"
 }
 
@@ -274,6 +281,11 @@ run_tests() {
   export TOLLGATE_BACKEND=go
   export TOLLGATE_CLIENT_TYPE=container
   export TOLLGATE_VM_PROVIDER=local
+  # Test convention: 14 test files guard local-venue behavior (http
+  # mints, container clients) on TOLLGATE_VIRTUAL_LAB; the runner only
+  # ever set VM_PROVIDER — the guards never fired and https-only asserts
+  # ran against the http local mint (2026-10-03).
+  export TOLLGATE_VIRTUAL_LAB=1
   export TOLLGATE_CASHU_VENV=/opt/cashu-venv
   export TOLLGATE_CLIENT_IP="${DEBIAN_IP}"
   export TOLLGATE_CLIENT_MAC="de:54:4e:91:49:da"

@@ -297,13 +297,13 @@ Session-scoped (created once per test run):
 | `secondary_router` | Optional second router for two-router tests |
 | `adb` | Phone control — ADB, MacWiFiClient, LinuxWiFiClient, or ContainerClient |
 | `cashu` | Token minter (`HttpMinter` > `CdkCliWallet` > `CashuMint`) for testnet tokens |
-| `deploy_session` | Auto-deploy (autouse) — deploys branch/binary before tests |
+| `deploy_session` | Auto-deploy + state prep (autouse) — deploys branch/binary when requested; on every other non-`--no-deploy` run it ALSO pins the test mint + debug portal (state mutation); suppressed by `--read-only` |
 | `results_dir` | Canonical results directory under `results/` |
 | `backend` | `BackendConfig` from `--backend` flag or env |
 
 Per-test fixtures: `connected_wifi`, `test_pricing`, `screenshot_portal`, `screenshot_raw`.
 
-**Auto-deploy behavior** (`deploy_session`, autouse): If `--tollgate-branch` or `--binary` is specified, the fixture deploys before tests run. Skips for unit tests and `--no-deploy`.
+**Auto-deploy behavior** (`deploy_session`, autouse): If `--tollgate-branch` or `--binary` is specified, the fixture deploys before tests run. Otherwise — for ANY non-unit run without `--no-deploy`, even with zero deploy flags — it still runs live-state prep: health-check, `enable_debug_portal()`, `ensure_test_mint()`, `replace_mints([TEST_MINT_URL])` (rewrites `accepted_mints` + backend restarts). **Live-router commissions must pass `--read-only`** (or set `TOLLGATE_LIVE_COMMISSION=1`), which skips state prep AND makes every `Router` mutator raise `ReadOnlyViolation`; `TOLLGATE_ALLOW_STATE_MUTATION=1` re-enables mutation. Pair with `scripts/live-snapshot.py` (snapshot → run → diff) for drift auditing. See `docs/live-commission-incident-2026-10-01.md`.
 
 ## pytest Configuration
 
@@ -2297,24 +2297,27 @@ Full postmortem + fix queue + labgrid plan:
 `docs/live-commission-incident-2026-10-01.md`. Short version:
 
 - **`deploy_session` (autouse) mutates live state on EVERY run that lacks
-  `--no-deploy`** — even with zero deploy flags. At `tests/conftest.py:539-556`
-  it runs `enable_debug_portal()` + `ensure_test_mint()` + `replace_mints()`,
+  `--no-deploy`** — even with zero deploy flags. At `tests/conftest.py` it
+  runs `enable_debug_portal()` + `ensure_test_mint()` + `replace_mints()`,
   which **replaced a live router's 8-mint accepted_mints with
   testnut.cashu.exchange and restarted the backend twice** during a
   "read-only" commissioned run against the MT3000 (tollgate-326D).
   `--no-deploy` is named after deployment but is the ONLY suppressor of state
-  prep. Live commissions must pass `--no-deploy` today; a `--read-only`
-  fail-closed flag is queued (F1).
-- **`replace_mints()` has a destructive default** (`mint_urls=None` →
-  `[TEST_MINT_URL]`) — calling it bare nukes the operator's mint list
-  (`lib/router.py:834`). Queued fix F3: require explicit list, refuse
-  >1→1 shrinks without `force`.
+  prep (pre-fix). **Fixed 2026-10-01: `--read-only` /
+  `TOLLGATE_LIVE_COMMISSION=1` now fail-closed — state prep skipped and every
+  `Router` mutator raises `ReadOnlyViolation` (27 methods guarded via the
+  `@mutator` decorator); `TOLLGATE_ALLOW_STATE_MUTATION=1` re-enables.**
+- **`replace_mints()` had a destructive default** (`mint_urls=None` →
+  `[TEST_MINT_URL]`) — calling it bare nuked the operator's mint list
+  (`lib/router.py`). **Fixed 2026-10-01 (F3): the list is now required and
+  shrinking >1 mint to 1 raises unless `force=True`.**
 - **Detection was luck** (pytest live-log printed "Replaced accepted mints…"),
   **recovery was luck** (`logread` boot lines enumerated the pre-run mints +
   the m5 lane's config backup existed + mutating methods are
-  read-modify-write so only accepted_mints drifted). Snapshot/diff/restore
-  tooling is queued (F4: `scripts/live-snapshot.py`); commissioned runs get
-  template v2 (invariants + state audit + `--json-report`).
+  read-modify-write so only accepted_mints drifted). **Fixed 2026-10-01 (F4):
+  `scripts/live-snapshot.py`** — snapshot → run → diff (strict config/uci/hash
+  drift exits 1; volatile counter captures are notes) → restore (config.json,
+  md5-verified, `--restart` to apply).
 - **Skip forests hide dead coverage**: the same commission ran 8 passed /
   18 skipped — 15 of the skips assert the pre-PRTA-#103 net4sats portal
   layout and can never pass on current packaging, meaning **the :2051 SPA

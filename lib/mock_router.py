@@ -430,6 +430,7 @@ class MockRouter(Router):
         from lib.backend import BackendConfig
         self.backend = backend or BackendConfig()
         self._ssh_pw = None
+        self.readonly = bool(kwargs.pop("readonly", False))
         self._control_dir = "/tmp/tollgate-mock-ssh"
         self._control_path = "/tmp/tollgate-mock-ssh/control"
         self._nds_portal_port = 2050
@@ -870,7 +871,7 @@ class MockRouter(Router):
     def ensure_test_mint(self):
         pass
 
-    def replace_mints(self, mint_urls: list[str] | None = None):
+    def replace_mints(self, mint_urls: list[str], *, force: bool = False):
         pass
 
     def ensure_dhcp_lease(self, ip: str | None = None, mac: str | None = None) -> None:

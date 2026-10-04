@@ -24,7 +24,7 @@ from lib.clients.wifi import WiFi
 from lib.clients.desktop import MacWiFiClient, MacAdapter, LinuxWiFiClient, LinuxAdapter
 from lib.clients.container import ContainerClient
 from lib.clients.cuttlefish import CuttlefishClient
-from lib.constants import DEFAULT_STEP_SIZE_MS, NDS_PORTAL_PORT
+from lib.constants import DEFAULT_STEP_SIZE_MS, NDS_PORTAL_PORT, TEST_MINT_URL
 from lib.backend import BackendConfig, BACKEND_CHOICES_CLI
 
 # --- Mock mode support ---
@@ -226,6 +226,13 @@ def pytest_addoption(parser):
                      help="Restore previous binary after tests")
     parser.addoption("--no-deploy", action="store_true",
                      help="Skip portal deploy before phone tests")
+    parser.addoption("--read-only", action="store_true",
+                     help="Fail-closed read-only mode: no live-state prep (debug "
+                          "portal, test-mint pinning) and every Router mutator "
+                          "raises ReadOnlyViolation. Required for commissioned "
+                          "runs against live routers. Implied by "
+                          "TOLLGATE_LIVE_COMMISSION=1 unless "
+                          "TOLLGATE_ALLOW_STATE_MUTATION=1.")
     parser.addoption("--results", default=None,
                      help="Custom results directory path")
     parser.addoption("--client", default=os.environ.get("TOLLGATE_CLIENT", "adb"),
@@ -309,6 +316,21 @@ def backend(request):
     return BackendConfig(backend_type=opt)
 
 
+def _read_only_mode(request) -> bool:
+    """True when the session must not mutate router state (fail-closed).
+
+    --read-only, or TOLLGATE_LIVE_COMMISSION=1 without the explicit
+    TOLLGATE_ALLOW_STATE_MUTATION=1 override. Live commissions must run
+    this way — see docs/live-commission-incident-2026-10-01.md.
+    """
+    if request.config.getoption("--read-only"):
+        return True
+    return (
+        os.environ.get("TOLLGATE_LIVE_COMMISSION") == "1"
+        and os.environ.get("TOLLGATE_ALLOW_STATE_MUTATION") != "1"
+    )
+
+
 @pytest.fixture(scope="session")
 def router(request, backend):
     if IS_MOCK_MODE:
@@ -342,6 +364,9 @@ def router(request, backend):
     host = os.environ.get("TOLLGATE_SSH_HOST") or os.environ.get("ROUTER_IP")
     identity_file = os.environ.get("TOLLGATE_SSH_KEY", "")
     jump_host = os.environ.get("TOLLGATE_SSH_JUMP_HOST", "")
+    read_only = _read_only_mode(request)
+    if read_only:
+        log.warning("READ-ONLY mode active: Router mutators will raise ReadOnlyViolation")
 
     # Virtual lab uses password auth (sshpass) through jump host.
     # SSH key auth fails without agent forwarding (-A), so clear identity_file.
@@ -389,6 +414,7 @@ def router(request, backend):
         jump_host=jump_host or None,
         port=int(ssh_port) if ssh_port else None,
         backend=backend,
+        readonly=read_only,
     )
 
     # Rust backend's DhcpLeasesResolver needs the client IP in /tmp/dhcp.leases.
@@ -424,6 +450,7 @@ def secondary_router(backend):
             jump_host=os.environ.get("TOLLGATE_SECONDARY_ROUTER_JUMP_HOST", "") or None,
             port=int(port) if port else None,
             backend=backend,
+            readonly=_read_only_mode(request),
         )
     finally:
         if original_password is None:
@@ -509,6 +536,19 @@ def deploy_session(request, router, backend):
         yield
         return
 
+    if getattr(router, "readonly", False):
+        if binary or tg_branch or tg_run_id or tg_reset:
+            pytest.exit(
+                "--read-only refuses deploy flags (--binary/--tollgate-branch/"
+                "--tollgate-run-id/--tollgate-factory-reset)", returncode=2,
+            )
+        log.info(
+            "READ-ONLY commission: skipping live-state prep "
+            "(debug portal, test-mint pinning, health gate)"
+        )
+        yield
+        return
+
     if binary:
         subprocess.run(
             ["bash", os.path.join(SCRIPT_DIR, "scripts", "deploy.sh"), binary, "--restart"],
@@ -543,7 +583,7 @@ def deploy_session(request, router, backend):
 
         router.enable_debug_portal()
         router.ensure_test_mint()
-        router.replace_mints()
+        router.replace_mints([TEST_MINT_URL], force=True)
         for _ in range(60):
             if router.api_status("/") == 200:
                 break

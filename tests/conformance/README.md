@@ -96,3 +96,55 @@ deterministically derived output means the backend re-exposed a
 derivation range — the brick class of #257/#266/#480 — unless the two
 sightings are provably two different legitimate outputs. Lanes assert
 `reused == []` for the `no-output-reuse` invariant.
+# Conformance Matrix (R12) — the Go-vs-Rust fault-injection invariant set
+
+Shared spec + runner + fault proxy: executes identical fault scenarios
+against both backends with a real cdk-mintd behind a controllable proxy,
+asserting seven fund-safety invariants per scenario, and emits a
+differential verdict table — parity measured, not asserted.
+
+## Files
+- `matrix.yaml` — the spec: 21 scenarios × 7 invariants, venue flags per
+  scenario (host runner vs QEMU/full-VM), backend declarations.
+- `fault_proxy.py` — mint fault proxy (delay / drop-response-after-forward /
+  status-code bursts / connection reset / passthrough, controlled via
+  `/tmp/faultproxy.json`).
+- `run_matrix.py` — the host-venue runner (v1): fresh backend + mint per
+  scenario, real NUT-04 client-side-blinded tokens, kill -9 windows,
+  restart convergence, invariant assertions from observable state (wallet
+  balance, payment journal, sessions, CLI), results.json + results.md.
+
+## Usage
+```
+python3 tests/conformance/run_matrix.py --backend rust-basic \
+    --binary ~/.cargo-target/release/tollgate-module-basic-rust \
+    --mint /opt/cdk-mintd/cdk-mintd --out results/rust-basic
+python3 tests/conformance/run_matrix.py --backend go \
+    --binary /path/to/tollgate-go --out results/go
+```
+
+## First differential run (2026-10-05, host venue)
+
+| backend | pass | pending-venue | fail | invariant-violated |
+|---|---|---|---|---|
+| rust-basic (`5568298` main) | 17 | 4 | 0 | 0 |
+| go (main, host build) | 17 | 4 | 0 | 0 |
+
+Differences: **none** — both backends pass every host-executable scenario.
+
+Pending-venue (identical on both, honestly not guessed):
+`keyset-rotation-held-balance`, `keyset-rotation-with-expiry` (need a
+rotating mint — the fakewallet config exposes no rotation knob; the
+tmbr #13 cloud-lab lane), `router-reboot-pending-payment`,
+`hard-power-loss` (need the QEMU/full-VM lane).
+
+## Honest scope notes
+- The host venue approximates the kill windows (kill-after-answer rather
+  than mid-byte); the QEMU lane narrows them to the true transaction
+  boundaries. The invariants asserted are the host-observable subset of
+  each (documented inline in run_matrix.py).
+- The CLI queries wait out the wallet-mutex recovery window (120s class)
+  deliberately — they observe the CONVERGED state, which is what I7
+  asserts.
+- mint-dns-failure runs as a host partial (proxy reset instead of true
+  DNS blackout) — marked in the spec; the QEMU lane can do real DNS.

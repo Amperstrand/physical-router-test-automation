@@ -30,7 +30,23 @@ cdk_minor_version() {
   "${CDK_BIN}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f2
 }
 
+reset_venue_state() {
+  # Determinism: the fakewallet mint DB and the gateway's per-mint wallet
+  # DBs accumulate across runs (fixed mnemonic + persistent sqlite), so
+  # derivation counters and denomination availability drift run-to-run —
+  # payment-tier results varied between identical runs (2026-10-05:
+  # 33F vs 54F on the same code). Fresh state per run.
+  stop_mint
+  rm -f /tmp/cdk-mintd-local/cdk-mintd.sqlite* /tmp/cdk-mintd-local.log
+  sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+    "rm -f /etc/tollgate/http___10.99.99.2_8383.sqlite*; /etc/init.d/tollgate-wrt restart" \
+    2>/dev/null || log "WARNING: gateway wallet-state reset failed"
+}
+
 start_mint() {
+  if [ "${TOLLGATE_KEEP_VENUE_STATE:-0}" != "1" ]; then
+    reset_venue_state
+  fi
   if curl -sf "${MINT_URL}/v1/info" >/dev/null 2>&1; then
     log "CDK mint already running at ${MINT_URL}"
     # Record the existing daemon's PID so the EXIT trap cleans it up too —

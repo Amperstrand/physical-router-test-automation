@@ -11,3 +11,5 @@ cbor2>=5.2
 nostr-publish @ git+https://github.com/Amperstrand/nostr-publish-file-metadata-action.git@main
 httpx
 tollgate-lab @ git+https://github.com/Amperstrand/tollgate-lab.git@main
+Pillow>=10.0
+websocket-client>=1.6

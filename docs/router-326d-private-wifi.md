@@ -10,7 +10,7 @@ works; no password needed.
 ## TL;DR
 
 - SSID `c08r4d0r-326D` (WPA2, both 2.4G radio0 and 5G radio1, same key):
-  **`Papa-Juliet-Foxtrot-39`** (UCI: `wireless.private_radio{0,1}.key`,
+  **`<redacted — rotated 2026-10-06; see credentials store>`** (UCI: `wireless.private_radio{0,1}.key`,
   encryption `psk2+ccmp`).
 - SSID `TollGate-326D` is **open** (no password) on both radios.
 - Yes, `c08r4d0r-326D` gives internet: it bridges to `br-private`
@@ -18,7 +18,7 @@ works; no password needed.
   `wwan`, masq on). Verified live: DHCP lease `192.168.2.206`, HTTPS through
   the interface → HTTP 200.
 - Uplink is the router's own STA (`wireless.tollgate_uplink`) on
-  **`w3.hub Guests`** (`psk2`, key `welcome@w3.hub`) → `wwan` DHCP
+  **`w3.hub Guests`** (`psk2`, key `<redacted — network retired>`) → `wwan` DHCP
   (10.174.80.x). Router-side ping to 1.1.1.1 OK (~245 ms avg — captive-grade
   upstream, not fast).
 
@@ -29,7 +29,7 @@ works; no password needed.
    via missing passwd-file, then "base network connection was interrupted")
    — the stored key simply doesn't match the AP.
 2. Asserting from the router instead of guessing: `uci show wireless` gave the
-   real key (`Papa-Juliet-Foxtrot-39`) and the full topology below.
+   real key (`<redacted — rotated 2026-10-06; see credentials store>`) and the full topology below.
 3. `nmcli connection modify "cobrador" 802-11-wireless-security.psk …` + up →
    associated, got `192.168.2.206/24`.
 4. Internet proof bound to `wlp59s0`: `curl --interface wlp59s0
@@ -47,8 +47,8 @@ router, never the other way around.
 | Interface (UCI) | Radios | SSID | Security | Network | Subnet |
 |---|---|---|---|---|---|
 | `default_radio0` (2G AP), `default_radio1` (5G AP) | radio0/1 | `TollGate-326D` | open | `lan` (br-lan) | 192.168.1.0/24 |
-| `private_radio0` (2G AP), `private_radio1` (5G AP) | radio0/1 | `c08r4d0r-326D` | psk2+ccmp, `Papa-Juliet-Foxtrot-39` | `private` (br-private) | 192.168.2.0/24 |
-| `tollgate_uplink` (STA) | radio0 | `w3.hub Guests` | psk2, `welcome@w3.hub` | `wwan` | 10.174.80.0/24 (DHCP) |
+| `private_radio0` (2G AP), `private_radio1` (5G AP) | radio0/1 | `c08r4d0r-326D` | psk2+ccmp, `<redacted — rotated 2026-10-06; see credentials store>` | `private` (br-private) | 192.168.2.0/24 |
+| `tollgate_uplink` (STA) | radio0 | `w3.hub Guests` | psk2, `<redacted — network retired>` | `wwan` | 10.174.80.0/24 (DHCP) |
 
 Firewall: zones `lan`→`wan` and `private`→`wan` forwarding, `wan` zone =
 `wan wan6 wwan` with `masq=1`. Default route via `phy0-sta0` (10.174.80.2).

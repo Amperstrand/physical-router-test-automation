@@ -406,7 +406,7 @@ def _configure_mint(mint_url: str) -> None:
         r = Router(host=os.environ['TOLLGATE_SSH_HOST'], phone_ip='', phone_mac='', domain='',
                    backend=BackendConfig(os.environ.get('TOLLGATE_BACKEND', 'go')))
         r.ssh('cp /tmp/config.json.bak /etc/tollgate/config.json 2>/dev/null || true')
-        r.replace_mints(['{mint_url}'])
+        r.replace_mints(['{mint_url}'], force=True)
     """)
     script_path = "/tmp/configure-mint.py"
     Path(script_path).write_text(configure_script)
@@ -500,7 +500,7 @@ def select_test_mint(forced_mint: str = "auto") -> str:
                 r = Router(host=os.environ['TOLLGATE_SSH_HOST'], phone_ip='', phone_mac='', domain='',
                            backend=BackendConfig(os.environ.get('TOLLGATE_BACKEND', 'go')))
                 r.ssh('cat /etc/tollgate/config.json > /tmp/config.json.bak 2>/dev/null || true')
-                r.replace_mints(['{CDK_MINT_URL}'])
+                r.replace_mints(['{CDK_MINT_URL}'], force=True)
                 time.sleep(8)
                 code = r.api_status('/')
                 body = r.api_body('/') or ''

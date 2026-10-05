@@ -73,7 +73,7 @@ def _set_mints(router, urls: list[str]):
     assert on the actual process/API state.
     """
     try:
-        router.replace_mints(urls)
+        router.replace_mints(urls, force=True)
     except RuntimeError as exc:
         log.info("replace_mints raised (backend may have crashed on init): %s", exc)
 

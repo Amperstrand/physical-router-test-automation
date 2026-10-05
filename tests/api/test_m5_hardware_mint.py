@@ -12,7 +12,6 @@ rust): kind=1022 with allotment granted, second submit kind=21023.
 
 import json
 import os
-import time
 import urllib.error
 import urllib.request
 
@@ -45,23 +44,6 @@ def _tag(event: dict, name: str) -> str | None:
     return None
 
 
-def _wait_backend_ready(router_host: str, timeout: float = 45.0) -> None:
-    """The payment API answers during startup with a retry-hint body while
-    the wallet and mint health still load; wait for the kind=10021 ad."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(
-                f"http://{router_host}:2121/", timeout=5
-            ) as resp:
-                if json.loads(resp.read()).get("kind") == 10021:
-                    return
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
-            pass
-        time.sleep(2)
-    raise TimeoutError(f"backend ad not served within {timeout:.0f}s after restart")
-
-
 @pytest.fixture
 def m5_pinned_mints(router, m5_mint):
     """Add the M5 mint to accepted_mints for one test, restore after.
@@ -87,7 +69,7 @@ def m5_pinned_mints(router, m5_mint):
         })
         router.write_remote_json("/etc/tollgate/config.json", cfg)
         router.restart_backend()
-        _wait_backend_ready(os.environ["TOLLGATE_SSH_HOST"])
+        router.wait_for_backend_ad()
         changed = True
     yield mint_url
     if changed:

@@ -13,3 +13,4 @@ httpx
 tollgate-lab @ git+https://github.com/Amperstrand/tollgate-lab.git@main
 Pillow>=10.0
 websocket-client>=1.6
+shc-toolkit @ git+https://github.com/Amperstrand/shc-toolkit.git@main

@@ -43,7 +43,7 @@ def ensure_full_merchant_and_cleanup(router, mint_ip_map):
     output = router.ssh("iptables -L OUTPUT -n 2>/dev/null")
     if "REJECT" in output:
         for url, ip in mint_ip_map.items():
-            router.ssh(f"iptables -D OUTPUT -d {ip} -p tcp --dport 443 -j REJECT 2>/dev/null || true")
+            router.ssh(f"while iptables -C OUTPUT -d {ip} -p tcp --dport 443 -j REJECT 2>/dev/null; do iptables -D OUTPUT -d {ip} -p tcp --dport 443 -j REJECT; done 2>/dev/null || true")
         wait_for_full_merchant(router, timeout=120)
 
 

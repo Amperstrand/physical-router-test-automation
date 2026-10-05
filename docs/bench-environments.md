@@ -26,7 +26,8 @@ laptop or a human bridge.
 ## Environment 2 — laptop bench (mt3000-bench, the live/dev rig)
 
 **Where:** the field laptop's desk. The laptop is dual-homed: ethernet
-`192.168.1.2` on the router LAN + lab wifi.
+on the router LAN (DHCP — historically `.2`, observed `.127` on
+2026-09-30; don't hardcode the address) + lab wifi.
 
 **Devices:** the **GL-MT3000 "TollGate-326D" @ 192.168.1.1** (OpenWrt
 24.10, aarch64_cortex-a53 — MediaTek MT7981, same model family as Env 3's

@@ -29,6 +29,8 @@ import sys
 import tempfile
 import time
 import urllib.error
+
+import yaml
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,83 +39,14 @@ MINT_PORT = 8388
 PROXY_MINT = f"http://127.0.0.1:{PROXY_PORT}"
 
 
-# ── tiny YAML subset parser (matrix.yaml uses only maps/lists/strings) ──
+# ── matrix spec ────────────────────────────────────────────────────────
+# PyYAML is a framework requirement (the test framework imports it); the
+# spec is authored in the YAML subset safe_load handles.
+
+
 def load_matrix(path):
-    """Parse the small YAML subset the matrix uses (2-space maps, lists of
-    maps, inline lists). Returns a dict; deliberately minimal — the spec is
-    authored in that subset."""
-    import re
-
-    def parse_scalar(s):
-        s = s.strip()
-        if s.startswith("[") and s.endswith("]"):
-            inner = s[1:-1].strip()
-            return [parse_scalar(x) for x in inner.split(",")] if inner else []
-        if re.fullmatch(r"-?\d+", s):
-            return int(s)
-        if s in ("yes", "true"):
-            return True
-        if s in ("no", "false"):
-            return False
-        if s in ("pending-venue", "partial", "supported", "pending"):
-            return s
-        return s.strip('"').strip("'")
-
-    root = {}
-    stack = [(-1, root)]
-
-    def cur():
-        return stack[-1][1]
-
-    for raw in open(path):
-        line = raw.rstrip("\n")
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        body = line.strip()
-        while stack and indent <= stack[-1][0]:
-            stack.pop()
-        if body.startswith("- "):
-            # list item under the current key
-            key = last_key[-1]
-            item = {}
-            cur()[key].append(item)
-            stack.append((indent, item))
-            body = body[2:]
-            if ":" in body:
-                k, v = body.split(":", 1)
-                item[k.strip()] = parse_scalar(v)
-                last_key.append(k.strip())
-                last_key.pop()  # items don't nest keys via last_key
-                last_key.append(key)  # keep list context
-                last_key.pop()
-                # simpler: after item start, subsequent deeper keys append
-                stack_keys.append(key)
-                continue
-        if ":" in body:
-            k, v = body.split(":", 1)
-            k = k.strip()
-            v = v.strip()
-            if v == "":
-                # peek list vs map: next list item decides
-                cur()[k] = []
-                pending_is_list[k] = True
-                last_key.append(k)
-            else:
-                cur()[k] = parse_scalar(v)
-        last_key = getattr(sys.modules[__name__], "last_key", [])
-    return root
-
-
-# The minimal parser above is fragile; use PyYAML when available.
-try:
-    import yaml  # noqa: F401
-
-    def load_matrix(path):
-        with open(path) as f:
-            return yaml.safe_load(f)
-except ImportError:
-    pass  # the hand parser stands in (validated below)
+    with open(path) as f:
+        return yaml.safe_load(f)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────

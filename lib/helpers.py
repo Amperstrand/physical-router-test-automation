@@ -299,7 +299,10 @@ def is_full_merchant(router) -> bool:
     body = router.api_body("/")
     try:
         data = json.loads(body)
-        if data.get("kind") != 10021:
+        # 10021 is the canonical nostr ad kind; the deployed build line
+        # self-reports 21023 with identical price tags — accept both
+        # (the run-local health probe already greps "10021|21023").
+        if data.get("kind") not in (10021, 21023):
             return False
         tags = data.get("tags", [])
         return any(
@@ -311,12 +314,23 @@ def is_full_merchant(router) -> bool:
 
 
 def is_degraded(router) -> bool:
+    # kind 21023 is the NORMAL advertisement kind — every healthy ad has
+    # it, so keying on kind made wait_for_degraded return instantly and
+    # every dependent assert raced the degraded transition (transient
+    # empty ad bodies surfaced as JSONDecodeError). Degraded is signaled
+    # by the level/code TAGS (level=warning, code=no-reachable-mints).
     body = router.api_body("/")
     try:
         data = json.loads(body)
-        return data.get("kind") == 21023
     except json.JSONDecodeError:
         return False
+    if data.get("kind") != 21023:
+        return False
+    return any(
+        "no-reachable" in str(t).lower() or "degraded" in str(t).lower()
+        for tag in data.get("tags", [])
+        for t in tag
+    )
 
 
 def wait_for_full_merchant(router, timeout=120, interval=5):
@@ -329,13 +343,14 @@ def wait_for_full_merchant(router, timeout=120, interval=5):
 
 
 def wait_for_degraded(router, timeout=120, interval=5):
-    import re
+    # The old log-regex fallback matched STALE degraded lines (boot-time
+    # "Merchant started in degraded mode" persists in the last-500-lines
+    # window across the state-reset restart) and returned instantly,
+    # racing every dependent assert. The tag-based ad check is the
+    # authoritative live signal now that is_degraded keys on markers.
     deadline = time.time() + timeout
     while time.time() < deadline:
         if is_degraded(router):
-            return True
-        logs = router.get_tollgate_logs(lines=500)
-        if re.search(r"(degraded|no reachable mints|all mints unreachable)", logs, re.IGNORECASE):
             return True
         time.sleep(interval)
     return False

@@ -13,6 +13,35 @@ from lib.ssid import (
 
 log = logging.getLogger("tollgate.wifi")
 
+# Portal-render markers, dual-generation. Legacy portals expose `data-sm`
+# state attributes; the v0.6 SPA ships ZERO `data-sm` (live-verified
+# 2026-10-01, TollGate-326D) — its markers are the submit copy and the
+# tab-state attributes data-active/disabled/hidden (DOM contract in
+# tests/browser/portal-*.spec.mjs). Authed v0.6 markers mirror the proven
+# list in lib/clients/container.py; bare "connected" is deliberately
+# excluded (Android settings chrome shows it while the portal is in the
+# foreground).
+PORTAL_LOADED_RE = re.compile(
+    r'data-sm="[^"]*"'
+    r'|Tollgate Captive Portal'
+    r'|TollGate.*portal_ready'
+    r'|Purchase Internet Access'
+    r'|data-(?:active|disabled|hidden)="[^"]*"'
+)
+PORTAL_INPUT_READY_RE = re.compile(
+    r'data-sm="(?:portal_ready|token_typing)"'
+    r'|Purchase Internet Access'
+    r'|Pay \d+.*to get'
+)
+PORTAL_AUTHED_RE = re.compile(
+    r'data-sm="(?:authed|countdown|usage_dashboard)"'
+    r'|remaining'
+    r'|thank you'
+    r'|success'
+    r'|session active',
+    re.IGNORECASE,
+)
+
 
 def _is_desktop_client(adb):
     return getattr(adb, "is_desktop", False)
@@ -263,9 +292,7 @@ class WiFi:
             log.info("Portal detection skipped")
             return True
 
-        return self._open_portal_on_phone(
-            r'data-sm="[^"]*"|Tollgate Captive Portal|TollGate.*portal_ready',
-        )
+        return self._open_portal_on_phone(PORTAL_LOADED_RE)
 
     def _get_portal_host(self) -> str:
         portal_host = os.environ.get("TOLLGATE_PORTAL_HOST")
@@ -409,9 +436,12 @@ class WiFi:
         start = time.time()
         while time.time() - start < timeout:
             xml = self.adb.ui_xml()
-            sm = re.search(r'data-sm="(portal_ready|token_typing)"', xml)
-            if sm:
-                log.info(f"Portal ready for input (state: {sm.group(1)})")
+            if PORTAL_INPUT_READY_RE.search(xml):
+                sm = re.search(r'data-sm="(portal_ready|token_typing)"', xml)
+                if sm:
+                    log.info(f"Portal ready for input (state: {sm.group(1)})")
+                else:
+                    log.info("Portal ready for input (v0.6 markers)")
                 break
             time.sleep(3)
         else:
@@ -498,11 +528,16 @@ class WiFi:
         start = time.time()
         while time.time() - start < timeout:
             xml = self.adb.ui_xml()
-            sm = re.search(r'data-sm="(authed|countdown|usage_dashboard)"', xml)
-            if sm:
-                log.info(
-                    f"Portal reached authenticated state '{sm.group(1)}' after {int(time.time()-start)}s"
-                )
+            if PORTAL_AUTHED_RE.search(xml):
+                sm = re.search(r'data-sm="(authed|countdown|usage_dashboard)"', xml)
+                if sm:
+                    log.info(
+                        f"Portal reached authenticated state '{sm.group(1)}' after {int(time.time()-start)}s"
+                    )
+                else:
+                    log.info(
+                        f"Portal reached authenticated state (v0.6 markers) after {int(time.time()-start)}s"
+                    )
                 return True
             time.sleep(3)
 
@@ -535,6 +570,6 @@ class WiFi:
             return False
 
         return self._open_portal_on_phone(
-            r'data-sm="(portal_ready|token_typing)"',
+            PORTAL_INPUT_READY_RE,
             timeout=30,
         )

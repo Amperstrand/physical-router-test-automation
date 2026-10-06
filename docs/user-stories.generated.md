@@ -4,8 +4,8 @@
      on the tests. Do not edit by hand; regenerate instead.
      Hand-written narrative version: docs/user-stories.md -->
 
-- test files carrying marks: **23**
-- stories with at least one proving test: **18/39**
+- test files carrying marks: **34**
+- stories with at least one proving test: **27/39**
 - TIPs exercised: **2** (TIP-01, TIP-02)
 
 Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
@@ -15,8 +15,8 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | ID | Story | Proving tests | Status |
 |----|-------|---------------|--------|
 | G1 | Captive portal appears on join | `tests/api/test_captive_api.py`<br>`tests/api/test_portal_verify.py` | Covered |
-| G2 | Pay with a Cashu token, get internet | `tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_local_payment.py` | Covered |
-| G3 | v0.6 portal generation stays supported | — | Gap |
+| G2 | Pay with a Cashu token, get internet | `tests/api/test_e2e_payment_auth_delay.py`<br>`tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_local_payment.py` | Covered |
+| G3 | v0.6 portal generation stays supported | `tests/unit/test_portal_markers.py` | Covered |
 | G4 | Expired session offers honest renewal | — | Gap |
 | G5 | Portal works on a real phone | `tests/phone/test_rig_phone_payment.py` | Covered |
 | G6 | Balance visible while session live | `tests/api/test_balance_page_reachable.py` | Covered |
@@ -28,11 +28,11 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | ID | Story | Proving tests | Status |
 |----|-------|---------------|--------|
 | O1 | Serves degraded when mints unreachable | `tests/api/test_cli_degraded_operations.py`<br>`tests/api/test_degraded_mode.py`<br>`tests/api/test_degraded_portal.py` | Covered |
-| O2 | One dead mint never blocks purchases | `tests/api/test_dual_mint.py` | Covered |
+| O2 | One dead mint never blocks purchases | `tests/api/test_dual_mint.py`<br>`tests/api/test_lightning_backoff.py` | Covered |
 | O3 | No zombie service after restart | — | Gap |
 | O4 | Config survives edits without reset | — | Gap |
-| O5 | Firmware wizard completes or fails loudly | — | Gap |
-| O6 | UCI use-cases apply and verify | — | Gap |
+| O5 | Firmware wizard completes or fails loudly | `installer/test_installer_e2e.py` | Covered |
+| O6 | UCI use-cases apply and verify | `conwrt/test_use_cases.py` | Covered |
 | O7 | Device-mint runs in RAM, no flash wear | `tests/api/test_m5_hardware_mint.py` | Covered |
 | O8 | Admin surfaces scoped as intended | `tests/api/test_admin_luci_ports.py`<br>`tests/api/test_admin_portal_visual.py` | Covered |
 
@@ -45,7 +45,7 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | M3 | Concurrent purchases serialize | `tests/api/test_concurrent_payments.py` | Covered |
 | M4 | Swap fees accounted in payouts | `tests/api/test_edge_tokens.py` | Covered |
 | M5 | Errors never leak internals | `tests/api/test_error_sanitization.py` | Covered |
-| M6 | Profit-share identities round-trip | — | Gap |
+| M6 | Profit-share identities round-trip | `tests/api/test_config_save_identities.py` | Covered |
 
 ## Operator — “The bench tells me the truth”
 
@@ -53,12 +53,12 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 |----|-------|---------------|--------|
 | P1 | Read-only live battery against a router | — | Gap |
 | P2 | Mint ads validated, dead mints filtered | `tests/api/test_discovery_mints.py` | Covered |
-| P3 | Not-ready vs dead backend distinguishable | — | Gap |
+| P3 | Not-ready vs dead backend distinguishable | `tests/unit/test_backend_readiness.py` | Covered |
 | P4 | Tests cannot mutate a live DUT | — | Gap |
 | P5 | Runs leave reviewable evidence films | — | Gap |
 | P6 | Destructive steps gated on device identity | — | Gap |
 | P7 | Mock and live present one interface | — | Gap |
-| P8 | Mint replacement is explicit | — | Gap |
+| P8 | Mint replacement is explicit | `tests/unit/test_replace_mints_guard.py` | Covered |
 | P9 | Two-router scenarios in the cloud lab | — | Gap |
 | P10 | NDS state untouched while sessions live | — | Gap |
 
@@ -69,10 +69,10 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | R1 | Go and Rust modules behave identically | `tests/api/test_go_rust_basic_parity.py` | Covered |
 | R2 | Cashu/NUT matrix enforced | `tests/api/test_cashu_compat_matrix.py` | Covered |
 | R3 | Wire formats stable across releases | `tests/api/test_gateway_token_format.py` | Covered |
-| R4 | FIPS exit path exercised | — | Gap |
+| R4 | FIPS exit path exercised | `tests/api/test_fips_exit_node.py` | Covered |
 | R5 | Conformance green before publish | — | Gap |
-| R6 | Real RNG everywhere | — | Gap |
-| R7 | Embedded portal equals served portal | — | Gap |
+| R6 | Real RNG everywhere | `tests/api/test_crypto_rand_password.py` | Covered |
+| R7 | Embedded portal equals served portal | `tests/api/test_embedded_portal.py` | Covered |
 
 ## TIP conformance matrix
 

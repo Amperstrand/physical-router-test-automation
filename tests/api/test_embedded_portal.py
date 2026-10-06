@@ -14,6 +14,9 @@ import time
 
 import pytest
 
+pytestmark = [pytest.mark.story("R7")]
+
+
 pytestmark = pytest.mark.api
 
 

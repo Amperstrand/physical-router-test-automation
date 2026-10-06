@@ -63,7 +63,7 @@ def configure_fake_mint(router, fake_mint_502):
         "min_payout_amount": 999999,
         "price_per_step": 1,
         "price_unit": "sat",
-        "purchase_min_steps": 0,
+        "purchase_min_steps": 1,
     }]
 
     router.write_remote_json("/etc/tollgate/config.json", cfg, indent=None)

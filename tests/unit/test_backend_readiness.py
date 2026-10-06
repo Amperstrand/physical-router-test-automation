@@ -9,6 +9,9 @@ import pytest
 
 from lib.router import Router
 
+pytestmark = [pytest.mark.story("P3")]
+
+
 AD_BODY = '{"kind":10021,"content":"ad","tags":[["price_per_step","1"]]}'
 STARTING_BODY = '{"retry_after":5,"message":"This TollGate is starting up…"}'
 GATEWAY_HTML = "<html>502 Bad Gateway</html>"

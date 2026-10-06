@@ -245,7 +245,7 @@ max_delay_time = 0
                                    "balance_tolerance_percent": 0,
                                    "payout_interval_seconds": 36000,
                                    "min_payout_amount": 0, "price_per_step": 1,
-                                   "price_unit": "sats", "purchase_min_steps": 0}],
+                                   "price_unit": "sats", "purchase_min_steps": 1}],
                "profit_share": [{"factor": 1.0, "identity": "owner"}]}
         open(os.path.join(cfg, "config.json"), "w").write(json.dumps(doc))
         env = dict(**os.environ, TOLLGATE_TEST_CONFIG_DIR=cfg)

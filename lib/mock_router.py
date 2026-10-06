@@ -100,7 +100,7 @@ MOCK_CONFIG = {
             "min_payout_amount": 0,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
         }
     ],
     "profit_share": [{"factor": 1.0, "identity": "owner"}],
@@ -633,7 +633,7 @@ class MockRouter(Router):
 
         # --- nslookup ---
         if "nslookup" in cmd_lower:
-            return f"Server: 127.0.0.1\nAddress: 127.0.0.1\n\nName: testnut.cashu.exchange\nAddress: 1.2.3.4"
+            return "Server: 127.0.0.1\nAddress: 127.0.0.1\n\nName: testnut.cashu.exchange\nAddress: 1.2.3.4"
 
         # --- wget/curl on localhost (for internal API calls via SSH) ---
         if ("wget" in cmd_lower or "curl" in cmd_lower) and ("127.0.0.1" in cmd_lower or "[::1]" in cmd_lower):

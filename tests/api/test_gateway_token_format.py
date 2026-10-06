@@ -218,7 +218,7 @@ def setup_gateway(gateway_ip: str, verbose: bool = False) -> bool:
         "min_payout_amount": 999999,
         "price_per_step": 1,
         "price_unit": "sats",
-        "purchase_min_steps": 0,
+        "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
     }
     accepted_mints.append(testnut_entry)
     config["accepted_mints"] = accepted_mints
@@ -487,7 +487,7 @@ def run_tests(gateway_ip: str, verbose: bool = False) -> list[TestResult]:
     code_ssh, config_out = ssh_cmd(gateway_ip, f"cat {CONFIG_PATH}")
     passed = TEST_MINT in config_out
     detail = f"testnut in config: {passed}" if verbose else ""
-    results.append(TestResult(f"Gateway config includes testnut mint", passed, detail))
+    results.append(TestResult("Gateway config includes testnut mint", passed, detail))
 
     # ── Test 10: V3 token decodes to valid JSON structure ─────
     v3 = build_v3_token(TEST_MINT, TEST_KEYSET_ID)

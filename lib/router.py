@@ -919,7 +919,7 @@ class Router:
             "min_payout_amount": 0,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,
         })
         tmp = "/tmp/config-testmint.json"
         with open(tmp, "w") as f:
@@ -984,7 +984,7 @@ class Router:
                 "min_payout_amount": 0,
                 "price_per_step": 1,
                 "price_unit": "sat",
-                "purchase_min_steps": 0,
+                "purchase_min_steps": 1,
             })
         
         cfg["accepted_mints"] = new_mints

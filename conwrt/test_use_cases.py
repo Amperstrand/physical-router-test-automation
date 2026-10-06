@@ -39,7 +39,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.api]
+pytestmark = [
+    pytest.mark.story("O6"),pytest.mark.api]
 
 CONWRT_REPO = Path(os.environ.get("CONWRT_REPO", str(Path.home() / "src" / "conwrt")))
 

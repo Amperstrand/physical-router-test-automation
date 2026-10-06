@@ -106,7 +106,8 @@ EXIT_SUDO = os.environ.get("FIPS_EXIT_SUDO", "").strip().lower() in (
 # ``api`` marker: these tests target an external VPS, not the TollGate router
 # API, and the ``api`` marker would couple them to the container NDS preflight
 # (lib/conftest ``container_nds_preflight``) which assumes a live router.
-pytestmark = [pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("R4"),pytest.mark.extended]
 
 
 # ---------------------------------------------------------------------------

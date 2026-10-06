@@ -37,7 +37,7 @@ def _write_single_mint_config(router, mint_url: str):
             "min_payout_amount": 999999,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,
         }
     ]
 

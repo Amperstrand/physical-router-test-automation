@@ -130,7 +130,7 @@ def test_bad_mint_handled_gracefully(router, config):
         "min_payout_amount": 999999999,
         "price_per_step": 1,
         "price_unit": "sat",
-        "purchase_min_steps": 0,
+        "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
     }
 
     modified = json.loads(original_cfg)

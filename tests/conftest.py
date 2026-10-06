@@ -642,20 +642,30 @@ def cashu():
 
 @pytest.fixture(scope="session")
 def m5_mint():
-    """M5 Atom hardware Cashu mint, when one is attached over USB serial.
+    """M5 Atom hardware Cashu mint, when one is available.
 
-    Skips the test when no device is present, so M5-backed tests are
-    additive on benches that have the Atom and invisible elsewhere.
+    Local mode: device attached over USB serial (skips when absent).
+    Labgrid mode (TOLLGATE_M5_LABGRID_PLACE): acquires the place for
+    exclusive use and releases it at session end — the supported
+    shared-bench path so lanes never fight over the stick.
+
+    Skips the test when the mint is unavailable (including when another
+    lane holds the labgrid place), so M5-backed tests are additive on
+    benches that have the device and invisible elsewhere.
     """
     from lib.m5 import M5Mint, M5MintUnavailable
 
+    mint = None
     try:
         mint = M5Mint.from_env()
         url = mint.ensure_online()
     except M5MintUnavailable as exc:
+        if mint is not None:
+            mint.release()
         pytest.skip(f"M5 hardware mint unavailable: {exc}")
     log.info("M5 hardware mint online: %s (keyset %s)", url, mint.keyset_id())
-    return mint
+    yield mint
+    mint.release()
 
 
 @pytest.fixture(scope="session")

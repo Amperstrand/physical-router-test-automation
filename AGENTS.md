@@ -1479,7 +1479,18 @@ PRTA integration (verified live 2026-09-30 on router 326D, rust v0.6.0-alpha4):
   override with `TOLLGATE_M5_PORT`), status parsing, health probe, and
   `M5Minter(HttpMinter)` which trusts a born-PAID quote-create and only polls
   the quote GET when the create response is not PAID (works on all fw versions).
-- `m5_mint` fixture (session) — skips tests when no Atom is attached.
+- **Labgrid mode (the shared-bench path — always prefer it)**: set
+  `TOLLGATE_M5_LABGRID_PLACE=<place>` (e.g. `m5stick` on coordinator
+  ai-legion; any place exporting a SerialPort with an ESP32-class CLI works).
+  The client acquires the place for exclusive use, drives the console via
+  `ssh $TOLLGATE_LABGRID_HOST labgrid-client -p <place> console` (default
+  host `ai-legion` — the coordinator is NOT reachable from test hosts, all
+  labgrid traffic goes through the exporter host), and releases on session
+  teardown. A held place raises `M5MintUnavailable` naming the holder →
+  tests skip visibly instead of fighting over hardware. Identity/flashing
+  still runs esptool on the exporter host over SSH while the place is held.
+- `m5_mint` fixture (session) — skips tests when no Atom is attached;
+  releases the labgrid place on teardown.
 - `tests/api/test_m5_hardware_mint.py` — pins the M5 into `accepted_mints`
   (config+wallet.db backed up, restored), mints from hardware, pays → `kind=1022`,
   double-spends → `kind=21023`. Marker: `api critical hardware`.

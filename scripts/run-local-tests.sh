@@ -255,7 +255,7 @@ assert_venue_config() {
   # either one poisons later files with 'No reachable mints' responses.
   local cur rejects
   rejects=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
-    "iptables -L OUTPUT -n 2>/dev/null | grep -c REJECT")
+    "iptables -L OUTPUT -n 2>/dev/null | grep -c REJECT" 2>/dev/null || echo 0)
   if [ "${rejects:-0}" != "0" ]; then
     log "Sweeping ${rejects} leftover REJECT rule(s) before ${1:-file}"
     sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
@@ -263,7 +263,7 @@ assert_venue_config() {
       2>/dev/null || true
   fi
   cur=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
-    "jq -r '.accepted_mints[0].url' /etc/tollgate/config.json 2>/dev/null")
+    "jq -r '.accepted_mints[0].url' /etc/tollgate/config.json 2>/dev/null" 2>/dev/null || echo "")
   if [ "${cur}" != "${MINT_URL}" ]; then
     log "Venue config drifted (accepted_mints[0]=${cur:-none}) — re-asserting local mint"
     configure_mint

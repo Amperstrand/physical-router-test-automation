@@ -1,5 +1,13 @@
 # User Stories — TollGate under test
 
+> **Mapping is machine-generated**: the story→test→TIP table lives in
+> `docs/user-stories.generated.md`, rendered from the `pytest.mark.story` /
+> `pytest.mark.tip` marks on the tests themselves
+> (`python3 scripts/story-coverage.py`). This file is the narrative source:
+> personas, story intent, acceptance context, and the gap register. Select a
+> story's tests with `pytest --story <ID>`; run a TIP's conformance battery
+> with `pytest --tip <TIP-xx>`.
+
 The personas and stories this suite serves. Every story maps to the tests that
 prove it (or marks the gap). Status: **Covered** (a test owns it), **Partial**
 (some coverage, known gaps), **Gap** (no test yet), **HW-gated** (needs the

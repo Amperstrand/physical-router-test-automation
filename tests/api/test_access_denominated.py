@@ -6,7 +6,9 @@ import time
 import pytest
 
 log = logging.getLogger("tollgate.api.access_denominated")
-pytestmark = [pytest.mark.api, pytest.mark.config, pytest.mark.slow]
+pytestmark = [
+    pytest.mark.story("M1"),
+    pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.config, pytest.mark.slow]
 
 SUCCESS_KINDS = (10021, 21000, 1022)
 

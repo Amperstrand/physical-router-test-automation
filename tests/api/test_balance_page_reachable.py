@@ -24,7 +24,8 @@ setTimeout before redirect may never fire.
 import pytest
 import re
 
-pytestmark = [pytest.mark.go_only, pytest.mark.api]
+pytestmark = [
+    pytest.mark.story("G6"),pytest.mark.go_only, pytest.mark.api]
 
 
 def _net4sats_layout_present(router) -> bool:

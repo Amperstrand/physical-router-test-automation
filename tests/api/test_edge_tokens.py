@@ -3,7 +3,9 @@
 import pytest
 from lib.helpers import is_session_event, require_client_identity, is_degraded
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("M4"),
+    pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended]
 
 
 @pytest.mark.extended

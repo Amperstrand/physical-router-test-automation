@@ -39,6 +39,7 @@ from lib.helpers import assert_internet, assert_session_active
 log = logging.getLogger("tollgate.test_rig_phone_payment")
 
 pytestmark = [
+    pytest.mark.story("G5"),
     pytest.mark.phone,
     pytest.mark.physical_hardware,
     pytest.mark.slow,

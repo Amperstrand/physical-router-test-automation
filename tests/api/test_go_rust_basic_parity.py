@@ -31,7 +31,8 @@ from typing import Any
 import pytest
 import requests
 
-pytestmark = [pytest.mark.parity, pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("R1"),pytest.mark.parity, pytest.mark.api, pytest.mark.extended]
 
 # ---------------------------------------------------------------------------
 # Configuration constants

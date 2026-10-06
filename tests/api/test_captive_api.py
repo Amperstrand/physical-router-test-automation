@@ -2,7 +2,8 @@ import json
 import pytest
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [
+    pytest.mark.story("G1"),pytest.mark.api, pytest.mark.smoke]
 
 
 def _captive_api_available(router):

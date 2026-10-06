@@ -31,7 +31,8 @@ from lib.helpers import parse_json_or_fail, skip_if_no_mint_health_tracker as _s
 
 log = logging.getLogger("tollgate.degraded_mode")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
+pytestmark = [
+    pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
 
 SERVICE_RESTART_WAIT = 10
 HEALTH_POLL_INTERVAL = 5

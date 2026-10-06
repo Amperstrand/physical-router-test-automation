@@ -25,7 +25,8 @@ import subprocess
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.physical_only]
+pytestmark = [
+    pytest.mark.story("G8"),pytest.mark.api, pytest.mark.physical_only]
 
 BASH_CLIENT_REPO = "https://github.com/sh1ftred/tollgate-bash-client"
 BASH_CLIENT_BRANCH = "feature/openwrt-service-mode"

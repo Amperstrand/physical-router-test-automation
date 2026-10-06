@@ -1,3 +1,4 @@
+import pytest
 #!/usr/bin/env python3
 """
 TollGate Gateway Token Format Smoke Tests (x86)
@@ -35,6 +36,12 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
+
+pytestmark = [
+pytest.mark.story("R3"),
+pytest.mark.tip("TIP-02"),
+]
+
 
 # cbor2 for generating proper V4 tokens
 try:

@@ -20,7 +20,8 @@ import pytest
 
 from lib.constants import TOKEN_DEFAULT
 
-pytestmark = [pytest.mark.api, pytest.mark.critical, pytest.mark.hardware]
+pytestmark = [
+    pytest.mark.story("O7"),pytest.mark.api, pytest.mark.critical, pytest.mark.hardware]
 
 
 def _pay(router_host: str, token: str, timeout: int = 20) -> dict:

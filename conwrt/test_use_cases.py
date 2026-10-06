@@ -246,18 +246,18 @@ USE_CASES = [
     }),
     ("tollgate-security", {
         "configure": [
-            "uci set firewall.Block-LAN-To-RFC1918-10=rule",
-            "uci set firewall.Block-LAN-To-RFC1918-10.name='Block-LAN-To-RFC1918-10'",
-            "uci set firewall.Block-LAN-To-RFC1918-10.src='lan'",
-            "uci set firewall.Block-LAN-To-RFC1918-10.dest='wan'",
-            "uci set firewall.Block-LAN-To-RFC1918-10.dest_ip='10.0.0.0/8'",
-            "uci set firewall.Block-LAN-To-RFC1918-10.proto='all'",
-            "uci set firewall.Block-LAN-To-RFC1918-10.target='DROP'",
+            "uci set firewall.Block_LAN_To_RFC1918_10=rule",
+            "uci set firewall.Block_LAN_To_RFC1918_10.name='Block_LAN_To_RFC1918_10'",
+            "uci set firewall.Block_LAN_To_RFC1918_10.src='lan'",
+            "uci set firewall.Block_LAN_To_RFC1918_10.dest='wan'",
+            "uci set firewall.Block_LAN_To_RFC1918_10.dest_ip='10.0.0.0/8'",
+            "uci set firewall.Block_LAN_To_RFC1918_10.proto='all'",
+            "uci set firewall.Block_LAN_To_RFC1918_10.target='DROP'",
             "uci commit firewall",
         ],
         "verify": [
-            ("uci show firewall.Block-LAN-To-RFC1918-10", "DROP"),
-            ("uci show firewall.Block-LAN-To-RFC1918-10", "10.0.0.0/8"),
+            ("uci show firewall.Block_LAN_To_RFC1918_10", "DROP"),
+            ("uci show firewall.Block_LAN_To_RFC1918_10", "10.0.0.0/8"),
         ],
         "packages": [],
     }),
@@ -323,18 +323,29 @@ USE_CASES = [
 
 
 def _install_packages(ssh_router, packages):
-    """Install packages via opkg or apk."""
+    """Install packages via opkg or apk; report failures with real output."""
     if not packages:
-        return
-    ssh_router("opkg update 2>/dev/null || apk update 2>/dev/null", timeout=60)
+        return []
+    failures = []
+    ssh_router("opkg update 2>&1 || apk update 2>&1", timeout=60)
     for pkg in packages:
-        ssh_router(f"opkg install {pkg} 2>/dev/null || apk add {pkg} 2>/dev/null", timeout=120)
+        out = ssh_router(
+            f"opkg install {pkg} 2>&1 || apk add {pkg} 2>&1 || echo INSTALL_FAILED_{pkg}",
+            timeout=120,
+        )
+        if f"INSTALL_FAILED_{pkg}" in out:
+            failures.append(f"{pkg}: {out.strip()[:300]}")
+    return failures
 
 
 @pytest.mark.parametrize("use_case_name,use_case_config", USE_CASES, ids=[uc[0] for uc in USE_CASES])
 def test_use_case(ssh_router, use_case_name, use_case_config):
     """Apply a conwrt use case and verify the configuration."""
-    _install_packages(ssh_router, use_case_config["packages"])
+    install_failures = _install_packages(ssh_router, use_case_config["packages"])
+    assert not install_failures, (
+        f"{use_case_name}: package installation failed (verification would "
+        f"otherwise fail later with empty output):\n" + "\n".join(install_failures)
+    )
 
     for cmd in use_case_config["configure"]:
         ssh_router(cmd, timeout=15)

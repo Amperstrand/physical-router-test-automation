@@ -1,5 +1,13 @@
 # gitleaks allowlist — every entry has a reason and a destination.
 # Entries without a tracking destination get deleted, not extended.
+#
+# NOTE: a repo config REPLACES gitleaks' built-in ruleset unless it
+# explicitly extends it — before [extend] useDefault was added, every
+# scan using this config ran with ZERO detection rules (the allowlists
+# below were muting a scanner that could not detect anything).
+[extend]
+useDefault = true
+
 
 [[allowlists]]
 description = "Historical backup of lab router credentials, committed 2026-07-01 (9571be288) and removed from tracking since. The password is publicly retrievable from git history until the lab routers are verified/rotated — tracked in the audit issue. Path-scoped: no secret material appears at HEAD; the tradeoff (a re-added file under this name would scan silent) is accepted because the filename is a backup artifact that should never exist again."

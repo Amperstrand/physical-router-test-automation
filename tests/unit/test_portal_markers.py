@@ -4,11 +4,15 @@ Pins the dual-generation detection in lib/clients/wifi.py: legacy portals
 expose data-sm state attributes; the v0.6 SPA ships none and is detected
 via submit copy + tab-state attributes instead.
 """
+import pytest
+
 from lib.clients.wifi import (
     PORTAL_AUTHED_RE,
     PORTAL_INPUT_READY_RE,
     PORTAL_LOADED_RE,
 )
+
+pytestmark = [pytest.mark.story("G3")]
 
 LEGACY_PORTAL_XML = (
     '<node class="android.webkit.WebView" text="Tollgate Captive Portal">'

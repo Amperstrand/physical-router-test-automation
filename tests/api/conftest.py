@@ -106,7 +106,7 @@ def rust_basic_server():
                 "min_payout_amount": 0,
                 "price_per_step": 1,
                 "price_unit": "sat",
-                "purchase_min_steps": 0,
+                "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
             }
         ],
         "profit_share": [{"factor": 1.0, "identity": "owner"}],

@@ -1,7 +1,8 @@
 import json
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
+pytestmark = [
+    pytest.mark.story("M6"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
 
 
 def _skip_if_no_json_cli(router):

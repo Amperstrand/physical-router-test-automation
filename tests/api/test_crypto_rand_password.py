@@ -22,7 +22,8 @@ import pytest
 
 log = logging.getLogger("tollgate.crypto_rand_password")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("R6"),pytest.mark.api, pytest.mark.extended]
 
 # Expected password pattern: CapitalWord-CapitalWord-CapitalWord-DD+
 WPA2_PASSWORD_RE = re.compile(r'^[A-Z][a-z]+-[A-Z][a-z]+-[A-Z][a-z]+-\d{2,}$')

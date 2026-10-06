@@ -10,6 +10,9 @@ import pytest
 
 from lib.router import Router
 
+pytestmark = [pytest.mark.story("P8")]
+
+
 CONFIG_TMPL = '{{"accepted_mints": [{mints}]}}'
 
 

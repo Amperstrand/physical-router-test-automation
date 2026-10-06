@@ -61,7 +61,7 @@ def _set_mints(router, mint_urls):
             "min_payout_amount": 999999,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
         })
     cfg["accepted_mints"] = new_mints
     router.write_remote_json("/etc/tollgate/config.json", cfg)

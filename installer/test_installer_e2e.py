@@ -15,7 +15,8 @@ from lab_vm import VM_IP
 
 LN_ADDRESS = "tollgate@minibits.cash"
 
-pytestmark = [pytest.mark.installer, pytest.mark.virtual_lab, pytest.mark.slow]
+pytestmark = [
+    pytest.mark.story("O5"),pytest.mark.installer, pytest.mark.virtual_lab, pytest.mark.slow]
 
 
 @pytest.mark.timeout(240)

@@ -66,7 +66,7 @@ def m5_pinned_mints(router, m5_mint):
             "min_payout_amount": 0,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
         })
         router.write_remote_json("/etc/tollgate/config.json", cfg)
         router.restart_backend()

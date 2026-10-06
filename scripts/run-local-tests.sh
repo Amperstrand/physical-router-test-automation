@@ -249,7 +249,19 @@ configure_mint() {
 }
 
 assert_venue_config() {
-  local cur
+  # Two drift classes seen mid-suite (2026-10-05/06): config churn
+  # (multi-mint templates rotating back in) and iptables REJECT debris
+  # from degraded fixtures that pytest-timeout killed BEFORE teardown —
+  # either one poisons later files with 'No reachable mints' responses.
+  local cur rejects
+  rejects=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+    "iptables -L OUTPUT -n 2>/dev/null | grep -c REJECT")
+  if [ "${rejects:-0}" != "0" ]; then
+    log "Sweeping ${rejects} leftover REJECT rule(s) before ${1:-file}"
+    sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
+      "while iptables -L OUTPUT -n 2>/dev/null | grep -q REJECT; do R=\$(iptables -L OUTPUT -n --line-numbers | awk '/REJECT/{print \$1; exit}'); iptables -D OUTPUT \$R; done" \
+      2>/dev/null || true
+  fi
   cur=$(sshpass -p "${PASSWORD}" ssh -o StrictHostKeyChecking=no "root@${OPENWRT_IP}" \
     "jq -r '.accepted_mints[0].url' /etc/tollgate/config.json 2>/dev/null")
   if [ "${cur}" != "${MINT_URL}" ]; then

@@ -15,7 +15,7 @@ paths = ['''(^|/)\.env\.lab-routers-backup$''']
 
 [[allowlists]]
 description = "Cashu test fixtures: literal fake tokens and base64 demo payloads in unit/API tests and scripts (verify-issue5-v4.mjs TEST_TOKEN, secret-scanner fixtures, portal demoToken, compat-matrix classification strings)."
-regexTarget = "secret"
+regexTarget = "match"
 regexes = [
   '''cashuBtest123XYZ''',
   '''cashuAeyJ0b2tlbiI6W3sibWludCI6[a-zA-Z0-9+/=]*''',
@@ -27,7 +27,7 @@ regexes = [
 
 [[allowlists]]
 description = "Sample/dummy values: the Sec-WebSocket-Key sample nonce (base64 of 'the sample nonce') in nut-auditor types, the token-recovery test hex, and the keyboard-mash example password in firmware docs."
-regexTarget = "secret"
+regexTarget = "match"
 regexes = [
   '''dGhlIHNhbXBsZSBub25jZQ==''',
   '''0279110f[a-f0-9]*''',

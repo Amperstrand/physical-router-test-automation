@@ -864,6 +864,9 @@ class MockRouter(Router):
     def _wait_for_backend(self, timeout: int = 15):
         pass
 
+    def wait_for_backend_ad(self, timeout: float = 45.0, interval: float = 2.0) -> None:
+        pass
+
     def wait_for_cli_socket(self, timeout: int = 30, interval: int = 1) -> bool:
         return True
 

@@ -736,14 +736,35 @@ class Router:
         self.restart_backend()
         self._wait_for_backend()
 
-    def _wait_for_backend(self, timeout: int = 15):
-        start = time.time()
-        while time.time() - start < timeout:
-            code = self.api_status("/")
-            if code == 200:
-                return
-            time.sleep(1)
-        log.warning(f"Backend not healthy after {timeout}s")
+    def wait_for_backend_ad(self, timeout: float = 45.0, interval: float = 2.0) -> None:
+        """Block until the backend serves its kind=10021 pricing ad.
+
+        The payment API answers HTTP during startup with a retry-hint body
+        ("This TollGate is starting up… retry_after: 5") while the wallet
+        and mint health still load — an HTTP answer is NOT readiness
+        (readiness ≠ liveness). Raises TimeoutError if the ad is not
+        served within `timeout` seconds.
+        """
+        deadline = time.monotonic() + timeout
+        url = self.backend_url("/")
+        while time.monotonic() < deadline:
+            try:
+                # Any single probe failing (SSH blip, empty/garbage body,
+                # non-JSON "starting" body) just means not-ready-yet; poll
+                # until the deadline.
+                body = self.ssh(f"curl -s -m 5 '{url}'", timeout=10)
+                if json.loads(body).get("kind") == 10021:
+                    return
+            except Exception:
+                pass
+            time.sleep(interval)
+        raise TimeoutError(f"backend ad (kind=10021) not served within {timeout:.0f}s")
+
+    def _wait_for_backend(self, timeout: int = 45):
+        try:
+            self.wait_for_backend_ad(timeout=timeout)
+        except TimeoutError as exc:
+            log.warning(f"Backend not healthy after {timeout}s: {exc}")
 
     def wait_for_cli_socket(self, timeout: int = 30, interval: int = 1) -> bool:
         """Poll for CLI socket readiness after backend restart.

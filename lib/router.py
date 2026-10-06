@@ -929,14 +929,29 @@ class Router:
         self.restart_backend()
         log.info(f"Added {TEST_MINT_URL} to accepted mints, restarted backend")
 
-    def replace_mints(self, mint_urls: list[str] | None = None):
+    def replace_mints(self, mint_urls: list[str] | None = None, force: bool = False):
         """Replace all accepted mints with only the specified URLs.
-        
+
+        Destructive by design — discards every currently accepted mint.
+        Two guards against the 2026-10-01 incident class, where a bare
+        call on a commissioned router silently rewrote an 8-mint
+        accepted_mints to [TEST_MINT_URL]:
+
+        * mint_urls is required; None raises instead of defaulting to
+          [TEST_MINT_URL].
+        * Shrinking more than one accepted mint down to exactly one
+          requires force=True.
+
         Args:
-            mint_urls: List of mint URLs to use. Defaults to [TEST_MINT_URL].
+            mint_urls: List of mint URLs to use (required).
+            force: Allow the >1 -> 1 shrink.
         """
         if mint_urls is None:
-            mint_urls = [TEST_MINT_URL]
+            raise ValueError(
+                "replace_mints requires an explicit mint_urls list — a bare call "
+                "silently rewrites accepted_mints to [TEST_MINT_URL] "
+                "(incident 2026-10-01)"
+            )
 
         # Read current config
         cfg_raw = self.ssh("cat /etc/tollgate/config.json")
@@ -948,6 +963,15 @@ class Router:
         except json.JSONDecodeError:
             log.warning("Config not valid JSON, skipping mint replacement: %s", cfg_raw[:100])
             return
+
+        current_mints = cfg.get("accepted_mints", [])
+        if len(current_mints) > 1 and len(mint_urls) == 1 and not force:
+            current = ", ".join(sorted(m.get("url", "") for m in current_mints))
+            raise ValueError(
+                f"refusing to shrink {len(current_mints)} accepted mints to 1 "
+                f"({mint_urls[0]}) — current: [{current}]; pass force=True if "
+                "this deliberate reset is intended"
+            )
         
         # Build new accepted_mints list
         new_mints = []

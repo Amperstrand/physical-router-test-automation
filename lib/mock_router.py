@@ -873,7 +873,7 @@ class MockRouter(Router):
     def ensure_test_mint(self):
         pass
 
-    def replace_mints(self, mint_urls: list[str] | None = None):
+    def replace_mints(self, mint_urls: list[str] | None = None, force: bool = False):
         pass
 
     def ensure_dhcp_lease(self, ip: str | None = None, mac: str | None = None) -> None:

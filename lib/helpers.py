@@ -399,22 +399,49 @@ def _mint_url_port(url: str) -> int:
     return 443 if parsed.scheme == "https" else 80
 
 
+# Set when block_mints installs rules; the api-conftest autouse sweep
+# reads it so a teardown killed by pytest-timeout cannot leak rules into
+# the NEXT test (the per-file runner sweep only guards file boundaries).
+_mint_blocks_installed = False
+
+
+def sweep_mint_blocks(router):
+    """Loop-delete every OUTPUT REJECT (iptables -I can leave duplicates;
+    a single -D removes one instance)."""
+    router.ssh(
+        "while iptables -L OUTPUT -n 2>/dev/null | grep -q REJECT; do"
+        " R=$(iptables -L OUTPUT -n --line-numbers | awk '/REJECT/{print $1; exit}');"
+        " iptables -D OUTPUT $R; done 2>/dev/null || true"
+    )
+
+
 def block_mints(router, mint_ip_map):
     """Block all mint IPs via iptables OUTPUT REJECT on the mint's real port.
     Returns list of (url, ip, port) rules."""
+    global _mint_blocks_installed
     rules = []
     for url, ip in mint_ip_map.items():
         port = _mint_url_port(url)
         router.ssh(f"iptables -I OUTPUT -d {ip} -p tcp --dport {port} -j REJECT")
         rules.append((url, ip, port))
+    _mint_blocks_installed = True
     return rules
 
 
 def unblock_mints(router, rules):
-    """Remove the OUTPUT REJECT rules created by block_mints()."""
+    """Remove the OUTPUT REJECT rules created by block_mints().
+
+    Loop-deletes the exact spec (duplicates on retry) and clears the
+    leak flag; the conftest sweep still guards against timeouts that
+    kill this teardown entirely."""
+    global _mint_blocks_installed
     for url, ip, port in rules:
-        router.ssh(f"iptables -D OUTPUT -d {ip} -p tcp --dport {port} -j REJECT"
-                   f" 2>/dev/null || true")
+        spec = f"-d {ip} -p tcp --dport {port} -j REJECT"
+        router.ssh(
+            f"while iptables -C OUTPUT {spec} 2>/dev/null; do"
+            f" iptables -D OUTPUT {spec}; done 2>/dev/null || true"
+        )
+    _mint_blocks_installed = False
 
 
 def skip_if_no_ssl_cli(router):

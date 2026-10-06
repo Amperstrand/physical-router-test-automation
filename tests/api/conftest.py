@@ -168,3 +168,29 @@ def rust_basic_server():
                 pass
         if owns_config_dir:
             shutil.rmtree(config_dir, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _sweep_leaked_mint_blocks(router):
+    """Per-TEST guard against mint-block REJECT leaks.
+
+    pytest-timeout can kill a degraded test's teardown entirely; the
+    runner only sweeps at file boundaries, so a leak poisoned later
+    tests IN THE SAME file (token_formats/config_invariants/concurrent
+    class, 2026-10-06). Flag-gated: costs one local check when no
+    block was installed, one ssh sweep when one might have leaked.
+    """
+    import lib.helpers as _h
+    if _h._mint_blocks_installed:
+        try:
+            _h.sweep_mint_blocks(router)
+        except Exception:
+            pass
+        _h._mint_blocks_installed = False
+    yield
+    if _h._mint_blocks_installed:
+        try:
+            _h.sweep_mint_blocks(router)
+        except Exception:
+            pass
+        _h._mint_blocks_installed = False

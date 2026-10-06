@@ -2334,3 +2334,68 @@ Full postmortem + fix queue + labgrid plan:
   physical-router places before adding the MT3000 exporter-on-laptop place
   (F9, which also replaces hand-relayed runbooks with acquire/release +
   snapshot-audit commissions).
+
+## Lessons Learned — 2026-10-06 bench night (latest-master prep)
+
+### `nmcli -g psk` without `--show-secrets` prints the literal mask `<hidden>`
+
+8 printable chars — it hashes, it length-checks, and it is NOT the
+password. Two failures traced to it in one night: a WPA2 auth loop on a
+freshly flashed stick ("provisioned with the right PSK" — actually
+`<hidden>`), and a router uplink UCI key committed with the mask (its
+STA can never associate). Always extract with
+`nmcli -g 802-11-wireless-security.psk --show-secrets connection show X`
+and pipe it straight into the consumer — never commit it, never trust a
+masked read. Same class as "USB by-id names adapters, not chips":
+verify what a tool actually prints before treating it as ground truth.
+
+### Building latest tollgate master locally (CI is dead since Aug 27)
+
+Upstream "Build and Publish" froze with the org billing hold — artifacts
+stop Aug 27 while main is far ahead. The repo's own
+`packaging/local-build-ipk.sh` replicates CI per-arch:
+
+```bash
+git clone https://github.com/OpenTollGate/tollgate-module-basic-go
+cd tollgate-module-basic-go
+PATH=/path/to/node-v22.17.0/bin:$PATH make portal-build   # pin! (v26 fails)
+ARCH=x86_64 GOTOOLCHAIN=go1.26.8 PKG_VERSION=vX-local bash packaging/local-build-ipk.sh
+```
+
+`make portal-build` is mandatory first — a clean checkout ships an ipk
+whose portal renders nothing (#335). Node pin per
+packaging/build-inputs.json (v22.17.0; a /tmp tarball works, no system
+change). Go pin via GOTOOLCHAIN (auto-fetches 1.26.8; system 1.27
+trips the guard). Deploy: `scp -O` to the router, `opkg install
+--force-overwrite`, `rm -f /etc/tollgate/wallet.db` (mint-cache lesson),
+restart, require the kind:10021 ad (`Router.wait_for_backend_ad`).
+
+### Labgrid bench map (ai-legion coordinator; 2026-10-06 cleanup)
+
+Places: `m5stick` (both stick adapters; the mint-stick lives here —
+restored to mint v0.2.x 2026-10-06, see m5-cashu-mint registry),
+`cyd-tollgate` (TollGate terminal CYD — terminal-project board,
+read-only for us), `tollgate-s3-hil` (our S3 HIL), `x1860-1`/`x1860-2`
+(PRTA ALPHA/BRAVO COVR-X1860; DUT-bay VLANs 104/105.x are NOT routed
+from the house LAN — bench access goes through conwrt-bench),
+`ws3915i-79b1` (PRTA CHARLIE), `nr7101-router` (place match broken —
+points at a vanished ap-lan7 NetworkService; fix before relying on it),
+`android-test` (phone exporter on ai-legion-small). Stale acquisition
+hygiene: 8-day-old holds on ALPHA/BRAVO from the dead ai-legion-small
+coordinator era were released; check `labgrid-client who` before
+blaming hardware. Known gaps: `labgrid-client console` cannot drive
+generic `SerialPort` resources (drive raw tty over SSH while holding
+the place, or convert exports to NetworkSerialPort), and a root ser2net
+(telnet :7171) squats the FT232R outside labgrid's exclusivity — one
+access pattern per device, consolidate before it bites.
+
+### The virtual-lab VMs are shared — check for live lanes before driving them
+
+Both poc QEMUs died mid-deploy while another lane's automation was
+actively provisioning the same VM (omarchy dnsmasq up, socat serial
+bridge, console typing). Two provisioners over one lab = the exact
+resource fight labgrid exists to prevent. Before start-poc/deploy on
+the ai-legion lab: check for foreign processes (dnsmasq omarchy-tb,
+socat :7301/:7171, live provisioning in serial.log) and yield if
+present. (The 2026-09-28 omarchy handoff etiquette generalizes: the
+lab fabric is multi-lane.)

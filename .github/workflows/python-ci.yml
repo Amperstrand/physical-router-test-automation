@@ -46,6 +46,20 @@ jobs:
       - name: Run unit tests
         run: pytest tests/unit -q
 
+      - name: Story/TIP coverage report
+        run: |
+          python3 scripts/story-coverage.py
+          head -n 12 docs/user-stories.generated.md
+
+      - name: Generated map is fresh (warning only)
+        # Fails softly when marks changed without regenerating the map.
+        # Phase-2 hardening candidate once marking is complete.
+        continue-on-error: true
+        run: |
+          git checkout -- docs/user-stories.generated.md 2>/dev/null || true
+          python3 scripts/story-coverage.py >/dev/null
+          git diff --exit-code docs/user-stories.generated.md
+
       - name: Ruff lint
         run: ruff check lib/cloud_lab scripts/cloud-lab.py scripts/collect-results.py
 

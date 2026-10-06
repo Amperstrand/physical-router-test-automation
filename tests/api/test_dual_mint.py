@@ -8,7 +8,9 @@ from lib.cashu import CashuMint
 from lib.constants import V2_MINT_URL
 from lib.helpers import parse_json_or_fail, require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("O2"),
+    pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended]
 
 
 @pytest.fixture(scope="module")

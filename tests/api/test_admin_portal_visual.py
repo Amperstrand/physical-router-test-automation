@@ -5,7 +5,8 @@ import pytest
 
 from lib.constants import POC_GATEWAY
 
-pytestmark = [pytest.mark.api, pytest.mark.virtual_lab, pytest.mark.publish_screenshot]
+pytestmark = [
+    pytest.mark.story("O8"),pytest.mark.api, pytest.mark.virtual_lab, pytest.mark.publish_screenshot]
 
 
 def _skip_unless_container():

@@ -7,7 +7,9 @@ import pytest
 
 from lib.helpers import parse_json_or_fail, skip_if_no_mint_health_tracker as _skip_if_no_degraded_support
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("P2"),
+    pytest.mark.tip("TIP-01"),pytest.mark.api, pytest.mark.extended]
 
 BAD_MINT_URL = "https://mint.example.com"
 

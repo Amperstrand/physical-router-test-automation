@@ -10,7 +10,8 @@ import os
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
+pytestmark = [
+    pytest.mark.story("G1"),pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
 
 PORTAL_TYPE = os.environ.get("TOLLGATE_PORTAL", "builtin").lower()
 

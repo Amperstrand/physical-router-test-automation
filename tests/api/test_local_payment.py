@@ -28,6 +28,12 @@ import requests
 
 import socket as _socket
 
+pytestmark = [
+pytest.mark.story("G2"),
+pytest.mark.tip("TIP-02"),
+]
+
+
 PRTA_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 BACKEND_URL = os.environ.get("TOLLGATE_BACKEND_URL", "http://127.0.0.1:2121")
 MINT_URL = os.environ.get("TOLLGATE_MINT_URL", "http://127.0.0.1:3338")

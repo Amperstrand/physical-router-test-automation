@@ -4,6 +4,11 @@ import json
 import pytest
 from lib.helpers import skip_if_no_cli_socket
 
+pytestmark = [
+pytest.mark.story("M5"),
+]
+
+
 
 @pytest.mark.api
 @pytest.mark.critical

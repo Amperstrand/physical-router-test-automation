@@ -32,7 +32,9 @@ from lib.backend import BackendConfig
 from lib.helpers import require_client_identity
 
 log = logging.getLogger("tollgate.api.cashu_matrix")
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("R2"),
+    pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended]
 
 MINT_URL = os.environ.get("TOLLGATE_TEST_MINT_URL", "https://testnut.cashu.exchange")
 

@@ -182,7 +182,7 @@ fi
 
 # labgrid: exporter groups do not auto-become places — create + match (idempotent)
 for place in {owrt_place} {client_place}; do
-  labgrid-client -x {spec.coordinator} create "$place" >/dev/null 2>&1 || true
+  labgrid-client -x {spec.coordinator} -p "$place" create >/dev/null 2>&1 || true
   labgrid-client -x {spec.coordinator} -p "$place" \\
     add-match "vlab-{spec.lane}/$place/*/*" >/dev/null 2>&1 || true
 done

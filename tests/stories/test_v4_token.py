@@ -15,7 +15,7 @@ from tests.stories.conftest import (
 
 log = logging.getLogger("tollgate.story.v4_token")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.slow]
 
 
 def _mint_v4_token(mint_url: str, amount: int) -> str:

@@ -16,7 +16,7 @@ import pytest
 
 from lib.helpers import parse_json_or_fail, skip_if_no_mint_health_tracker as _skip_if_no_degraded_support
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(300), pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(300), pytest.mark.requires_wifi]
 
 HEALTH_POLL_INTERVAL = 5
 HEALTH_POLL_TIMEOUT = 120

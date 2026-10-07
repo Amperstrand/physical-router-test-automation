@@ -31,6 +31,8 @@ from lib.hardware_lock import (
 )
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def _write_lock(path, locked="true", session="user@host", ts=None):
     ts = ts or datetime.now(timezone.utc).isoformat()
     path.write_text(json.dumps({

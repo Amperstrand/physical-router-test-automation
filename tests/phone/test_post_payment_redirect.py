@@ -19,6 +19,7 @@ from lib.constants import TOKEN_DEFAULT
 log = logging.getLogger("tollgate.test_post_payment_redirect")
 
 pytestmark = [
+    pytest.mark.story("G2"),
     pytest.mark.phone,
     pytest.mark.slow,
     pytest.mark.timeout(180),

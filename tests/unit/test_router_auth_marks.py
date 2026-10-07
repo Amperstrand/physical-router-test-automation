@@ -19,6 +19,8 @@ NET_CLEAN = "-P ndsNET ACCEPT"
 ACCEPT = "-A ndsNET -m mark --mark 0x20000/0x20000 -j ACCEPT"
 
 
+pytestmark = [pytest.mark.story("P10")]
+
 def make_router(responses, calls):
     router = Router("10.99.99.1", "10.99.99.186", "aa:bb:cc:dd:ee:ff", "test.lan")
     remaining = list(responses)

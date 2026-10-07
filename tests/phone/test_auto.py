@@ -6,7 +6,7 @@ import pytest
 from lib.helpers import assert_internet, is_session_event, assert_session_active
 from lib.constants import TOKEN_DEFAULT
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(300), pytest.mark.critical, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("G2"), pytest.mark.tip("TIP-02"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(300), pytest.mark.critical, pytest.mark.requires_wifi]
 
 
 def test_auto_direct_backend_pay(router, adb, cashu, connected_wifi, screenshot_portal):

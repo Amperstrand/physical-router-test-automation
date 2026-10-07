@@ -3,6 +3,10 @@
 from lib.migration_registry import get_entry, load_registry
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def test_registry_loads():
     reg = load_registry()
     assert "smoke-degraded" in reg

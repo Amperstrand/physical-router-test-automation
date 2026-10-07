@@ -67,6 +67,8 @@ _TOKEN_OBJ = {
 }
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def _make_cashuA(token_obj: dict | None = None) -> str:
     """Create a cashuA (base64url-JSON) token for testing."""
     obj = token_obj or _TOKEN_OBJ

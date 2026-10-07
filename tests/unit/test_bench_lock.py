@@ -41,6 +41,8 @@ from lib.bench_lock import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 @pytest.fixture
 def lock_path(tmp_path):
     return str(tmp_path / "bench-mt3000.lock")

@@ -27,6 +27,8 @@ from lib.helpers import (
 # --------------------------------------------------------------------------- #
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 class TestIsSessionEvent:
     def test_kind_1022(self):
         assert is_session_event({"kind": 1022, "tags": []}) is True

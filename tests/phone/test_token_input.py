@@ -13,7 +13,7 @@ from lib.constants import TOKEN_DEFAULT
 
 log = logging.getLogger("tollgate.test_token_input")
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.critical, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("G5"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.critical, pytest.mark.requires_wifi]
 
 
 def test_token_input_happy_path(router, adb, cashu, wifi, connected_wifi, screenshot_portal):

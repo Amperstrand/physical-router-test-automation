@@ -8,7 +8,7 @@ import time
 import pytest
 from lib.constants import ANDROID_CAPTIVE_PORTAL
 
-pytestmark = [pytest.mark.phone, pytest.mark.android_only, pytest.mark.timeout(120), pytest.mark.extended]
+pytestmark = [pytest.mark.story("G5"),pytest.mark.phone, pytest.mark.android_only, pytest.mark.timeout(120), pytest.mark.extended]
 
 
 def test_camera_captive_diagnostic(router, adb, wifi, screenshot_raw):

@@ -75,6 +75,7 @@ direct user) · **Maintainer** (release + upstream).
 
 | ID | Story | Proof | Status |
 |----|-------|-------|--------|
+| P11 | As an operator, the framework's own machinery — locks, runners, collectors, redactors, fixtures — is unit-tested so the bench tooling doesn't rot under me. | `tests/unit/` framework rails | Covered |
 | R1 | As a maintainer, the Go and Rust basic modules behave identically where both exist. | `tests/api/test_go_rust_basic_parity.py` | Covered |
 | R2 | As a maintainer, the Cashu/NUT compatibility matrix is enforced, not aspirational. | `tests/api/test_cashu_compat_matrix.py`, `docs/cashu-compatibility-matrix.md` | Covered |
 | R3 | As a maintainer, token/gateway wire formats stay stable across releases. | `tests/api/test_gateway_token_format.py`, `test_quotes_wireformat*` (rust side) | Covered |

@@ -25,6 +25,10 @@ SUITE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SUITE_ROOT))
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("O6")]
+
 def run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return r.returncode, r.stdout.strip(), r.stderr.strip()

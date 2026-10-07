@@ -16,7 +16,7 @@ import pytest
 
 log = logging.getLogger("tollgate.story.upgrade")
 
-pytestmark = [pytest.mark.slow, pytest.mark.physical_hardware]
+pytestmark = [pytest.mark.story("O4"),pytest.mark.slow, pytest.mark.physical_hardware]
 
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "")
 IPK_PATH = os.environ.get("TOLLGATE_RELEASE_IPK", "")

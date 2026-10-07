@@ -5,6 +5,8 @@ import pytest
 from lib.router import Router
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 @pytest.fixture
 def unit_router(monkeypatch):
     monkeypatch.setenv("TOLLGATE_SSH_PASSWORD", "unit-test-pw")

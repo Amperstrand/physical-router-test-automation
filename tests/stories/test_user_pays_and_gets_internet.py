@@ -15,7 +15,7 @@ from lib.cashu import HttpMinter
 
 log = logging.getLogger("tollgate.story.pay_internet")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.slow]
 
 
 def test_user_pays_and_gets_internet(story_video, no_session, tollgate_ssid,

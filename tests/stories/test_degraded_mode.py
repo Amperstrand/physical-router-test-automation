@@ -16,7 +16,7 @@ from tests.stories.conftest import get_client_device
 
 log = logging.getLogger("tollgate.story.degraded_mode")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.slow]
 
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "192.168.13.124")
 

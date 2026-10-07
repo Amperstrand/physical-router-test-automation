@@ -7,6 +7,10 @@ import socket
 from lib.cashu import mint_reachable
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P2")]
+
 def test_reachable_mint_returns_true():
     with socket.socket() as srv:
         srv.bind(("127.0.0.1", 0))

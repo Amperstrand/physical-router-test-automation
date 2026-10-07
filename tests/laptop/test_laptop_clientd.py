@@ -47,6 +47,8 @@ pytestmark = pytest.mark.skipif(
     not GATEWAY, reason="LAPTOP_GATEWAY not set — laptop lane not provisioned")
 
 
+pytestmark = [pytest.mark.story("G8")]
+
 def run_clientd(*args, timeout=120):
     return subprocess.run(
         ["python3", CLIENTD, "--gateway", GATEWAY, *args],

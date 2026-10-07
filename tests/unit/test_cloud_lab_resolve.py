@@ -5,6 +5,8 @@ import pytest
 from lib.cloud_lab.resolve import RunTarget, resolve_target
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def test_resolve_branch_go():
     target = resolve_target(branch="main", backend="go")
     assert target.branch == "main"

@@ -18,8 +18,11 @@ try:
 except ImportError:
     _HAS_TOLLGATE_LAB = False
 
-pytestmark = pytest.mark.skipif(_HAS_TOLLGATE_LAB,
-    reason="tollgate_lab installed — standalone fallback not active")
+pytestmark = [
+    pytest.mark.skipif(_HAS_TOLLGATE_LAB,
+        reason="tollgate_lab installed — standalone fallback not active"),
+    pytest.mark.story("P11"),
+]
 
 from lib.hardware_lock import (
     HARDWARE_LOCK,
@@ -30,8 +33,6 @@ from lib.hardware_lock import (
     release_hardware_lock,
 )
 
-
-pytestmark = [pytest.mark.story("P11")]
 
 def _write_lock(path, locked="true", session="user@host", ts=None):
     ts = ts or datetime.now(timezone.utc).isoformat()

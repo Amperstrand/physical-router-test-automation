@@ -43,11 +43,11 @@ SSH_HOST = os.environ.get("LAPTOP_SSH_HOST", GATEWAY)
 SSH_PASSWORD = os.environ.get("LAPTOP_SSH_PASSWORD", "tollgate")
 WALLET_DIR = os.environ.get("LAPTOP_WALLET_DIR", "/tmp/laptop-wallet")
 
-pytestmark = pytest.mark.skipif(
-    not GATEWAY, reason="LAPTOP_GATEWAY not set — laptop lane not provisioned")
-
-
-pytestmark = [pytest.mark.story("G8")]
+pytestmark = [
+    pytest.mark.skipif(
+        not GATEWAY, reason="LAPTOP_GATEWAY not set — laptop lane not provisioned"),
+    pytest.mark.story("G8"),
+]
 
 def run_clientd(*args, timeout=120):
     return subprocess.run(

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 
-pytestmark = [pytest.mark.api, pytest.mark.virtual_wifi, pytest.mark.hwsim_netns]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.api, pytest.mark.virtual_wifi, pytest.mark.hwsim_netns]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POC_SCRIPT = REPO_ROOT / "scripts" / "hwsim-netns-poc.py"

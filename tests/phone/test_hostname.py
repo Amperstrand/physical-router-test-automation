@@ -6,7 +6,7 @@ resolves the TollGate hostname. Feature-detected via hostname check.
 
 import pytest
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120),
+pytestmark = [pytest.mark.story("G1"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120),
               pytest.mark.critical, pytest.mark.requires_wifi]
 
 

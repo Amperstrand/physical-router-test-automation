@@ -29,7 +29,7 @@ import pytest
 
 log = __import__("logging").getLogger("tollgate.post_payment_redirect")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.api, pytest.mark.extended]
 
 DEFAULT_REDIRECT_URL = "https://wallet.cashu.me/welcome"
 CAPTIVE_PORTAL_DIR = "/etc/tollgate/tollgate-captive-portal-site"

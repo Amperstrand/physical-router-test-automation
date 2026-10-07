@@ -16,7 +16,7 @@ from tests.stories.conftest import _deauth_device
 
 log = logging.getLogger("tollgate.story.session_expiry")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("G4"),pytest.mark.slow]
 
 
 def test_session_expiry_and_repayment(fresh_session, rate_limiter):

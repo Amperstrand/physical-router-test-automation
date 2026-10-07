@@ -28,7 +28,7 @@ import pytest
 
 from lib.helpers import require_client_identity, is_payment_swap_succeeded
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"), pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended]
 
 
 def _decode_cashuA(token: str) -> dict | list:

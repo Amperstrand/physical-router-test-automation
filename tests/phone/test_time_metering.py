@@ -4,7 +4,7 @@ from lib.helpers import (pay_and_wait, assert_internet, wait_expiry_and_verify_c
                           metering_test_setup)
 from lib.constants import TOKEN_SMALL, PRODUCTION_STEP_SIZE_MS
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.config, pytest.mark.extended]
+pytestmark = [pytest.mark.story("G6"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.config, pytest.mark.extended]
 
 
 def test_time_metering(router, adb, cashu, wifi, test_pricing, screenshot_portal, screenshot_raw):

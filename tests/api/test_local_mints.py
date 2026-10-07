@@ -9,7 +9,7 @@ from urllib.error import URLError
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O2"),pytest.mark.api, pytest.mark.virtual_lab]
 
 
 def _skip_if_no_local_mints():

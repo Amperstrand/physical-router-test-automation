@@ -35,7 +35,7 @@ from lib.ssid import LEGACY_RESELLER_SSID, resolve_reseller_ssid
 
 log = logging.getLogger("tollgate.multihop")
 
-pytestmark = [pytest.mark.phone, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.story("P9"),pytest.mark.phone, pytest.mark.timeout(120)]
 
 SCRIPT_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 

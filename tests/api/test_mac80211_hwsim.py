@@ -26,7 +26,7 @@ import pytest
 import re
 import time
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 _HWSIM_MODULE = "mac80211_hwsim"
 _HWSIM_KMOD_PKG = "kmod-mac80211-hwsim"

@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O6"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only, pytest.mark.virtual_lab]
 
 
 def _skip_if_no_wireless_config(router):

@@ -12,6 +12,8 @@ import pytest
 from lib.helpers import require_client_identity
 
 
+pytestmark = [pytest.mark.story("O8")]
+
 def _is_accepted(resp: dict) -> bool:
     return resp.get("kind") == 1022 or resp.get("success") is True
 

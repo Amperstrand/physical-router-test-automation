@@ -5,6 +5,10 @@ from __future__ import annotations
 from lib.cloud_lab.worker.shell import _redact
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P5")]
+
 def test_redact_github_token():
     text = "GH_TOKEN=gho_abcdefghijklmnopqrstuvwxyz1234567890"
     redacted = _redact(text)

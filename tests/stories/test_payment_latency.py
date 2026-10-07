@@ -16,7 +16,7 @@ from lib.cashu import HttpMinter
 
 log = logging.getLogger("tollgate.story.bench")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.slow]
 
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "")
 MAX_PAYMENT_SECONDS = 30

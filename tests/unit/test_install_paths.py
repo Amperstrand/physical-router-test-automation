@@ -34,6 +34,8 @@ c0ffee{"0" * 58}  tollgate-wrt_0.6.0_alpha4_pre16_x86_64.apk
 # ---------------------------------------------------------------------------
 
 
+pytestmark = [pytest.mark.story("O5")]
+
 def test_parse_manifest_ignores_comments_and_handles_binary_marker():
     parsed = ip.parse_manifest(MANIFEST_FIXTURE)
     assert parsed["tollgate-wrt_0.6.0_alpha4_pre16_aarch64_cortex-a53.apk"] == APK_SHA

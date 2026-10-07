@@ -29,7 +29,7 @@ direct user) · **Maintainer** (release + upstream).
 | G4 | As a guest with an expired session, I can re-purchase from the portal (0.6 session-state), and the renewal affordance is honest. | `tests/api/test_session_state*.py`, cashud-side expired-gateway rails | Partial |
 | G5 | As a guest on a phone, the portal works on a real Android browser — not just curl. | `tests/phone/test_rig_phone_payment.py` (fresh_session reset, PR #8) | Partial — rig-dependent |
 | G6 | As a guest, my balance/remaining time is visible on the portal while my session is live. | `tests/api/test_balance_page_reachable.py` | Covered |
-| G7 | As a guest, a hung backend gives me a clear failure instead of an endless spinner. | Live finding 2026-10-05: backend DOWN/HUNG on :2121 surfaced as opaque timeouts | **Gap** — needs a portal-side failure-copy story after #18 |
+| G7 | As a guest, a hung backend gives me a clear failure instead of an endless spinner. | Live finding 2026-10-05: backend DOWN/HUNG on :2121 surfaced as opaque timeouts; `tests/unit/test_portal_failure_copy.py` pins the driver contract (bounded stages, propagating named failures) | Partial — lib-level failure contract landed; portal UI copy itself still pending |
 | G8 | As a guest using the CLI/bash client, I get the same answers as the portal. | `tests/api/test_bash_client.py` | Covered |
 
 ## Owner — "My router earns while I sleep"
@@ -38,8 +38,8 @@ direct user) · **Maintainer** (release + upstream).
 |----|-------|-------|--------|
 | O1 | As an owner, my router boots and serves even when all mints are unreachable (degraded mode), and recovers when they return. | `tests/api/test_degraded_mode.py`, `test_degraded_portal.py`, `test_cli_degraded_operations.py` | Covered |
 | O2 | As an owner, a temporarily-down mint never blocks purchases — other mints serve, and the dead one recovers automatically. | `tests/api/test_dual_mint.py`, cloud-lab `test_mint_failure.py` | Covered |
-| O3 | As an owner, a crashed or stray service instance can't zombie-serve stale state on :2121 after a restart. | Live evidence 2026-10-05 (:2121 hang); fix rides tollgate-module-basic-go#98 `stop_service` sweep | Partial — fix in review, regression test to follow |
-| O4 | As an owner, my config survives edits without silently resetting to defaults (the x280 un-brick class). | tollgate-go#102 min-steps parser rails; PRTA#13 tracks the physical restore | Partial — loader fail-loud verification outstanding |
+| O3 | As an owner, a crashed or stray service instance can't zombie-serve stale state on :2121 after a restart. | Live evidence 2026-10-05 (:2121 hang); sweep merged on the tbmg fork (#98); `tests/conformance/test_stray_2121_sweep.py` mirrors its escalation test against the vendored init script with drift checks | Covered at mirror level — fork merged, upstream pending |
+| O4 | As an owner, my config survives edits without silently resetting to defaults (the x280 un-brick class). | tollgate-go#102/#104 min-steps parser rails; `tests/conformance/test_tbmg_parser_contract.py` pins the table + bad-JSON loader row (backup+defaults today) with fork drift checks and a live `go test` gate | Partial — table contract pinned; hard fail-loud pending upstream |
 | O5 | As an owner, I can flash firmware upgrades on the bench with confidence the wizard completes or fails loudly. | `installer/test_installer_e2e.py` | Covered — landed via 4e74979 |
 | O6 | As an owner, router-to-router use cases (firewall, MPTCP bonding, SQM) apply and verify reproducibly via UCI. | `conwrt/test_use_cases.py` (hardened in PR #3) | Covered |
 | O7 | As an owner, the device-mint (on-router fakewallet) runs entirely in RAM and never wears my flash. | `tests/api/test_m5_hardware_mint.py` (passed on real HW Oct 1) | HW-gated — ESP32s reserved for nucleo testing |
@@ -75,6 +75,7 @@ direct user) · **Maintainer** (release + upstream).
 
 | ID | Story | Proof | Status |
 |----|-------|-------|--------|
+| P11 | As an operator, the framework's own machinery — locks, runners, collectors, redactors, fixtures — is unit-tested so the bench tooling doesn't rot under me. | `tests/unit/` framework rails | Covered |
 | R1 | As a maintainer, the Go and Rust basic modules behave identically where both exist. | `tests/api/test_go_rust_basic_parity.py` | Covered |
 | R2 | As a maintainer, the Cashu/NUT compatibility matrix is enforced, not aspirational. | `tests/api/test_cashu_compat_matrix.py`, `docs/cashu-compatibility-matrix.md` | Covered |
 | R3 | As a maintainer, token/gateway wire formats stay stable across releases. | `tests/api/test_gateway_token_format.py`, `test_quotes_wireformat*` (rust side) | Covered |
@@ -87,8 +88,8 @@ direct user) · **Maintainer** (release + upstream).
 
 ## Gap register (stories worth tests that don't exist yet)
 
-1. **G7** — portal-side failure copy when the backend is unreachable (depends on #18 landing).
+1. **G7** — portal-side failure COPY in the UI itself (the lib-level failure contract landed; `#18` readiness work done).
 2. **P4** — land the read-only lane: the guards exist on `abandoned/read-only-lane`; a review + merge decision turns the policy into a regression suite.
-3. **O3-regression** — a bench test that starts a stray `:2121` holder and asserts the service restart sweeps it (pairs with tollgate-go#98).
-4. **O4** — config-loader fail-loud verification (bad JSON → error, not defaults) at the PRTA level once the tollgate-go fix lands.
+3. ~~**O3-regression**~~ landed — `tests/conformance/test_stray_2121_sweep.py` (stub-harness mirror of tbmg#98; flip to live-bench staging when the sweep reaches upstream).
+4. **O4** — flip the loader row when tbmg hardens bad-JSON handling: today it backs up + serves defaults (pinned in `tests/conformance/tbmg/min_steps_table.json`); the hard-fail change must update that row and `test_tbmg_parser_contract.py` together.
 5. **M4** — swap-fee reconciliation against real mint receipts (fakewallet can't see true fees).

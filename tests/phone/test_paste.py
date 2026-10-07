@@ -9,7 +9,7 @@ import pytest
 from lib.helpers import pay_and_wait, assert_session_active
 from lib.constants import TOKEN_DEFAULT
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.critical, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("G5"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.critical, pytest.mark.requires_wifi]
 
 
 def test_backend_delivery(router, adb, cashu, connected_wifi, screenshot_raw):

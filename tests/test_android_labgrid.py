@@ -20,7 +20,7 @@ import pytest
 import tollgate_lab.drivers.android_adb  # noqa: F401
 from tollgate_lab.drivers.android_adb import AndroidADBDriver
 
-pytestmark = [pytest.mark.timeout(120), pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.timeout(120), pytest.mark.smoke]
 
 COORDINATOR = os.environ.get("BENCH_COORDINATOR", "192.168.13.208:20408")
 

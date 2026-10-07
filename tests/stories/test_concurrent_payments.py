@@ -16,7 +16,7 @@ from lib.cashu import HttpMinter
 
 log = logging.getLogger("tollgate.story.concurrent")
 
-pytestmark = [pytest.mark.slow, pytest.mark.physical_hardware]
+pytestmark = [pytest.mark.story("M3"),pytest.mark.slow, pytest.mark.physical_hardware]
 
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "")
 DEBIAN_HOST = os.environ.get("TOLLGATE_DEBIAN_HOST", "")

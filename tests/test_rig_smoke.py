@@ -24,7 +24,7 @@ import tollgate_lab.drivers.zyxel_poe  # noqa: F401
 from labgrid.driver import SSHDriver
 from labgrid.protocol.powerprotocol import PowerProtocol
 
-pytestmark = [pytest.mark.timeout(600), pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P6"),pytest.mark.timeout(600), pytest.mark.smoke]
 
 #: Seconds to wait for SSH after power-on (observed: cycle 8 s + boot ~120 s;
 #: labgrid's SSHDriver needs a deactivate/reactivate round-trip after the

@@ -16,7 +16,7 @@ from lib.contract import backend_port, portal_port
 
 log = logging.getLogger("tollgate.story.tabs")
 
-pytestmark = [pytest.mark.slow]
+pytestmark = [pytest.mark.story("G1"),pytest.mark.slow]
 
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "")
 

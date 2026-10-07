@@ -67,7 +67,7 @@ log = logging.getLogger("tollgate.startup_recovery_latency")
 
 # API-tier, extended suite. The 1200s timeout comfortably covers main's slow
 # path (up to ~15 min) while still bounding the run.
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(1200)]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(1200)]
 
 # Generous ceiling: must exceed main's worst-case recovery, which is
 # defaultRecoveryThreshold (3) consecutive successes at probeInterval (5min)

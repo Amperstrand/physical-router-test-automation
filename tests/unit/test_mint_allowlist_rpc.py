@@ -6,6 +6,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "scripts" / "mint_allowlist_rpc.py"
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def _load():
     spec = importlib.util.spec_from_file_location("mint_allowlist_rpc", SRC)
     m = importlib.util.module_from_spec(spec)

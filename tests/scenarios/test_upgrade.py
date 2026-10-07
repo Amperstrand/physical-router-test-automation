@@ -21,7 +21,7 @@ import time
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.story("O4"),pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(300)]
 
 
 @pytest.fixture(scope="module")

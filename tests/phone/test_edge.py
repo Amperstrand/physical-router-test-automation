@@ -4,7 +4,7 @@ from lib.helpers import (pay_and_wait, assert_internet, wait_expiry_and_verify_c
                           is_session_event, assert_deauthenticated)
 from lib.constants import TOKEN_SMALL, ANDROID_CAPTIVE_PORTAL
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
 
 
 def test_spent_token_reuse(router, adb, cashu, connected_wifi, screenshot_raw):

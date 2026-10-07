@@ -16,7 +16,7 @@ from lib.helpers import parse_json_or_fail, post_payment_event
 
 log = logging.getLogger("tollgate.sentinel_error")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("M2"),pytest.mark.api, pytest.mark.extended]
 
 
 @pytest.mark.extended

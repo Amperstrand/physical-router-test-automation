@@ -32,7 +32,7 @@ import pytest
 from lib.helpers import is_degraded, is_full_merchant, wait_for_degraded
 from lib.router import Router
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P9"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 
 def _get_secondary_router(backend) -> Router | None:

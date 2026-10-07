@@ -18,7 +18,7 @@ import pytest
 
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.go_only, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("O4"),pytest.mark.api, pytest.mark.go_only, pytest.mark.smoke]
 
 
 # ── helpers ──────────────────────────────────────────────────────────

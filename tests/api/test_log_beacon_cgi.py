@@ -1,7 +1,7 @@
 import time
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("P5"),pytest.mark.api, pytest.mark.extended]
 
 
 def _beacon_cgi_available(router):

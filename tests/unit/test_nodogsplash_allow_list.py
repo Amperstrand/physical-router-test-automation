@@ -41,6 +41,10 @@ PRE14_CONFIG = """config nodogsplash
 FIXED_CONFIG = PRE14_CONFIG + "\tlist users_to_router 'allow tcp port 443'\n"
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P10")]
+
 def test_pre14_does_not_allow_443():
     """The defect: pre14 never allow-listed :443."""
     assert nodogsplash_allows_port(PRE14_CONFIG, 443) is False

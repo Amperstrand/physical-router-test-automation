@@ -42,6 +42,8 @@ REAL_MAINLINE = Path(os.path.expanduser(cf.LOCAL_MAINLINE_CANDIDATES[0]))
 # ---------------------------------------------------------------------------
 
 
+pytestmark = [pytest.mark.story("P6")]
+
 def _write(path: Path, payload: bytes) -> Path:
     path.write_bytes(payload)
     return path

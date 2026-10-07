@@ -26,7 +26,7 @@ import pytest
 import tollgate_lab.drivers.zyxel_poe  # noqa: F401  registers driver+resource
 from labgrid.protocol.powerprotocol import PowerProtocol
 
-pytestmark = [pytest.mark.timeout(300), pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.timeout(300), pytest.mark.smoke]
 
 COORDINATOR = os.environ.get("BENCH_COORDINATOR", "192.168.13.208:20408")
 STOCK_HOSTS = ["192.168.13.106", "192.168.13.3"]

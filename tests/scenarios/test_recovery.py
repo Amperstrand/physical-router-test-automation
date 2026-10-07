@@ -27,7 +27,7 @@ import pytest
 
 log = logging.getLogger("tollgate.recovery")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended]
 
 
 # ---------------------------------------------------------------------------

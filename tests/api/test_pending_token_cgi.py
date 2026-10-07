@@ -1,6 +1,6 @@
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.api, pytest.mark.extended]
 
 
 def _pending_token_cgi_available(router):

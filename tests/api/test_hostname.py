@@ -11,7 +11,7 @@ SSL coverage lives in ``test_ssl_go_cli.py`` (PR #123 Go CLI) and
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O6"),pytest.mark.api, pytest.mark.extended]
 
 
 def _skip_if_no_hostname_setup(router):

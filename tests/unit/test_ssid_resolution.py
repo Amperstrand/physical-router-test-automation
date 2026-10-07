@@ -20,6 +20,8 @@ from lib.ssid import (
 )
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 class TestNormalizePrefix:
     def test_strips_trailing_dash(self):
         assert normalize_prefix("TollGate-") == "TollGate"

@@ -9,7 +9,7 @@ import requests
 from lib.constants import BACKEND_PORT
 from lib.helpers import is_session_event, is_mac_lookup_failure, require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.api, pytest.mark.critical]
 
 
 def _pay_with_retry(router, cashu, max_attempts=3):

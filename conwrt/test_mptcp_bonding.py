@@ -30,7 +30,7 @@ import time
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O6"),pytest.mark.api, pytest.mark.extended]
 
 SERVER_HOST = os.environ.get("MPTCP_SERVER_HOST", "66.92.204.237")
 SERVER_PORT = int(os.environ.get("MPTCP_SERVER_PORT", "5201"))

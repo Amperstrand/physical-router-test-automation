@@ -30,7 +30,7 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.try_all_mints")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
+pytestmark = [pytest.mark.story("O2"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
 
 UNREACHABLE_MINT = "http://10.99.99.1:9999"
 CONFIG_BACKUP_PATH = "/etc/tollgate/config.json.taom-backup"

@@ -16,6 +16,10 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "tollgate-clientd.py"
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("G8")]
+
 def run(*args: str, timeout: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],

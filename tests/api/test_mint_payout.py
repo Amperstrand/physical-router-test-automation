@@ -4,7 +4,7 @@ import pytest
 
 from lib.helpers import require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("M4"),pytest.mark.api, pytest.mark.extended]
 
 PAYMENT_AMOUNT = 4
 

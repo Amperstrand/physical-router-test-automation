@@ -26,7 +26,7 @@ from lib.helpers import parse_json_or_fail, require_client_identity
 
 log = logging.getLogger(__name__)
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.api, pytest.mark.extended]
 
 MINT_URL = os.environ.get("TOLLGATE_TEST_MINT_URL", "https://testnut.cashu.exchange")
 

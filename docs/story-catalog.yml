@@ -43,3 +43,4 @@ R4:  {persona: maintainer, title: FIPS exit path exercised}
 R5:  {persona: maintainer, title: Conformance green before publish}
 R6:  {persona: maintainer, title: Real RNG everywhere}
 R7:  {persona: maintainer, title: Embedded portal equals served portal}
+P11: {persona: operator, title: Framework machinery is itself tested}

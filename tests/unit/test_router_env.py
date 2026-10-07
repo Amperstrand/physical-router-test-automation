@@ -13,6 +13,8 @@ from lib.router_env import (
 )
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 class TestParseEnvFile:
     def test_simple_key_value(self, tmp_path):
         f = tmp_path / "test.env"

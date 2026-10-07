@@ -1,0 +1,20 @@
+{
+  "provenance": {
+    "repo": "Amperstrand/tollgate-module-basic-go",
+    "file": "src/config_manager/min_steps_test.go",
+    "test": "TestMintConfigMinStepsDefault",
+    "contract": "MintConfig.UnmarshalJSON: purchase_min_steps absent/0 -> 1; legacy min_purchase_steps honored when primary absent; primary wins when both present"
+  },
+  "rows": [
+    {"name": "absent key defaults to 1",            "json": "{\"url\":\"https://x\",\"price_per_step\":1}",                                                 "want": 1},
+    {"name": "explicit purchase_min_steps=3",       "json": "{\"url\":\"https://x\",\"purchase_min_steps\":3}",                                            "want": 3},
+    {"name": "legacy min_purchase_steps=2",         "json": "{\"url\":\"https://x\",\"min_purchase_steps\":2}",                                             "want": 2},
+    {"name": "legacy wins when primary absent",     "json": "{\"url\":\"https://x\",\"min_purchase_steps\":5}",                                             "want": 5},
+    {"name": "purchase_min_steps=0 defaults to 1",  "json": "{\"url\":\"https://x\",\"purchase_min_steps\":0}",                                             "want": 1},
+    {"name": "both keys, primary wins",             "json": "{\"url\":\"https://x\",\"purchase_min_steps\":7,\"min_purchase_steps\":2}",                    "want": 7}
+  ],
+  "loader_bad_json": {
+    "provenance": "src/config_manager/config_manager_config.go EnsureDefaultConfig (fork main)",
+    "contract": "invalid JSON -> WARNING log + backup to /etc/tollgate/config_backups + rewrite defaults + serve defaults (NOT a hard fail). The O4 story's fail-loud aspiration is tracked in docs/user-stories.md gap register until tbmg changes this row."
+  }
+}

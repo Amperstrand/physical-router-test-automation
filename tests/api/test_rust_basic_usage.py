@@ -3,7 +3,7 @@ import re
 import pytest
 import requests
 
-pytestmark = [pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
 
 
 def test_usage_returns_valid_format(rust_basic_server):

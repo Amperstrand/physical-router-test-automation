@@ -5,7 +5,7 @@ block traffic from authenticated WiFi clients to RFC1918 address ranges.
 """
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.hardware]
+pytestmark = [pytest.mark.story("O6"),pytest.mark.api, pytest.mark.hardware]
 
 
 def test_rfc1918_drop_rules_exist(router):

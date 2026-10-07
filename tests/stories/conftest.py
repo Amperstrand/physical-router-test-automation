@@ -399,6 +399,11 @@ def labgrid_phone_mutex(request):
 DEVICE_TO_LABGRID_PLACE = {
     "android-phone": "android-test",
 }
+# a lane exported via `virtual-lab.py labgrid-export` exposes the debian-vm
+# client as a labgrid place — guard it with the same story mutex as the phone
+_vlab_client_place = os.environ.get("TOLLGATE_VLAB_CLIENT_PLACE", "")
+if _vlab_client_place:
+    DEVICE_TO_LABGRID_PLACE["debian-vm"] = _vlab_client_place
 
 
 @pytest.fixture(scope="function")

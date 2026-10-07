@@ -24,6 +24,7 @@ from typing import cast
 from collections.abc import Callable
 
 from lib.backend import BACKEND_CHOICES_CLI
+from lib import labgrid_vlab
 
 
 REQUIRED_COMMANDS = [
@@ -1089,13 +1090,57 @@ sshpass -p {POC_PASSWORD} ssh {ssh_opts} root@{client_ip} '
     return _print_result(run_remote(host, quote_script(install_script), timeout=600))
 
 
+def labgrid_export(args: argparse.Namespace) -> int:
+    host = cast(str, args.host)
+    workdir = cast(str, args.workdir)
+    coordinator = (args.coordinator
+                   or os.environ.get("LG_COORDINATOR")
+                   or labgrid_vlab.DEFAULT_COORDINATOR)
+    port_owrt, port_client = labgrid_vlab.serial_ports(args.lane_num)
+    spec = labgrid_vlab.VlabExportSpec(
+        lane=args.lane,
+        coordinator=coordinator,
+        serial_host=args.serial_host,
+        owrt_address=args.owrt_address,
+        client_address=args.client_address,
+        serial_port_owrt=port_owrt,
+        serial_port_client=port_client,
+    )
+    pidfile, serial_sock, _ = _poc_paths(workdir)
+    client_pidfile, _ = _client_paths(workdir)
+    expanded = "$(eval printf '%s' " + shlex.quote(workdir) + ")"
+    client_serial_sock = f"{expanded}/run/serial-client.sock"
+    precheck = f'''set -eu
+for pf in {pidfile} {client_pidfile}; do
+  if ! [ -f "$pf" ] || ! kill -0 "$(cat "$pf")" 2>/dev/null; then
+    echo "FAIL: VMs are not running ($pf) — start-poc before labgrid-export" >&2
+    exit 1
+  fi
+done
+'''
+    script = precheck + labgrid_vlab.export_start_script(
+        spec, workdir, serial_sock, client_serial_sock)
+    return _print_result(run_remote(host, quote_script(script), timeout=60))
+
+
+def labgrid_unexport(args: argparse.Namespace) -> int:
+    host = cast(str, args.host)
+    workdir = cast(str, args.workdir)
+    script = labgrid_vlab.export_stop_script(
+        labgrid_vlab.VlabExportSpec(lane=args.lane), workdir)
+    return _print_result(run_remote(host, quote_script(script), timeout=60))
+
+
 def stop_poc(args: argparse.Namespace) -> int:
     host = cast(str, args.host)
     workdir = cast(str, args.workdir)
     pidfile, _, _ = _poc_paths(workdir)
     client_pidfile, _ = _client_paths(workdir)
+    unexport = labgrid_vlab.export_stop_script(
+        labgrid_vlab.VlabExportSpec(lane="default"), workdir)
     script = f'''
 set +e
+{unexport}
 workdir={shlex.quote(workdir)}
 workdir=$(eval printf '%s' "$workdir")
 pidfile={pidfile}
@@ -1459,6 +1504,31 @@ def build_parser() -> argparse.ArgumentParser:
     _ = stop_parser.add_argument("--host", default="218", help="SSH host for the Ubuntu lab machine")
     _ = stop_parser.add_argument("--workdir", default=DEFAULT_WORKDIR)
     stop_parser.set_defaults(func=stop_poc)
+
+    lg_export_parser = subparsers.add_parser(
+        "labgrid-export",
+        help="Export a RUNNING virtual lab as labgrid places "
+             "(vlab-<lane>-owrt / vlab-<lane>-client: SSH + serial over TCP)")
+    _ = lg_export_parser.add_argument("--host", default="218", help="SSH host for the Ubuntu lab machine")
+    _ = lg_export_parser.add_argument("--workdir", default=DEFAULT_WORKDIR)
+    _ = lg_export_parser.add_argument("--lane", default="default",
+                                      help="lane slug: place names vlab-<lane>-owrt/-client")
+    _ = lg_export_parser.add_argument("--lane-num", type=int, default=0,
+                                      help="lane index for TCP port allocation (46000 + 2*n)")
+    _ = lg_export_parser.add_argument("--coordinator", default="",
+                                      help="labgrid coordinator host:port (default $LG_COORDINATOR or ai-legion:20408)")
+    _ = lg_export_parser.add_argument("--serial-host", default="127.0.0.1",
+                                      help="address the serial relays bind / export")
+    _ = lg_export_parser.add_argument("--owrt-address", default=labgrid_vlab.DEFAULT_OWRT_ADDRESS)
+    _ = lg_export_parser.add_argument("--client-address", default=labgrid_vlab.DEFAULT_CLIENT_ADDRESS)
+    lg_export_parser.set_defaults(func=labgrid_export)
+
+    lg_unexport_parser = subparsers.add_parser(
+        "labgrid-unexport", help="Stop the labgrid exporter and serial relays for a lane")
+    _ = lg_unexport_parser.add_argument("--host", default="218", help="SSH host for the Ubuntu lab machine")
+    _ = lg_unexport_parser.add_argument("--workdir", default=DEFAULT_WORKDIR)
+    _ = lg_unexport_parser.add_argument("--lane", default="default")
+    lg_unexport_parser.set_defaults(func=labgrid_unexport)
 
     status_parser = subparsers.add_parser("status-poc", help="Show POC VM status")
     _ = status_parser.add_argument("--host", default="218", help="SSH host for the Ubuntu lab machine")

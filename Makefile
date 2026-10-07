@@ -1450,3 +1450,6 @@ story-report:
 	python3 scripts/story-coverage.py
 	@echo "--- summary ---"
 	@head -n 12 docs/user-stories.generated.md
+
+extensive-test: ## One-command extensive-test sweep (see docs/extensive-test.md)
+	@bash scripts/extensive-test.sh

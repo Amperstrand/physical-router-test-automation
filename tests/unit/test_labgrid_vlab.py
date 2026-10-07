@@ -170,5 +170,5 @@ class TestPlaceCreation:
         s = export_start_script(spec, "/tmp/vlab", "/tmp/vlab/run/serial.sock",
                                 "/tmp/vlab/run/serial-client.sock")
         assert "for place in vlab-rc1-owrt vlab-rc1-client; do" in s
-        assert 'add-place "$place"' in s
+        assert 'create "$place"' in s
         assert 'add-match "vlab-rc1/$place/*/*"' in s

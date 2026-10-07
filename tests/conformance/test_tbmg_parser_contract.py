@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.story("O4"), pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.failure, pytest.mark.story("O4"), pytest.mark.api, pytest.mark.extended]
 
 HERE = Path(__file__).parent
 TABLE = json.loads((HERE / "tbmg" / "min_steps_table.json").read_text())

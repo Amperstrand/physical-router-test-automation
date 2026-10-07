@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.story("O3"), pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.failure, pytest.mark.story("O3"), pytest.mark.api, pytest.mark.extended]
 
 HERE = Path(__file__).parent
 VENDORED = HERE / "tbmg" / "init.d.tollgate-wrt"

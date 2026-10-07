@@ -15,7 +15,7 @@ import pytest
 import lib.portal_payment as pp
 from lib.portal_payment import pay_cashu_via_portal
 
-pytestmark = [pytest.mark.story("G7"), pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.failure, pytest.mark.story("G7"), pytest.mark.api, pytest.mark.critical]
 
 TOKEN = "cashuAeyJwcm9vZiI6MTIzfQ"
 PORTAL_URL = "http://192.168.1.1:2050/"

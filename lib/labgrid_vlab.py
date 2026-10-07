@@ -180,6 +180,13 @@ if ! grep -qa "{marker}" /proc/$(cat {exporter_pid})/cmdline 2>/dev/null; then
   exit 1
 fi
 
+# labgrid: exporter groups do not auto-become places — create + match (idempotent)
+for place in {owrt_place} {client_place}; do
+  labgrid-client -x {spec.coordinator} add-place "$place" >/dev/null 2>&1 || true
+  labgrid-client -x {spec.coordinator} -p "$place" \\
+    add-match "vlab-{spec.lane}/$place/*/*" >/dev/null 2>&1 || true
+done
+
 echo "labgrid places exported:"
 echo "  {owrt_place}  (serial tcp://{spec.serial_host}:{spec.serial_port_owrt})"
 echo "  {client_place}  (serial tcp://{spec.serial_host}:{spec.serial_port_client})"

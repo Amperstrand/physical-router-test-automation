@@ -161,3 +161,14 @@ class TestResolveSerial:
         r = _FakeRunner(stdout="NetworkService: address='10.0.0.1', port=22\n")
         with pytest.raises(VlabExportError, match="no NetworkSerialPort"):
             resolve_serial("c:1", "p", runner=r)
+
+
+class TestPlaceCreation:
+    def test_add_place_and_match_per_vm(self):
+        spec = VlabExportSpec(lane="rc1", coordinator="ai-legion:20408",
+                              serial_port_owrt=46014, serial_port_client=46015)
+        s = export_start_script(spec, "/tmp/vlab", "/tmp/vlab/run/serial.sock",
+                                "/tmp/vlab/run/serial-client.sock")
+        assert "for place in vlab-rc1-owrt vlab-rc1-client; do" in s
+        assert 'add-place "$place"' in s
+        assert 'add-match "vlab-rc1/$place/*/*"' in s

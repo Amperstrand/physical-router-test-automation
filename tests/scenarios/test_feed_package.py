@@ -23,7 +23,7 @@ import pytest
 
 from lib import deploy as deploylib
 
-pytestmark = [pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(600)]
+pytestmark = [pytest.mark.story("O5"),pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(600)]
 
 # Defaults pin the current feed RC; override via env for a new release.
 EXPECT_VERSION = os.environ.get("FEED_EXPECT_VERSION", "0.6.0_alpha2_pre-r1")

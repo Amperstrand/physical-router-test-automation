@@ -22,7 +22,7 @@ from lib.helpers import skip_if_no_mint_health_tracker as _skip_if_no_degraded_s
 
 log = logging.getLogger("tollgate.scenarios.boot_hygiene")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.destructive, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended, pytest.mark.destructive, pytest.mark.virtual_lab]
 
 RECOVERY_POLL_TIMEOUT = 960
 RECOVERY_POLL_INTERVAL = 15

@@ -31,6 +31,7 @@ from lib.router_lock import RouterLock
 from lib.labgrid_venue import bench_for_router
 
 pytestmark = [
+    pytest.mark.story("P7"),
     pytest.mark.hardware,
     pytest.mark.physical_only,
     pytest.mark.skipif(

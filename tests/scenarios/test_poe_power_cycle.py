@@ -53,6 +53,7 @@ GATE_ROUTER = os.environ.get("TOLLGATE_POE_GATE", "ap-lan2")
 SMOKE_ENV = "TOLLGATE_POE_SMOKE"
 
 pytestmark = [
+    pytest.mark.story("P6"),
     pytest.mark.hardware,
     pytest.mark.physical_only,
     pytest.mark.skipif(

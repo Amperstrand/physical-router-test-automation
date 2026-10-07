@@ -22,7 +22,7 @@ import pytest
 from lib.cloud_lab.constants import chain_lan_ip
 from lib.helpers import is_full_merchant, is_degraded
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P9"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 
 def _skip_if_no_chain(chain_routers):

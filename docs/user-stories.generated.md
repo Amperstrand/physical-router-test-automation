@@ -4,8 +4,8 @@
      on the tests. Do not edit by hand; regenerate instead.
      Hand-written narrative version: docs/user-stories.md -->
 
-- test files carrying marks: **114**
-- stories with at least one proving test: **33/39**
+- test files carrying marks: **135**
+- stories with at least one proving test: **35/39**
 - TIPs exercised: **2** (TIP-01, TIP-02)
 
 Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
@@ -14,9 +14,9 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 
 | ID | Story | Proving tests | Status |
 |----|-------|---------------|--------|
-| G1 | Captive portal appears on join | `tests/api/test_captive_api.py`<br>`tests/api/test_portal_verify.py` | Covered |
-| G2 | Pay with a Cashu token, get internet | `tests/api/test_e2e_payment_auth_delay.py`<br>`tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_lightning_portal.py`<br>`tests/api/test_local_payment.py`<br>`tests/api/test_payment_regression.py`<br>`tests/api/test_pending_token_cgi.py`<br>`tests/api/test_post_payment_redirect.py`<br>`tests/api/test_wrong_mint.py` | Covered |
-| G3 | v0.6 portal generation stays supported | `tests/unit/test_portal_markers.py` | Covered |
+| G1 | Captive portal appears on join | `tests/api/test_captive_api.py`<br>`tests/api/test_portal_verify.py`<br>`tests/scenarios/test_captive_portal_browser.py` | Covered |
+| G2 | Pay with a Cashu token, get internet | `tests/api/test_e2e_payment_auth_delay.py`<br>`tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_lightning_portal.py`<br>`tests/api/test_local_payment.py`<br>`tests/api/test_payment_regression.py`<br>`tests/api/test_pending_token_cgi.py`<br>`tests/api/test_post_payment_redirect.py`<br>`tests/api/test_wrong_mint.py`<br>`tests/scenarios/test_captive_portal_cashu_payment.py` | Covered |
+| G3 | v0.6 portal generation stays supported | `tests/scenarios/test_net4sats_ux.py`<br>`tests/unit/test_portal_markers.py` | Covered |
 | G4 | Expired session offers honest renewal | `tests/api/test_session_endpoint.py`<br>`tests/api/test_session_expiry_and_scan.py` | Covered |
 | G5 | Portal works on a real phone | `tests/phone/test_rig_phone_payment.py` | Covered |
 | G6 | Balance visible while session live | `tests/api/test_balance_page_reachable.py` | Covered |
@@ -27,12 +27,12 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 
 | ID | Story | Proving tests | Status |
 |----|-------|---------------|--------|
-| O1 | Serves degraded when mints unreachable | `tests/api/test_cli_degraded_operations.py`<br>`tests/api/test_degraded_mode.py`<br>`tests/api/test_degraded_portal.py`<br>`tests/api/test_mint_recovery.py`<br>`tests/api/test_mint_startup_recovery_latency.py`<br>`tests/api/test_portal_degraded_ui.py`<br>`tests/api/test_recovery_lifecycle.py`<br>`tests/api/test_wgm_startup.py` | Covered |
-| O2 | One dead mint never blocks purchases | `tests/api/test_dual_mint.py`<br>`tests/api/test_lightning_backoff.py`<br>`tests/api/test_local_mints.py`<br>`tests/api/test_mint_502_fake.py`<br>`tests/api/test_mint_502_handling.py`<br>`tests/api/test_mint_health.py`<br>`tests/api/test_try_all_mints.py` | Covered |
-| O3 | No zombie service after restart | `tests/api/test_lightning_quote_persistence.py`<br>`tests/api/test_quote_persistence.py` | Covered |
-| O4 | Config survives edits without reset | `tests/api/test_config_invariants.py`<br>`tests/api/test_mint_url_normalization.py`<br>`tests/api/test_mint_url_trailing_slash.py` | Covered |
-| O5 | Firmware wizard completes or fails loudly | `tests/api/test_ipk_lifecycle.py`<br>`tests/api/test_pr207_ap_setup_reinstall.py`<br>`tests/api/test_setup_script.py`<br>`installer/test_installer_e2e.py` | Covered |
-| O6 | UCI use-cases apply and verify | `tests/api/test_hostname.py`<br>`tests/api/test_nds_fw4_integration.py`<br>`tests/api/test_netbird_firewall.py`<br>`conwrt/test_use_cases.py` | Covered |
+| O1 | Serves degraded when mints unreachable | `tests/api/test_cli_degraded_operations.py`<br>`tests/api/test_degraded_mode.py`<br>`tests/api/test_degraded_portal.py`<br>`tests/api/test_mint_recovery.py`<br>`tests/api/test_mint_startup_recovery_latency.py`<br>`tests/api/test_portal_degraded_ui.py`<br>`tests/api/test_recovery_lifecycle.py`<br>`tests/api/test_wgm_startup.py`<br>`tests/scenarios/test_boot_hygiene.py`<br>`tests/scenarios/test_recovery.py` | Covered |
+| O2 | One dead mint never blocks purchases | `tests/api/test_dual_mint.py`<br>`tests/api/test_lightning_backoff.py`<br>`tests/api/test_local_mints.py`<br>`tests/api/test_mint_502_fake.py`<br>`tests/api/test_mint_502_handling.py`<br>`tests/api/test_mint_health.py`<br>`tests/api/test_try_all_mints.py`<br>`tests/scenarios/test_mint_health.py` | Covered |
+| O3 | No zombie service after restart | `tests/api/test_lightning_quote_persistence.py`<br>`tests/api/test_quote_persistence.py`<br>`tests/scenarios/test_wallet_sidecar.py` | Covered |
+| O4 | Config survives edits without reset | `tests/api/test_config_invariants.py`<br>`tests/api/test_mint_url_normalization.py`<br>`tests/api/test_mint_url_trailing_slash.py`<br>`tests/scenarios/test_upgrade.py` | Covered |
+| O5 | Firmware wizard completes or fails loudly | `tests/api/test_ipk_lifecycle.py`<br>`tests/api/test_pr207_ap_setup_reinstall.py`<br>`tests/api/test_setup_script.py`<br>`tests/scenarios/test_feed_package.py`<br>`tests/scenarios/test_install_paths.py`<br>`installer/test_installer_e2e.py` | Covered |
+| O6 | UCI use-cases apply and verify | `tests/api/test_hostname.py`<br>`tests/api/test_nds_fw4_integration.py`<br>`tests/api/test_netbird_firewall.py`<br>`tests/scenarios/test_rfc1918_isolation.py`<br>`tests/scenarios/test_upstream_wifi.py`<br>`tests/scenarios/test_vendor_ie.py`<br>`conwrt/test_use_cases.py` | Covered |
 | O7 | Device-mint runs in RAM, no flash wear | `tests/api/test_m5_hardware_mint.py` | Covered |
 | O8 | Admin surfaces scoped as intended | `tests/api/test_admin_luci_ports.py`<br>`tests/api/test_admin_portal_visual.py`<br>`tests/api/test_config_permissions.py`<br>`tests/api/test_luci_admin_ui.py`<br>`tests/api/test_pr198_ssrf_callback.py`<br>`tests/api/test_rpcd_security.py`<br>`tests/api/test_security_fixes.py`<br>`tests/api/test_ssl_apply_remove_lifecycle.py`<br>`tests/api/test_ssl_backup_restore.py`<br>`tests/api/test_ssl_cli.py`<br>`tests/api/test_ssl_go_cli.py`<br>`tests/api/test_ssl_real_cert.py`<br>`tests/api/test_ssl_real_cert_lifecycle.py`<br>`tests/api/test_tls_transport.py` | Covered |
 
@@ -45,7 +45,7 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | M3 | Concurrent purchases serialize | `tests/api/test_concurrent_payments.py` | Covered |
 | M4 | Swap fees accounted in payouts | `tests/api/test_edge_tokens.py`<br>`tests/api/test_mint_payout.py`<br>`tests/api/test_swap_regression.py` | Covered |
 | M5 | Errors never leak internals | `tests/api/test_error_sanitization.py`<br>`tests/api/test_pr202_error_sanitization.py` | Covered |
-| M6 | Profit-share identities round-trip | `tests/api/test_config_save_identities.py`<br>`tests/api/test_merchant_provider.py`<br>`tests/api/test_profit_share_validation.py` | Covered |
+| M6 | Profit-share identities round-trip | `tests/api/test_config_save_identities.py`<br>`tests/api/test_merchant_provider.py`<br>`tests/api/test_profit_share_validation.py`<br>`tests/scenarios/test_reseller_mode.py` | Covered |
 
 ## Operator — “The bench tells me the truth”
 
@@ -56,10 +56,10 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | P3 | Not-ready vs dead backend distinguishable | `tests/api/test_health.py`<br>`tests/unit/test_backend_readiness.py` | Covered |
 | P4 | Tests cannot mutate a live DUT | — | Gap |
 | P5 | Runs leave reviewable evidence films | `tests/api/test_log_beacon_cgi.py`<br>`tests/api/test_notice_event.py`<br>`tests/api/test_portal_screenshot.py`<br>`tests/api/test_visual_happy_path.py` | Covered |
-| P6 | Destructive steps gated on device identity | — | Gap |
-| P7 | Mock and live present one interface | `tests/api/test_mac80211_hwsim.py`<br>`tests/api/test_mock_api_advertisement_format.py`<br>`tests/api/test_virtual_lab_integration.py`<br>`tests/api/test_virtual_lab_poc.py`<br>`tests/api/test_virtual_wifi_hwsim_netns.py` | Covered |
+| P6 | Destructive steps gated on device identity | `tests/scenarios/test_poe_power_cycle.py` | Covered |
+| P7 | Mock and live present one interface | `tests/api/test_mac80211_hwsim.py`<br>`tests/api/test_mock_api_advertisement_format.py`<br>`tests/api/test_virtual_lab_integration.py`<br>`tests/api/test_virtual_lab_poc.py`<br>`tests/api/test_virtual_wifi_hwsim_netns.py`<br>`tests/scenarios/test_labgrid_venue.py` | Covered |
 | P8 | Mint replacement is explicit | `tests/unit/test_replace_mints_guard.py` | Covered |
-| P9 | Two-router scenarios in the cloud lab | — | Gap |
+| P9 | Two-router scenarios in the cloud lab | `tests/scenarios/test_multihop_cloud.py`<br>`tests/scenarios/test_two_router.py`<br>`tests/scenarios/test_two_router_cloud.py`<br>`tests/scenarios/test_two_router_payment.py` | Covered |
 | P10 | NDS state untouched while sessions live | `tests/api/test_nds_gating.py` | Covered |
 
 ## Maintainer — “Releases and parity hold”
@@ -71,7 +71,7 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | R3 | Wire formats stable across releases | `tests/api/test_gateway_token_format.py`<br>`tests/api/test_pay_response_structure.py` | Covered |
 | R4 | FIPS exit path exercised | `tests/api/test_fips_exit_node.py` | Covered |
 | R5 | Conformance green before publish | — | Gap |
-| R6 | Real RNG everywhere | `tests/api/test_crypto_rand_password.py`<br>`tests/api/test_pr193_identity_endpoints.py` | Covered |
+| R6 | Real RNG everywhere | `tests/api/test_crypto_rand_password.py`<br>`tests/api/test_pr193_identity_endpoints.py`<br>`tests/scenarios/test_router_identity_script.py` | Covered |
 | R7 | Embedded portal equals served portal | `tests/api/test_embedded_portal.py` | Covered |
 
 ## TIP conformance matrix
@@ -79,5 +79,5 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | TIP | Proving tests |
 |-----|---------------|
 | TIP-01 | `tests/api/test_discovery_mints.py` |
-| TIP-02 | `tests/api/test_access_denominated.py`<br>`tests/api/test_cashu_compat_matrix.py`<br>`tests/api/test_concurrent_payments.py`<br>`tests/api/test_double_spend.py`<br>`tests/api/test_dual_mint.py`<br>`tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_edge_tokens.py`<br>`tests/api/test_gateway_token_format.py`<br>`tests/api/test_local_payment.py`<br>`tests/api/test_minimum_token.py`<br>`tests/api/test_nut24.py`<br>`tests/api/test_token_formats.py`<br>`tests/api/test_wrong_mint.py` |
+| TIP-02 | `tests/api/test_access_denominated.py`<br>`tests/api/test_cashu_compat_matrix.py`<br>`tests/api/test_concurrent_payments.py`<br>`tests/api/test_double_spend.py`<br>`tests/api/test_dual_mint.py`<br>`tests/api/test_e2e_portal_payment.py`<br>`tests/api/test_edge_tokens.py`<br>`tests/api/test_gateway_token_format.py`<br>`tests/api/test_local_payment.py`<br>`tests/api/test_minimum_token.py`<br>`tests/api/test_nut24.py`<br>`tests/api/test_token_formats.py`<br>`tests/api/test_wrong_mint.py`<br>`tests/scenarios/test_captive_portal_cashu_payment.py` |
 

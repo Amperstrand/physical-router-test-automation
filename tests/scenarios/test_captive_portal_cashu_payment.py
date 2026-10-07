@@ -40,7 +40,7 @@ from lib.session_verify import verify_session
 
 log = logging.getLogger("tollgate.captive_portal_cashu_payment")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.story("G2"), pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(120)]
 
 #: Splash page path served by nodogsplash on the gateway port.
 _SPLASH_PATH = "/splash.html"

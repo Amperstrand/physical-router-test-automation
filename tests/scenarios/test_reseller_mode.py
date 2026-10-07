@@ -26,6 +26,7 @@ from lib.reseller_mode import (
 )
 
 pytestmark = [
+    pytest.mark.story("M6"),
     pytest.mark.api,
     pytest.mark.extended,
     pytest.mark.virtual_lab,

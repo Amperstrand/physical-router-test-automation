@@ -19,7 +19,7 @@ import pytest
 from lib.fake_mint import FakeMintServer
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
+pytestmark = [pytest.mark.story("O2"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
 
 CONFIG_BACKUP = "/etc/tollgate/config.json.fake-502-test-backup"
 

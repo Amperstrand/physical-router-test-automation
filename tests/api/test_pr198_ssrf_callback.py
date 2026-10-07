@@ -40,7 +40,7 @@ import pytest
 
 from lib.helpers import gate_bug_fix
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 _SSRF_BLOCK_STRING = "callback URL points to blocked address"
 

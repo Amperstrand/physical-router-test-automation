@@ -2,7 +2,7 @@ import base64
 import json
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.api, pytest.mark.extended]
 
 
 def _v1_server_running(router):

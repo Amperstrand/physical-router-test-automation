@@ -5,7 +5,7 @@ import pytest
 
 from lib.constants import POC_GATEWAY, NDS_PORTAL_PORT
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
 
 
 def _skip_unless_virtual_lab():

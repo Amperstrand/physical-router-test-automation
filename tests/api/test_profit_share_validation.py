@@ -8,7 +8,7 @@ from lib.helpers import gate_bug_fix
 
 log = logging.getLogger("tollgate.profit_share_validation")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("M6"),pytest.mark.api, pytest.mark.extended]
 
 _MUTATING_VALIDATION_TESTS = frozenset({
     "test_profit_share_boot_with_invalid_config",

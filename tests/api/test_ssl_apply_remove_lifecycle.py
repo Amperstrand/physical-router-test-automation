@@ -23,7 +23,7 @@ from lib.helpers import get_uhttpd_cert, get_uhttpd_key, skip_if_no_ssl_cli, ssl
 
 log = logging.getLogger("tollgate.ssl_lifecycle")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended]
 
 
 def _skip_virtual_lab():

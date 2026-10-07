@@ -17,6 +17,7 @@ import pytest
 
 
 pytestmark = [
+    pytest.mark.story("O8"),
     pytest.mark.api,
     pytest.mark.extended,
     pytest.mark.go_only,

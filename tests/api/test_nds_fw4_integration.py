@@ -23,6 +23,8 @@ import time
 import subprocess
 
 
+pytestmark = [pytest.mark.story("O6")]
+
 @pytest.mark.api
 class TestNdsFw4Integration:
     """Verify NDS firewall rules are reachable in the actual packet path."""

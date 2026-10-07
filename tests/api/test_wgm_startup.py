@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.smoke]
 
 
 def _skip_if_no_startup_check(logs: str):

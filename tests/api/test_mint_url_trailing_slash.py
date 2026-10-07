@@ -16,7 +16,7 @@ import requests
 
 from lib.constants import BACKEND_PORT
 
-pytestmark = [pytest.mark.api, pytest.mark.go_only]
+pytestmark = [pytest.mark.story("O4"),pytest.mark.api, pytest.mark.go_only]
 
 
 def _get_config_mint_url(router):

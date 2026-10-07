@@ -16,7 +16,7 @@ import pytest
 
 log = logging.getLogger("tollgate.cli_json_config")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
+pytestmark = [pytest.mark.story("G8"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
 
 from lib.helpers import skip_if_no_cli_socket
 

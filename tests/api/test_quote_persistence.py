@@ -20,7 +20,7 @@ import requests
 from lib.constants import BACKEND_PORT
 from lib.helpers import skip_if_no_quote_persistence
 
-pytestmark = [pytest.mark.api, pytest.mark.slow, pytest.mark.go_only, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O3"),pytest.mark.api, pytest.mark.slow, pytest.mark.go_only, pytest.mark.extended]
 
 
 def _skip_if_no_ln_invoice(router):

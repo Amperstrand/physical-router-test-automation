@@ -34,7 +34,7 @@ import pytest
 from lib.constants import BACKEND_PORT
 from lib.helpers import gate_bug_fix
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("R6"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 # Standard BIP39 12-word test vectors (128-bit entropy, valid checksums).
 MNEMONIC_A = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

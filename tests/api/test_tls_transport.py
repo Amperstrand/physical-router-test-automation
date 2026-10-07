@@ -15,7 +15,7 @@ import pytest
 
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended]
 
 
 @pytest.fixture(scope="module")

@@ -26,7 +26,7 @@ import requests
 
 from lib.constants import BACKEND_PORT
 
-pytestmark = [pytest.mark.api, pytest.mark.go_only, pytest.mark.critical]
+pytestmark = [pytest.mark.story("M4"),pytest.mark.api, pytest.mark.go_only, pytest.mark.critical]
 
 
 # ---------------------------------------------------------------------------

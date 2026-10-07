@@ -12,7 +12,7 @@ import pytest
 
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O4"),pytest.mark.api, pytest.mark.extended]
 
 
 def _skip_if_local_mint():

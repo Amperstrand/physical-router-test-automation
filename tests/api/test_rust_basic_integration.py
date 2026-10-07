@@ -20,7 +20,7 @@ import time
 import pytest
 import requests
 
-pytestmark = [pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.extended]
 
 
 def test_config_validation_via_cli(rust_basic_server):

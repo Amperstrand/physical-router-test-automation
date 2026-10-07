@@ -35,7 +35,7 @@ log = logging.getLogger("tollgate.merchant_provider")
 
 # timeout(900): a test can wait for two full health transitions
 # (block→degraded + unblock→full) of up to HEALTH_POLL_TIMEOUT each.
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(900), pytest.mark.go_only, pytest.mark.complete]
+pytestmark = [pytest.mark.story("M6"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(900), pytest.mark.go_only, pytest.mark.complete]
 
 HEALTH_POLL_INTERVAL = 5
 # The backend flips mint health on a 300s proactive probe cadence, so a

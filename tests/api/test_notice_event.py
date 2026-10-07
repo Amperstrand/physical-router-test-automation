@@ -2,7 +2,7 @@ import json
 import pytest
 from lib.helpers import parse_json_or_fail, post_payment_event
 
-pytestmark = [pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.story("P5"),pytest.mark.api, pytest.mark.critical]
 
 
 @pytest.mark.critical

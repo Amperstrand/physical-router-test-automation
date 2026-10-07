@@ -20,7 +20,7 @@ import time
 import pytest
 import requests
 
-pytestmark = [pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.extended]
 
 # Test client identity injected into /tmp/dhcp.leases.
 _TEST_MAC = "00:11:22:33:44:55"

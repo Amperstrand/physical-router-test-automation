@@ -26,6 +26,10 @@ MINT = os.environ.get("TOLLGATE_TEST_MINT_URL", "http://10.99.99.2:8383")
 BACKEND = f"http://{OPENWRT}:2121"
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P10")]
+
 def ssh(host, cmd, timeout=30):
     r = subprocess.run(
         ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",

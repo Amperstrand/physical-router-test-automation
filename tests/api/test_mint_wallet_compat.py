@@ -34,7 +34,7 @@ from lib.helpers import require_client_identity
 
 log = logging.getLogger("tollgate.mint_wallet_compat")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.api, pytest.mark.extended]
 
 MINT_AMOUNT = 4
 

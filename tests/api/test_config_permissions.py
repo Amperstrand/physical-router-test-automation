@@ -1,7 +1,7 @@
 """Config file permissions tests — verify sensitive config files are root-only (0600)."""
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.smoke]
 
 
 @pytest.mark.smoke

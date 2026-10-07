@@ -5,7 +5,7 @@ import pytest
 
 from lib.helpers import parse_json_or_fail, require_client_identity
 
-pytestmark = [pytest.mark.rust_only, pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_only, pytest.mark.api, pytest.mark.smoke]
 
 if os.environ.get("TOLLGATE_BACKEND") in ("rust-basic", "rust-embedded"):
     pytest.skip(

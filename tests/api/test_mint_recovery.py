@@ -34,7 +34,7 @@ from lib.constants import BACKEND_PORT, TEST_MINT_URL
 
 log = logging.getLogger("tollgate.mint_recovery")
 
-pytestmark = [pytest.mark.api, pytest.mark.go_only, pytest.mark.extended, pytest.mark.timeout(180)]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.go_only, pytest.mark.extended, pytest.mark.timeout(180)]
 
 
 # An address that will always refuse or drop the connection (port 1, unrouted host).

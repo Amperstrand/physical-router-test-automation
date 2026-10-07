@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O5"),pytest.mark.api, pytest.mark.extended]
 
 
 def _skip_if_no_setup_script(router):

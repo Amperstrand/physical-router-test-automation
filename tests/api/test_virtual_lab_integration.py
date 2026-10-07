@@ -19,7 +19,7 @@ import pytest
 
 from lib.constants import POC_GATEWAY
 
-pytestmark = [pytest.mark.api, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.api, pytest.mark.virtual_lab]
 
 GATEWAY = POC_GATEWAY
 CONTAINER = "tg-poc-client"

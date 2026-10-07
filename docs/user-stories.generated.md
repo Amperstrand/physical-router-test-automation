@@ -4,8 +4,8 @@
      on the tests. Do not edit by hand; regenerate instead.
      Hand-written narrative version: docs/user-stories.md -->
 
-- test files carrying marks: **213**
-- stories with at least one proving test: **37/40**
+- test files carrying marks: **216**
+- stories with at least one proving test: **38/40**
 - TIPs exercised: **3** (TIP-01, TIP-02, TIP-03)
 
 Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
@@ -20,7 +20,7 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 | G4 | Expired session offers honest renewal | `tests/api/test_session_endpoint.py`<br>`tests/api/test_session_expiry_and_scan.py`<br>`tests/phone/test_expiry_kick.py`<br>`tests/phone/test_extend_session.py`<br>`tests/phone/test_session_persistence.py`<br>`tests/phone/test_short_session.py`<br>`tests/stories/test_session_expiry_and_repayment.py` | Covered |
 | G5 | Portal works on a real phone | `tests/phone/test_camera_captive.py`<br>`tests/phone/test_captive_portal_auto.py`<br>`tests/phone/test_paste.py`<br>`tests/phone/test_rig_phone_payment.py`<br>`tests/phone/test_rig_wallet_payment.py`<br>`tests/phone/test_token_input.py`<br>`tests/phone/test_url_param.py` | Covered |
 | G6 | Balance visible while session live | `tests/api/test_balance_page_reachable.py`<br>`tests/phone/test_data_metering.py`<br>`tests/phone/test_time_metering.py` | Covered |
-| G7 | Clear failure copy when backend is down | — | Gap |
+| G7 | Clear failure copy when backend is down | `tests/unit/test_portal_failure_copy.py` | Covered |
 | G8 | CLI client gets the same answers | `tests/api/test_bash_client.py`<br>`tests/api/test_cli_json_config.py`<br>`tests/api/test_cli_version.py`<br>`tests/api/test_cli_wallet.py`<br>`tests/laptop/test_laptop_clientd.py`<br>`tests/unit/test_tollgate_clientd.py` | Covered |
 
 ## Owner — “My router earns while I sleep”
@@ -29,8 +29,8 @@ Selection: `pytest --story G2` · `pytest --tip TIP-01` · both combine (AND)
 |----|-------|---------------|--------|
 | O1 | Serves degraded when mints unreachable | `tests/api/test_cli_degraded_operations.py`<br>`tests/api/test_degraded_mode.py`<br>`tests/api/test_degraded_portal.py`<br>`tests/api/test_mint_recovery.py`<br>`tests/api/test_mint_startup_recovery_latency.py`<br>`tests/api/test_portal_degraded_ui.py`<br>`tests/api/test_recovery_lifecycle.py`<br>`tests/api/test_wgm_startup.py`<br>`tests/phone/test_degraded_mode.py`<br>`tests/scenarios/test_boot_hygiene.py`<br>`tests/scenarios/test_recovery.py`<br>`tests/stories/test_degraded_mode.py` | Covered |
 | O2 | One dead mint never blocks purchases | `tests/api/test_dual_mint.py`<br>`tests/api/test_lightning_backoff.py`<br>`tests/api/test_local_mints.py`<br>`tests/api/test_mint_502_fake.py`<br>`tests/api/test_mint_502_handling.py`<br>`tests/api/test_mint_health.py`<br>`tests/api/test_try_all_mints.py`<br>`tests/scenarios/test_mint_health.py` | Covered |
-| O3 | No zombie service after restart | `tests/api/test_lightning_quote_persistence.py`<br>`tests/api/test_quote_persistence.py`<br>`tests/phone/test_backend_restart.py`<br>`tests/scenarios/test_wallet_sidecar.py` | Covered |
-| O4 | Config survives edits without reset | `tests/api/test_config_invariants.py`<br>`tests/api/test_mint_url_normalization.py`<br>`tests/api/test_mint_url_trailing_slash.py`<br>`tests/scenarios/test_upgrade.py`<br>`tests/stories/test_upgrade_preserves_sessions.py` | Covered |
+| O3 | No zombie service after restart | `tests/api/test_lightning_quote_persistence.py`<br>`tests/api/test_quote_persistence.py`<br>`tests/conformance/test_stray_2121_sweep.py`<br>`tests/phone/test_backend_restart.py`<br>`tests/scenarios/test_wallet_sidecar.py` | Covered |
+| O4 | Config survives edits without reset | `tests/api/test_config_invariants.py`<br>`tests/api/test_mint_url_normalization.py`<br>`tests/api/test_mint_url_trailing_slash.py`<br>`tests/conformance/test_tbmg_parser_contract.py`<br>`tests/scenarios/test_upgrade.py`<br>`tests/stories/test_upgrade_preserves_sessions.py` | Covered |
 | O5 | Firmware wizard completes or fails loudly | `tests/api/test_ipk_lifecycle.py`<br>`tests/api/test_pr207_ap_setup_reinstall.py`<br>`tests/api/test_setup_script.py`<br>`tests/scenarios/test_feed_package.py`<br>`tests/scenarios/test_install_paths.py`<br>`tests/unit/test_install_paths.py`<br>`installer/test_installer_e2e.py` | Covered |
 | O6 | UCI use-cases apply and verify | `tests/api/test_hostname.py`<br>`tests/api/test_nds_fw4_integration.py`<br>`tests/api/test_netbird_firewall.py`<br>`tests/scenarios/test_rfc1918_isolation.py`<br>`tests/scenarios/test_upstream_wifi.py`<br>`tests/scenarios/test_vendor_ie.py`<br>`conwrt/test_mptcp_bonding.py`<br>`conwrt/test_sqm_functional.py`<br>`conwrt/test_use_cases.py`<br>`conwrt/test_vpn_e2e.py` | Covered |
 | O7 | Device-mint runs in RAM, no flash wear | `tests/api/test_m5_hardware_mint.py` | Covered |

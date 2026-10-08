@@ -484,6 +484,35 @@ def remote_exists(host: str, command: str) -> bool:
     return result.returncode == 0
 
 
+def _dut_integrity_script() -> str:
+    r"""Bash snippet for doctor(): early corruption detection on the DUT.
+
+    The virtual venue's damage class (#26, from tollgate-module-basic-go#109)
+    is opkg orphan-removal zeroing binaries: nodogsplash/curl/socat/jq end
+    up as zero-byte files in /usr/bin while the router still boots. A DUT
+    that is off is SKIPPED (doctor must stay usable pre-boot); a reachable
+    DUT with zero-byte binaries prints the DUT_ZERO_BYTE_BINARIES sentinel
+    so doctor() can fail loudly with the --fresh remediation.
+    """
+    return rf'''
+printf '\n== DUT (OpenWrt VM) integrity ==\n'
+_sshopts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR"
+if sshpass -p {POC_PASSWORD} ssh $_sshopts root@{POC_GATEWAY} true 2>/dev/null; then
+  printf 'SSH: reachable\n'
+  _zeros=$(sshpass -p {POC_PASSWORD} ssh $_sshopts root@{POC_GATEWAY} 'find /usr/bin -maxdepth 1 -type f -size 0' 2>/dev/null)
+  if [ -n "$_zeros" ]; then
+    printf 'CORRUPTION: zero-byte binaries in /usr/bin (opkg orphan-removal class, #26):\n%s\n' "$_zeros"
+    printf 'remediation: virtual-lab.py stop-poc && virtual-lab.py start-poc --fresh\n'
+    printf 'DUT_ZERO_BYTE_BINARIES=1\n'
+  else
+    printf '/usr/bin: no zero-byte binaries\n'
+  fi
+else
+  printf 'SSH: unreachable (run start-poc to bring the DUT up; integrity check skipped)\n'
+fi
+'''
+
+
 def doctor(args: argparse.Namespace) -> int:
     host = cast(str, args.host)
     script = r'''
@@ -509,12 +538,18 @@ done
 printf '\n== user ==\n'
 id
 groups
-'''
+''' + _dut_integrity_script()
     result = run_remote(host, quote_script(script), timeout=60)
     if result.stdout:
         print(result.stdout)
     if result.stderr:
         print(result.stderr, file=sys.stderr)
+
+    if "DUT_ZERO_BYTE_BINARIES=1" in (result.stdout or ""):
+        print("\n== virtual lab readiness ==")
+        print("DUT corruption detected: zero-byte binaries in /usr/bin")
+        print("remediation: python3 scripts/virtual-lab.py stop-poc && python3 scripts/virtual-lab.py start-poc --fresh")
+        return 1
 
     missing_required = [cmd for cmd in REQUIRED_COMMANDS if not remote_exists(host, cmd)]
     missing_optional = [cmd for cmd in OPTIONAL_COMMANDS if not remote_exists(host, cmd)]
@@ -809,11 +844,65 @@ def _generate_debian_provision_script(workdir: str) -> str:
     return _DEBIAN_PROVISION_TEMPLATE.replace("__WORKDIR__", wdir).replace("__PASSWORD__", pwd)
 
 
+def _overlay_prepare_script(fresh: bool) -> str:
+    r"""Bash snippet: prepare the DUT overlay for boot.
+
+    A stop-poc/start-poc cycle reuses the overlay BY DESIGN (provisioned
+    state, internal snapshots) — which is exactly why a corrupted DUT came
+    back identical after a restart (issue #26: opkg orphan-removal had
+    zeroed nodogsplash/curl/socat/jq, and the "fresh" boot reported
+    "Package tollgate-wrt installed is up to date"). --fresh purges the
+    overlay first so the boot starts from the base image.
+
+    Must run only after the running-VM guard has passed: a live qemu owns
+    the file. Internal qcow2 snapshots live INSIDE the overlay, so --fresh
+    discards them too — the count is printed so a named restore point is
+    not lost silently.
+    """
+    if fresh:
+        return '''
+# --fresh: purge the DUT overlay so this boot starts from the base image (#26).
+if [ -f "$disk" ]; then
+  _snaps=$(qemu-img snapshot -l "$disk" 2>/dev/null | tail -n +3 | grep -c . || true)
+  if [ "$_snaps" -gt 0 ] 2>/dev/null; then
+    printf 'NOTE: --fresh discards %s internal snapshot(s) stored in the DUT overlay\\n' "$_snaps"
+  fi
+  rm -f "$disk"
+  printf 'Purged the DUT overlay (--fresh): this boot starts from the base image\\n'
+fi
+if [ ! -f "$disk" ]; then
+  qemu-img create -f qcow2 -F qcow2 -b "$base" "$disk"
+fi
+'''
+    return '''
+# Stop/start reuses the overlay BY DESIGN: a stop-poc/start-poc cycle brings
+# back the same DUT state, including any damage (#26). --fresh purges it.
+if [ ! -f "$disk" ]; then
+  qemu-img create -f qcow2 -F qcow2 -b "$base" "$disk"
+else
+  printf 'Reusing existing DUT overlay - DUT state persists across stop/start; pass --fresh for a pristine DUT\\n'
+fi
+'''
+
+
 def start_poc(args: argparse.Namespace) -> int:
     host = cast(str, args.host)
     ephemeral_client = bool(getattr(args, "ephemeral_client", False))
+    fresh = bool(getattr(args, "fresh", False))
     workdir = cast(str, args.workdir)
     pidfile, _serial_sock, disk = _poc_paths(workdir)
+
+    # --fresh cannot be honored on a live VM (qemu owns the overlay file);
+    # the guard below reports that instead of silently skipping the purge.
+    already_running = (
+        "  printf 'POC VM already running with pid %s -- --fresh needs it stopped"
+        " (run stop-poc first)\\n' \"$(cat \"$pidfile\")\"\n"
+        "  exit 1\n"
+        if fresh
+        else         "  printf 'POC VM already running with pid %s\\n' \"$(cat \"$pidfile\")\"\n"
+        "  exit 0\n"
+    )
+    overlay_snippet = _overlay_prepare_script(fresh)
 
     # Step 1: bridge, tap, host IP, overlay, QEMU
     infra_script = f'''
@@ -831,9 +920,7 @@ if [ ! -f "$base" ]; then
 fi
 
 if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-  printf 'POC VM already running with pid %s\\n' "$(cat "$pidfile")"
-  exit 0
-fi
+{already_running}fi
 
 # Clean up old resources
 sudo ip link del {DEBIAN_TAP} 2>/dev/null || true
@@ -860,10 +947,8 @@ sudo iptables -C FORWARD -i {POC_BRIDGE} -j ACCEPT 2>/dev/null || sudo iptables 
 sudo iptables -C FORWARD -o {POC_BRIDGE} -j ACCEPT 2>/dev/null || sudo iptables -I FORWARD 2 -o {POC_BRIDGE} -j ACCEPT
 sudo iptables -t nat -C POSTROUTING -s {POC_SUBNET} ! -o {POC_BRIDGE} -j MASQUERADE 2>/dev/null || sudo iptables -t nat -A POSTROUTING -s {POC_SUBNET} ! -o {POC_BRIDGE} -j MASQUERADE
 
-# Create overlay if needed
-if [ ! -f "$disk" ]; then
-  qemu-img create -f qcow2 -F qcow2 -b "$base" "$disk"
-fi
+# Prepare the DUT overlay (--fresh purges it; otherwise state persists #26)
+{overlay_snippet}
 
 # Start QEMU with serial/monitor Unix sockets.  The serial chardev also
 # logs every byte to logs/serial.log — console history (boot, netifd,
@@ -1448,6 +1533,10 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser = subparsers.add_parser("start-poc", help="Start OpenWrt VM and Debian client VM")
     _ = start_parser.add_argument("--host", default="218", help="SSH host for the Ubuntu lab machine")
     _ = start_parser.add_argument("--workdir", default=DEFAULT_WORKDIR)
+    _ = start_parser.add_argument("--fresh", action="store_true",
+                                  help="Purge the DUT overlay before boot so the OpenWrt VM starts "
+                                       "pristine (stop/start otherwise reuses it, #26). Discards "
+                                       "internal snapshots stored in the overlay.")
     _ = start_parser.add_argument("--ephemeral-client", action="store_true",
                                   help="Run the Debian client with QEMU -snapshot: writes are discarded "
                                        "on stop-poc, guaranteeing a pristine client per cycle. Requires an "

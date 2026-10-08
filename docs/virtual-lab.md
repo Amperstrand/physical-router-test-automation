@@ -52,6 +52,30 @@ python3 scripts/virtual-lab.py stop-poc --host localhost
 Use `--host <hostname>` instead of `localhost` when the lab runs on a remote
 Ubuntu machine.
 
+## DUT state across stop/start (and `--fresh`)
+
+A `stop-poc`/`start-poc` cycle **reuses the DUT overlay** (`overlays/
+tollgate-poc.qcow2`) by design: installed packages, config and internal
+qcow2 snapshots survive the restart — which also means a corrupted DUT
+comes back identical (#26: opkg orphan-removal had zeroed nodogsplash/
+curl/socat/jq and the "fresh" boot still reported the package installed).
+`start-poc` announces the reuse on every boot. For a pristine DUT:
+
+```bash
+python3 scripts/virtual-lab.py start-poc --host localhost --fresh
+```
+
+`--fresh` purges the overlay before boot (the manual `rm -f
+overlays/*.qcow2` between stop and start is no longer needed), refuses to
+run against a live VM (`stop-poc` first), and prints how many internal
+snapshots it discards — they live inside the overlay file. The Debian
+client overlay is untouched (re-provisioning it costs a full cloud-init
+run). `doctor` now also checks a reachable DUT for zero-byte binaries in
+`/usr/bin` — the early corruption detector from #26 — and fails with the
+`--fresh` remediation; an unreachable DUT is a skip, not a failure.
+`FRESH_DUT=1 ./scripts/extensive-test.sh` passes the flag through on
+bring-up.
+
 ## Client provisioning: seed first, serial as fallback
 
 The Debian client base is `debian-12-generic` — the image WITH cloud-init.

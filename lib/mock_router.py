@@ -35,7 +35,13 @@ log = logging.getLogger("tollgate.mock")
 # Canned mock data — realistic responses for a healthy tollgate backend
 # ---------------------------------------------------------------------------
 
-# A realistic Nostr kind:10021 advertisement event (what GET / returns)
+# A realistic Nostr kind:10021 advertisement event (what GET / returns).
+# The price_per_step tag carries the full 6-element form emitted by
+# merchant.go:CreateAdvertisement():
+#   [price_per_step, bearer_asset_type, price, unit, mint_url, min_purchase_steps]
+# — the same schema tests/api/test_mock_api_advertisement_format.py pins on
+# the recording mock; min_steps is always >= 1 (tmbg #104 normalizes 0/absent
+# to 1 config-side, and a purchase of <1 step is meaningless).
 MOCK_ADVERTISEMENT = {
     "kind": 10021,
     "pubkey": "a" * 64,
@@ -43,7 +49,7 @@ MOCK_ADVERTISEMENT = {
     "tags": [
         ["metric", "milliseconds"],
         ["step_size", "5000"],
-        ["price_per_step", "cashu", "1", "sat", "https://testnut.cashu.exchange"],
+        ["price_per_step", "cashu", "1", "sat", "https://testnut.cashu.exchange", "1"],
         ["tips", "Pay with Cashu tokens for internet access"],
     ],
 }
@@ -862,10 +868,31 @@ class MockRouter(Router):
         pass
 
     def _wait_for_backend(self, timeout: int = 15):
-        pass
+        # #18 parity: warn-not-raise — the mock ad is always served, but the
+        # semantics must mirror Router's so callers cannot tell them apart.
+        try:
+            self.wait_for_backend_ad(timeout=timeout)
+        except TimeoutError as exc:
+            log.warning(f"Mock backend not healthy after {timeout}s: {exc}")
 
     def wait_for_backend_ad(self, timeout: float = 45.0, interval: float = 2.0) -> None:
-        pass
+        """#18 parity of Router.wait_for_backend_ad: require the kind=10021
+        advertisement (readiness, not liveness) and raise TimeoutError when
+        it is not served within `timeout` — instead of the previous silent
+        no-op, which let mock-mode runs pass even if the mock's own ad
+        drifted away from the discovery contract."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                body = self.api_body("/")
+                if json.loads(body).get("kind") == 10021:
+                    return
+            except Exception:
+                pass
+            time.sleep(min(interval, max(0.05, deadline - time.monotonic())))
+        raise TimeoutError(
+            f"mock backend did not serve its kind=10021 advertisement within {timeout}s"
+        )
 
     def wait_for_cli_socket(self, timeout: int = 30, interval: int = 1) -> bool:
         return True

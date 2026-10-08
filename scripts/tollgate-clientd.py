@@ -162,7 +162,14 @@ class Advertisement:
 
 
 def parse_advertisement(text: str) -> Advertisement:
-    """Parse the kind 10021 discovery event served at GET /."""
+    """Parse the kind 10021 discovery event served at GET /.
+
+    ``min_steps`` is normalized to at least 1: the tag's 6th element may be
+    absent (older ads) or ``"0"`` (pre-normalization configs), but a purchase
+    of less than one step is meaningless — the backend normalizes the config
+    side the same way (tmbg #104: 0/absent -> 1), so the client must not
+    treat 0 as a purchasable offer.
+    """
     try:
         ev = json.loads(text)
     except json.JSONDecodeError as e:
@@ -177,8 +184,8 @@ def parse_advertisement(text: str) -> Advertisement:
         elif name == "step_size" and len(tag) >= 2:
             step_size = int(tag[1])
         elif name == "price_per_step" and len(tag) >= 5:
-            offers.append(Offer(int(tag[2]), tag[3], tag[4],
-                                int(tag[5]) if len(tag) >= 6 else 0))
+            min_steps = max(1, int(tag[5])) if len(tag) >= 6 else 1
+            offers.append(Offer(int(tag[2]), tag[3], tag[4], min_steps))
     return Advertisement(ev.get("pubkey", ""), metric, step_size, offers)
 
 

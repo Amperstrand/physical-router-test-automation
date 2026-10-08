@@ -60,3 +60,59 @@ def test_module_version_recorded_in_provenance():
     header = "\n".join(docstring[:6])
     assert "tollgate-module-basic-go" in header
     assert "9e89ab5" in header
+
+
+class TestParseAdvertisementMinSteps:
+    """The min-steps normalization contract (api-tier mock-ification lane).
+
+    The 6th ``price_per_step`` element is ``min_purchase_steps``. Ads may
+    carry it absent (older firmware) or ``"0"`` (pre-normalization configs),
+    but a purchase of <1 step is meaningless — the backend normalizes
+    config-side the same way (tmbg #104: 0/absent -> 1), so the client
+    parser must floor every offer at 1 step.
+    """
+
+    @staticmethod
+    def _parse(tags: list) -> "Offer":
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tollgate_clientd", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        ad = mod.parse_advertisement(json.dumps({
+            "kind": 10021, "pubkey": "00" * 32, "tags": tags,
+        }))
+        return ad.default_offer()
+
+    def test_sixth_element_used_when_present(self):
+        offer = self._parse([["price_per_step", "cashu", "1", "sat", "https://m.example", "3"]])
+        assert offer.min_steps == 3
+
+    def test_absent_min_steps_normalizes_to_one(self):
+        offer = self._parse([["price_per_step", "cashu", "1", "sat", "https://m.example"]])
+        assert offer.min_steps == 1, "absent min_steps must normalize to 1, not 0"
+
+    def test_zero_min_steps_normalizes_to_one(self):
+        offer = self._parse([["price_per_step", "cashu", "1", "sat", "https://m.example", "0"]])
+        assert offer.min_steps == 1, "min_steps=0 is not a purchasable offer (tmbg #104)"
+
+    def test_negative_min_steps_normalizes_to_one(self):
+        offer = self._parse([["price_per_step", "cashu", "1", "sat", "https://m.example", "-2"]])
+        assert offer.min_steps == 1
+
+    def test_prtA_mock_advertisement_parses_with_min_steps_one(self):
+        import importlib.util
+        import sys
+        repo_root = Path(__file__).resolve().parents[2]
+        sys.path.insert(0, str(repo_root))
+        try:
+            from lib.mock_router import MOCK_ADVERTISEMENT
+        finally:
+            sys.path.pop(0)
+        spec = importlib.util.spec_from_file_location("tollgate_clientd", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        ad = mod.parse_advertisement(json.dumps(MOCK_ADVERTISEMENT))
+        offer = ad.default_offer()
+        assert offer.min_steps >= 1
+        assert offer.mint_url == "https://testnut.cashu.exchange"
+        assert offer.price == 1 and offer.unit == "sat"

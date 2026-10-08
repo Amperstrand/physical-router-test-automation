@@ -17,7 +17,7 @@ import pytest
 from lib.router import Router
 from lib.router_lock import RouterLock
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("P9"),pytest.mark.api, pytest.mark.extended]
 
 
 def _get_secondary_router(backend) -> Router | None:

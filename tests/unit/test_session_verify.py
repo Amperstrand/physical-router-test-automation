@@ -35,6 +35,8 @@ IP = "192.168.1.100"
 # --------------------------------------------------------------------------- #
 
 
+pytestmark = [pytest.mark.story("P1")]
+
 class MockRouter:
     """Minimal duck-typed Router for unit-testing the probes."""
 

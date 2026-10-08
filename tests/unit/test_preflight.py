@@ -24,6 +24,8 @@ from lib.preflight import (
 )
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def scripted_ssh(responses: dict, default: str = ""):
     def run_ssh(cmd: str) -> str:
         return responses.get(cmd, default)

@@ -23,6 +23,10 @@ Rule = _cs.Rule
 NOW = dt.datetime(2026, 8, 25, 21, 0, 0, tzinfo=dt.timezone.utc)
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def _vm(name="tollgate-main-1", state="running", provider="shc", kind="vm", labels=None):
     return Billable(provider=provider, kind=kind, name=name, state=state,
                     daily_cost=0.26, cost_basis="exact", labels=labels or {})

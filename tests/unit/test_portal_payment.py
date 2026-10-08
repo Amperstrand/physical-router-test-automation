@@ -26,6 +26,8 @@ PORTAL_URL = "http://192.168.41.1:2050/splash.html"
 TOKEN = "cashuAeyJ1bml0Ijoi..."  # truncated representative token
 
 
+pytestmark = [pytest.mark.story("G2")]
+
 class FakeTimeout(Exception):
     """Stands in for playwright.sync_api.TimeoutError in unit tests."""
 

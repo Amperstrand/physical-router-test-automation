@@ -1,0 +1,46 @@
+# Story catalog — id → persona + title. The proving tests live as
+# pytest.mark.story(id) on the tests themselves; scripts/story-coverage.py
+# joins this catalog with a static scan of the test tree to generate
+# docs/user-stories.generated.md. Personas: guest, owner, merchant,
+# operator, maintainer.
+
+G1:  {persona: guest,     title: Captive portal appears on join}
+G2:  {persona: guest,     title: Pay with a Cashu token, get internet}
+G3:  {persona: guest,     title: v0.6 portal generation stays supported}
+G4:  {persona: guest,     title: Expired session offers honest renewal}
+G5:  {persona: guest,     title: Portal works on a real phone}
+G6:  {persona: guest,     title: Balance visible while session live}
+G7:  {persona: guest,     title: Clear failure copy when backend is down}
+G8:  {persona: guest,     title: CLI client gets the same answers}
+O1:  {persona: owner,     title: Serves degraded when mints unreachable}
+O2:  {persona: owner,     title: One dead mint never blocks purchases}
+O3:  {persona: owner,     title: No zombie service after restart}
+O4:  {persona: owner,     title: Config survives edits without reset}
+O5:  {persona: owner,     title: Firmware wizard completes or fails loudly}
+O6:  {persona: owner,     title: UCI use-cases apply and verify}
+O7:  {persona: owner,     title: Device-mint runs in RAM, no flash wear}
+O8:  {persona: owner,     title: Admin surfaces scoped as intended}
+M1:  {persona: merchant,  title: Charged in the advertised denomination}
+M2:  {persona: merchant,  title: Double-spend never grants twice}
+M3:  {persona: merchant,  title: Concurrent purchases serialize}
+M4:  {persona: merchant,  title: Swap fees accounted in payouts}
+M5:  {persona: merchant,  title: Errors never leak internals}
+M6:  {persona: merchant,  title: Profit-share identities round-trip}
+P1:  {persona: operator,  title: Read-only live battery against a router}
+P2:  {persona: operator,  title: Mint ads validated, dead mints filtered}
+P3:  {persona: operator,  title: Not-ready vs dead backend distinguishable}
+P4:  {persona: operator,  title: Tests cannot mutate a live DUT}
+P5:  {persona: operator,  title: Runs leave reviewable evidence films}
+P6:  {persona: operator,  title: Destructive steps gated on device identity}
+P7:  {persona: operator,  title: Mock and live present one interface}
+P8:  {persona: operator,  title: Mint replacement is explicit}
+P9:  {persona: operator,  title: Two-router scenarios in the cloud lab}
+P10: {persona: operator,  title: NDS state untouched while sessions live}
+R1:  {persona: maintainer, title: Go and Rust modules behave identically}
+R2:  {persona: maintainer, title: Cashu/NUT matrix enforced}
+R3:  {persona: maintainer, title: Wire formats stable across releases}
+R4:  {persona: maintainer, title: FIPS exit path exercised}
+R5:  {persona: maintainer, title: Conformance green before publish}
+R6:  {persona: maintainer, title: Real RNG everywhere}
+R7:  {persona: maintainer, title: Embedded portal equals served portal}
+P11: {persona: operator, title: Framework machinery is itself tested}

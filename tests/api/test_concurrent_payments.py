@@ -5,7 +5,9 @@ from typing import Any
 import pytest
 from lib.helpers import is_session_event, is_mac_lookup_failure, require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("M3"),
+    pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.extended]
 
 
 @pytest.mark.extended

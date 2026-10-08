@@ -4,7 +4,7 @@ import pytest
 from lib.helpers import parse_json_or_fail
 from lib.cashu import create_minter
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P2"),pytest.mark.api, pytest.mark.smoke]
 
 
 @pytest.fixture(scope="module")

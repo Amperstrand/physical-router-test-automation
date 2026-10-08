@@ -26,7 +26,7 @@ from lib.helpers import parse_json_or_fail, require_client_identity
 
 log = logging.getLogger(__name__)
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.api, pytest.mark.extended]
 
 MINT_URL = os.environ.get("TOLLGATE_TEST_MINT_URL", "https://testnut.cashu.exchange")
 
@@ -43,8 +43,14 @@ def _get_mint_keysets(mint_url):
 
     Returns a list of keyset dicts, each with ``id``, ``unit``, ``keys``.
     Uses ``urllib.request.Request`` with a custom User-Agent to avoid
-    ASU-style 403 blocks.
+    ASU-style 403 blocks. In mock mode the "mint" is the MockCashuMinter's
+    deterministic keyset — there is no real mint to query.
     """
+    if os.environ.get("TOLLGATE_MOCK", "").lower() in ("1", "true", "yes"):
+        from lib.cashu import MockCashuMinter
+        minter = MockCashuMinter(mint_url)
+        return [{"id": kid, "unit": "sat", "keys": minter.keyset_keys()}
+                for kid in minter.keyset_ids()]
     from urllib.request import Request, urlopen
     from urllib.error import URLError, HTTPError
 

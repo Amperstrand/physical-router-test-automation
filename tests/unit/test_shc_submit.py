@@ -13,6 +13,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def test_build_bootstrap_script_has_lease():
     from lib.cloud_lab.shc_submit import _build_bootstrap_script
     script = _build_bootstrap_script(

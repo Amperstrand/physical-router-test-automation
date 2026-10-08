@@ -9,7 +9,7 @@ import pytest
 from lib.helpers import pay_and_wait, assert_internet
 from lib.constants import TOKEN_SMALL
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("O3"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
 
 BACKEND_RESTART_TIMEOUT = 45  # MIPS router needs ~20-25s for full backend restart
 

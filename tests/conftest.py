@@ -24,7 +24,7 @@ from lib.clients.wifi import WiFi
 from lib.clients.desktop import MacWiFiClient, MacAdapter, LinuxWiFiClient, LinuxAdapter
 from lib.clients.container import ContainerClient
 from lib.clients.cuttlefish import CuttlefishClient
-from lib.constants import DEFAULT_STEP_SIZE_MS, NDS_PORTAL_PORT
+from lib.constants import DEFAULT_STEP_SIZE_MS, NDS_PORTAL_PORT, TEST_MINT_URL
 from lib.backend import BackendConfig, BACKEND_CHOICES_CLI
 
 # --- Mock mode support ---
@@ -543,7 +543,7 @@ def deploy_session(request, router, backend):
 
         router.enable_debug_portal()
         router.ensure_test_mint()
-        router.replace_mints()
+        router.replace_mints([TEST_MINT_URL], force=True)
         for _ in range(60):
             if router.api_status("/") == 200:
                 break
@@ -622,7 +622,8 @@ def adb(request, router):
 @pytest.fixture(scope="session")
 def cashu():
     if IS_MOCK_MODE:
-        pytest.skip("cashu fixture not available in mock mode (no real mint)")
+        from lib.cashu import MockCashuMinter
+        return MockCashuMinter()
     mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL", "https://testnut.cashu.exchange")
     minter = create_minter(mint_url)
     for attempt in range(5):
@@ -638,6 +639,24 @@ def cashu():
                 time.sleep(5)
             else:
                 pytest.skip(f"cashu mint unavailable after 5 retries: {exc}")
+
+
+@pytest.fixture(scope="session")
+def m5_mint():
+    """M5 Atom hardware Cashu mint, when one is attached over USB serial.
+
+    Skips the test when no device is present, so M5-backed tests are
+    additive on benches that have the Atom and invisible elsewhere.
+    """
+    from lib.m5 import M5Mint, M5MintUnavailable
+
+    try:
+        mint = M5Mint.from_env()
+        url = mint.ensure_online()
+    except M5MintUnavailable as exc:
+        pytest.skip(f"M5 hardware mint unavailable: {exc}")
+    log.info("M5 hardware mint online: %s (keyset %s)", url, mint.keyset_id())
+    return mint
 
 
 @pytest.fixture(scope="session")

@@ -64,6 +64,7 @@ from labgrid.driver import SSHDriver
 from labgrid.protocol.powerprotocol import PowerProtocol
 
 pytestmark = [
+    pytest.mark.story("P6"),
     pytest.mark.timeout(900),
     pytest.mark.physical_hardware,
 ]

@@ -12,7 +12,7 @@ from lib.clients.u2phone import U2Phone, connect_u2
 
 log = logging.getLogger("tollgate.test_u2_phone_health")
 
-pytestmark = [pytest.mark.phone]
+pytestmark = [pytest.mark.story("P11"),pytest.mark.phone]
 
 
 @pytest.fixture(scope="module")

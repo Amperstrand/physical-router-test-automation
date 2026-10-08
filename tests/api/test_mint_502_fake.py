@@ -19,7 +19,7 @@ import pytest
 from lib.fake_mint import FakeMintServer
 from lib.helpers import parse_json_or_fail
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
+pytestmark = [pytest.mark.story("O2"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(300), pytest.mark.complete]
 
 CONFIG_BACKUP = "/etc/tollgate/config.json.fake-502-test-backup"
 
@@ -63,7 +63,7 @@ def configure_fake_mint(router, fake_mint_502):
         "min_payout_amount": 999999,
         "price_per_step": 1,
         "price_unit": "sat",
-        "purchase_min_steps": 0,
+        "purchase_min_steps": 1,
     }]
 
     router.write_remote_json("/etc/tollgate/config.json", cfg, indent=None)

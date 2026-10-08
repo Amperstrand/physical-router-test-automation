@@ -7,7 +7,7 @@ from lib.constants import TOKEN_SMALL
 
 log = logging.getLogger("tollgate.data_metering")
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.config, pytest.mark.extended]
+pytestmark = [pytest.mark.story("G6"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.config, pytest.mark.extended]
 
 DOWNLOAD_URL = "http://cachefly.cachefly.net/1mb.test"
 

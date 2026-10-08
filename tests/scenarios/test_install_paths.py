@@ -61,6 +61,7 @@ from lib.bench_lock import (
 )
 
 pytestmark = [
+    pytest.mark.story("O5"),
     pytest.mark.hardware,
     pytest.mark.physical_only,
     pytest.mark.install_paths,

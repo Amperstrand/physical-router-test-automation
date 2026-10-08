@@ -7,7 +7,7 @@ import json
 import os
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.story("R2"), pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.critical]
 
 
 def _nut24_enabled():

@@ -26,7 +26,7 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.ssl_backup_restore")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended]
 
 BACKUP_DIR = "/etc/tollgate/ssl/backup"
 

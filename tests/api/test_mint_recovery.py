@@ -34,7 +34,7 @@ from lib.constants import BACKEND_PORT, TEST_MINT_URL
 
 log = logging.getLogger("tollgate.mint_recovery")
 
-pytestmark = [pytest.mark.api, pytest.mark.go_only, pytest.mark.extended, pytest.mark.timeout(180)]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.go_only, pytest.mark.extended, pytest.mark.timeout(180)]
 
 
 # An address that will always refuse or drop the connection (port 1, unrouted host).
@@ -73,7 +73,7 @@ def _set_mints(router, urls: list[str]):
     assert on the actual process/API state.
     """
     try:
-        router.replace_mints(urls)
+        router.replace_mints(urls, force=True)
     except RuntimeError as exc:
         log.info("replace_mints raised (backend may have crashed on init): %s", exc)
 

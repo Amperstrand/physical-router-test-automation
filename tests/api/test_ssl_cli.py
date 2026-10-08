@@ -26,7 +26,7 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.ssl_cli")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended]
 
 
 _skip_if_no_ssl_cli = skip_if_no_ssl_cli

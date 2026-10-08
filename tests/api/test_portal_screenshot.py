@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("P5"),pytest.mark.api, pytest.mark.smoke, pytest.mark.virtual_lab]
 
 
 def _skip_unless_virtual_lab():

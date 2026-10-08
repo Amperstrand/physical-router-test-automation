@@ -19,7 +19,7 @@ import requests
 from lib.constants import BACKEND_PORT
 from lib.helpers import is_session_event, is_mac_lookup_failure, require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("R2"),pytest.mark.api, pytest.mark.extended]
 
 
 def _get_config_mint_url(router):

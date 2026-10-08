@@ -429,3 +429,61 @@ scenarios:
       - POST a valid token; cut power mid-payment.
       - Power on; let the system boot and settle; re-POST.
     asserts: [no-fund-loss, no-double-count, service-or-refund, restart-converges]
+
+  # ---- additions from the Rust host-runner lane (tmbr #15, PRTA #16) ----
+  # Added under the ownership rule (add, never rename): the swap-timeout
+  # restart variant and the two single-axis alias spellings. The original
+  # mint-alias-spellings scenario above remains the umbrella case.
+  - id: swap-timeout-then-restart
+    class: fault-proxy
+    subset: full
+    description: >-
+      The proxy drops the first swap response (ambiguous outcome); before
+      the backend can reconcile in-session, it is killed and restarted —
+      recovery must then happen at boot via the durable saga, never by
+      re-exposing the same derivation range.
+    fault:
+      proxy:
+        - match_path: /v1/swap
+          action: drop_response
+          remaining: 1
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: post-timeout-pre-reconciliation
+        boundary_hint: >-
+          Kill shortly after the backend's mint-timeout fires (response
+          dropped), before in-session saga recovery completes.
+    driver:
+      - POST one valid token; the proxy drops the swap response.
+      - Kill the backend after its timeout, restart it on the same state.
+      - Re-POST the same token; settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, restart-converges]
+
+  - id: mint-url-trailing-slash
+    class: alias
+    subset: fast
+    description: >-
+      Config mint URL carries a trailing slash; the token's embedded URL
+      does not (single-axis variant of mint-alias-spellings).
+    fault: {}
+    config_variation: trailing_slash
+    driver:
+      - Start the backend with the trailing-slash config spelling.
+      - Mint a token whose embedded URL has no slash; POST it; settle.
+      - Assert one wallet/balance copy (no second DB for the same mint).
+    asserts: [no-fund-loss, restart-converges]
+
+  - id: mint-url-host-case
+    class: alias
+    subset: fast
+    description: >-
+      Config mint host is uppercase; the token's embedded host is
+      lowercase (single-axis variant of mint-alias-spellings).
+    fault: {}
+    config_variation: host_case
+    driver:
+      - Start the backend with the uppercase-host config spelling.
+      - Mint a token whose embedded URL is lowercase; POST it; settle.
+      - Assert one wallet/balance copy (no second DB for the same mint).
+    asserts: [no-fund-loss, restart-converges]

@@ -26,6 +26,8 @@ from lib.secret_scanner import (
 # --------------------------------------------------------------------------- #
 
 
+pytestmark = [pytest.mark.story("P5")]
+
 class TestShannonEntropy:
     def test_empty_string(self):
         assert shannon_entropy("") == 0.0

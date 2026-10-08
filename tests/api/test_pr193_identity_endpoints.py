@@ -25,6 +25,7 @@ See: https://github.com/OpenTollGate/tollgate-module-basic-go/issues/203
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -34,7 +35,7 @@ import pytest
 from lib.constants import BACKEND_PORT
 from lib.helpers import gate_bug_fix
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("R6"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 # Standard BIP39 12-word test vectors (128-bit entropy, valid checksums).
 MNEMONIC_A = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -51,8 +52,17 @@ _WIFIPW_RE = _SIX_WORD_RE
 
 
 def _http_call(router, path: str, method: str = "GET", timeout: int = 15) -> tuple[int, str]:
-    """Call the backend directly from the test runner (Debian client → OpenWrt)."""
-    url = f"http://{router.host}:{BACKEND_PORT}{path}"
+    """Call the backend directly from the test runner (Debian client → OpenWrt).
+
+    In mock mode the backend is the local MockBackendServer, which may sit
+    on a non-2121 port (the laptop's standing omarchy-mockgate holds :2121)
+    — route through the router's backend_url so the call lands on the mock.
+    """
+    if os.environ.get("TOLLGATE_MOCK", "").lower() in ("1", "true", "yes"):
+        base = router.backend_url("").rstrip("/")
+    else:
+        base = f"http://{router.host}:{BACKEND_PORT}"
+    url = f"{base}{path}"
     req = urllib.request.Request(url, method=method)
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)

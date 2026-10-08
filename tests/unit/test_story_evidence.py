@@ -24,6 +24,10 @@ story_conftest = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(story_conftest)
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P5")]
+
 class FakeDevice:
     name = "fake-device"
 

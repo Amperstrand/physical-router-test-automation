@@ -24,6 +24,8 @@ from lib.labgrid_venue import (
 )
 
 
+pytestmark = [pytest.mark.story("P7")]
+
 def _inventory(router: RouterEntry, coordinator: str = "coord.example:20408") -> LabInventory:
     return LabInventory(
         switch=SwitchEntry(host="switch.example"),

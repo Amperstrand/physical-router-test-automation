@@ -1,0 +1,35 @@
+# gitleaks allowlist — every entry has a reason and a destination.
+# Entries without a tracking destination get deleted, not extended.
+#
+# NOTE: a repo config REPLACES gitleaks' built-in ruleset unless it
+# explicitly extends it — before [extend] useDefault was added, every
+# scan using this config ran with ZERO detection rules (the allowlists
+# below were muting a scanner that could not detect anything).
+[extend]
+useDefault = true
+
+
+[[allowlists]]
+description = "Historical backup of lab router credentials, committed 2026-07-01 (9571be288) and removed from tracking since. The password is publicly retrievable from git history until the lab routers are verified/rotated — tracked in the audit issue. Path-scoped: no secret material appears at HEAD; the tradeoff (a re-added file under this name would scan silent) is accepted because the filename is a backup artifact that should never exist again."
+paths = ['''(^|/)\.env\.lab-routers-backup$''']
+
+[[allowlists]]
+description = "Cashu test fixtures: literal fake tokens and base64 demo payloads in unit/API tests and scripts (verify-issue5-v4.mjs TEST_TOKEN, secret-scanner fixtures, portal demoToken, compat-matrix classification strings)."
+regexTarget = "match"
+regexes = [
+  '''cashuBtest123XYZ''',
+  '''cashuAeyJ0b2tlbiI6W3sibWludCI6[a-zA-Z0-9+/=]*''',
+  '''cashuAeyJ1bml0Ijoi[a-zA-Z0-9+/=.]*''',
+  '''eyJwcm9vZiI6ICIiLCAicHJvb2ZzIjogW3siaWQi[a-zA-Z0-9+/=]*''',
+  '''garbage/empty/duplicate''',
+  '''CashuMint-V1''',
+]
+
+[[allowlists]]
+description = "Sample/dummy values: the Sec-WebSocket-Key sample nonce (base64 of 'the sample nonce') in nut-auditor types, the token-recovery test hex, and the keyboard-mash example password in firmware docs."
+regexTarget = "match"
+regexes = [
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+  '''0279110f[a-f0-9]*''',
+  '''aB3xK9mQ2pR7vN5tW1cY''',
+]

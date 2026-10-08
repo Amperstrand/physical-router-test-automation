@@ -27,6 +27,8 @@ from lib.helpers import (
 # --------------------------------------------------------------------------- #
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 class TestIsSessionEvent:
     def test_kind_1022(self):
         assert is_session_event({"kind": 1022, "tags": []}) is True
@@ -167,8 +169,15 @@ class TestIsFullMerchant:
         assert is_full_merchant(MockRouter(200, body)) is True
 
     def test_kind_wrong(self):
-        body = json.dumps({"kind": 21023, "tags": [["price_per_step", "cashu", "1", "sat"]]})
+        # 21023 with price tags is now VALID (deployed build self-reports
+        # 21023 with identical tags — helpers accept both since fac3865);
+        # a genuinely wrong kind is something else entirely.
+        body = json.dumps({"kind": 5, "tags": [["price_per_step", "cashu", "1", "sat"]]})
         assert is_full_merchant(MockRouter(200, body)) is False
+
+    def test_kind_21023_with_price_accepted(self):
+        body = json.dumps({"kind": 21023, "tags": [["price_per_step", "cashu", "1", "sat"]]})
+        assert is_full_merchant(MockRouter(200, body)) is True
 
     def test_no_price_per_step_tag(self):
         body = json.dumps({"kind": 10021, "tags": [["metric", "bytes"]]})
@@ -183,8 +192,14 @@ class TestIsFullMerchant:
 
 class TestIsDegraded:
     def test_degraded(self):
-        body = json.dumps({"kind": 21023, "tags": []})
+        # Degraded is signaled by the level/code markers, not the kind
+        # (kind 21023 is on every healthy ad — fac3865 fixed the race).
+        body = json.dumps({"kind": 21023, "tags": [["level", "warning"], ["code", "no-reachable-mints"]]})
         assert is_degraded(MockRouter(200, body)) is True
+
+    def test_plain_ad_not_degraded(self):
+        body = json.dumps({"kind": 21023, "tags": []})
+        assert is_degraded(MockRouter(200, body)) is False
 
     def test_not_degraded(self):
         body = json.dumps({"kind": 10021, "tags": []})

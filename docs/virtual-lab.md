@@ -1,202 +1,163 @@
-# Virtual Lab on Ubuntu host `218`
+# Virtual Lab — local QEMU TollGate test lab
 
-Local QEMU-based TollGate test lab for running API tests, Linux client captive
-portal tests, and multihop router-to-router tests without physical hardware.
+Local KVM/QEMU test lab: an OpenWrt x86_64 VM (router under test) plus a
+Debian 12 client VM, on a dedicated bridge. Runs the pytest API suite, the
+client payment flow, and reseller scenarios without physical hardware.
+Repeat start cycles take ~2.5 min; the serial console is fallback-only and
+is never touched on an already-provisioned overlay. Operational details and
+pitfalls: `LOCAL-VM-TESTING.md`.
 
 ## Current topology
 
 ```text
-Ubuntu host 218 (192.168.13.218, internet via wlp4s0)
-├── tg-poc-br (Linux bridge, 192.168.1.2/24)
-│   ├── tg-poc-tap → OpenWrt VM eth0 (br-lan, 192.168.1.1)
-│   └── tg-poc-dc0 → tg-poc-client container (192.168.1.100)
-├── OpenWrt VM (KVM, x86_64, 256MB RAM)
-│   ├── Serial console: $workdir/run/serial.sock
-│   ├── QEMU monitor: $workdir/run/monitor.sock
-│   ├── SSH: root@192.168.1.1 (password: tollgate)
-│   ├── Internet via host NAT (gateway 192.168.1.2)
-│   └── nodogsplash + curl + socat + jq + luci installed
-└── tg-poc-client (Docker: debian:bookworm-slim)
-    ├── curl, iputils-ping, iproute2
-    ├── veth wired into tg-poc-br
-    └── default gateway: 192.168.1.1 (OpenWrt VM)
+Lab host (KVM required; 10.99.99.2 on the lab bridge)
+├── tg-poc-br (bridge, 10.99.99.2/24)
+│   ├── tg-poc-tap  → OpenWrt VM eth0 (br-lan, 10.99.99.1)
+│   └── tg-poc-tap2 → Debian client VM ens3 (10.99.99.100)
+├── OpenWrt VM (KVM, x86_64, 512MB)
+│   ├── Disk: overlays/tollgate-poc.qcow2 → images/openwrt-base.qcow2
+│   ├── Serial console: run/serial.sock (fallback provisioning only)
+│   ├── QEMU monitor: run/monitor.sock (ACPI powerdown on stop-poc)
+│   └── SSH: root@10.99.99.1 (password: tollgate / lab credentials file)
+└── Debian client VM (KVM, 1GB, debian-12-generic)
+    ├── Disk: overlays/debian-client.qcow2 → images/debian-12-generic-amd64.qcow2
+    │   + NoCloud seed attached (images/seed.iso)
+    ├── Serial console: run/serial-client.sock (fallback provisioning only)
+    ├── QEMU monitor: run/monitor-client.sock
+    ├── SMBIOS ds=nocloud → skips cloud-init datasource probing
+    ├── SSH: root@10.99.99.100 (password: tollgate / lab key)
+    └── static 10.99.99.100/24 via 10.99.99.1, DNS → host (10.99.99.2)
 ```
 
-The client sits behind the OpenWrt VM's LAN so nodogsplash firewall behavior is
-real. The host NATs traffic from the 192.168.1.0/24 subnet to the internet so the
-VM can `opkg install` packages.
+The host also runs the local CDK V2 FakeWallet mint (10.99.99.2:8383) during
+`run-local-tests.sh` and NATs the 10.99.99.0/24 subnet for internet access.
 
 ## Quick start
 
-From this Mac:
-
 ```bash
-# 1. Check host readiness
-python3 scripts/virtual-lab.py doctor --host 218
+# 1. Download OpenWrt base + Debian generic base, build the NoCloud seed
+python3 scripts/virtual-lab.py prepare-image --host localhost
+python3 scripts/virtual-lab.py prepare-debian --host localhost
 
-# 2. Install QEMU/KVM tools on 218 (first time only)
-python3 scripts/virtual-lab.py install-deps --host 218
+# 2. Start the lab (OpenWrt + Debian; cloud-init provisions the client first boot)
+python3 scripts/virtual-lab.py start-poc --host localhost
 
-# 3. Download OpenWrt x86_64 image (first time only)
-python3 scripts/virtual-lab.py prepare-image --host 218
+# 3. Run the test suite (starts the mint, configures TollGate, runs pytest)
+./scripts/run-local-tests.sh tests/api/test_payment_regression.py
 
-# 4. Start the full POC environment (VM + provisioning + container)
-python3 scripts/virtual-lab.py start-poc --host 218
-
-# 5. Verify connectivity
-python3 scripts/virtual-lab.py smoke-poc --host 218
-
-# 6. Check status
-python3 scripts/virtual-lab.py status-poc --host 218
-
-# 6b. Run virtualizable reseller-mode scenarios once a seller router is exposed
-python3 scripts/virtual-lab.py run-reseller-scenarios --host 218 --secondary-router-host <seller-ip>
-
-# 7. Clean up
-python3 scripts/virtual-lab.py stop-poc --host 218
+# 4. Stop (ACPI powerdown — clean disks keep the next boot fast)
+python3 scripts/virtual-lab.py stop-poc --host localhost
 ```
 
-The `start-poc` command does everything:
-1. Creates bridge + tap + assigns host bridge IP
-2. Handles route conflicts (moves 192.168.1.0/24 from physical iface to bridge)
-3. Sets up iptables NAT/FORWARD for VM internet access
-4. Boots the OpenWrt VM with serial console Unix socket
-5. Provisions the VM via serial console (root password, SSH, firewall rules, gateway/DNS)
-6. Verifies SSH login
-7. Starts Debian container, installs packages, wires into bridge
+Use `--host <hostname>` instead of `localhost` when the lab runs on a remote
+Ubuntu machine.
 
-## How it works
+## DUT state across stop/start (and `--fresh`)
 
-### Serial console provisioning
+A `stop-poc`/`start-poc` cycle **reuses the DUT overlay** (`overlays/
+tollgate-poc.qcow2`) by design: installed packages, config and internal
+qcow2 snapshots survive the restart — which also means a corrupted DUT
+comes back identical (#26: opkg orphan-removal had zeroed nodogsplash/
+curl/socat/jq and the "fresh" boot still reported the package installed).
+`start-poc` announces the reuse on every boot. For a pristine DUT:
 
-The VM boots with `-serial unix:$workdir/run/serial.sock,server,nowait`. A Python
-script connects to this Unix socket, waits for "Please press Enter to activate this
-console", then sends provisioning commands:
+```bash
+python3 scripts/virtual-lab.py start-poc --host localhost --fresh
+```
 
-- Set root password via `printf '%s\n%s\n' 'pw' 'pw' | passwd root` (BusyBox has no chpasswd)
-- Enable dropbear password auth
-- Add WAN SSH firewall rule
-- Configure gateway (192.168.1.2) and DNS (8.8.8.8) for internet access
+`--fresh` purges the overlay before boot (the manual `rm -f
+overlays/*.qcow2` between stop and start is no longer needed), refuses to
+run against a live VM (`stop-poc` first), and prints how many internal
+snapshots it discards — they live inside the overlay file. The Debian
+client overlay is untouched (re-provisioning it costs a full cloud-init
+run). `doctor` now also checks a reachable DUT for zero-byte binaries in
+`/usr/bin` — the early corruption detector from #26 — and fails with the
+`--fresh` remediation; an unreachable DUT is a skip, not a failure.
+`FRESH_DUT=1 ./scripts/extensive-test.sh` passes the flag through on
+bring-up.
 
-This all happens over the serial socket, no pre-baked images or custom firmware needed.
+## Client provisioning: seed first, serial as fallback
 
-### Debian client container
+The Debian client base is `debian-12-generic` — the image WITH cloud-init.
+`prepare-debian` builds a NoCloud seed (`images/seed.iso`: user-data,
+meta-data, network-config v2) and `start-poc` attaches it. On the first boot
+of a fresh overlay cloud-init installs openssh-server, sets root access,
+configures the static IP, and enables a `netplan-generate-boot.service`
+oneshot. After that, every reboot is: boot (~16s) → sshd → done. No serial
+console involved.
 
-The container starts on Docker's default bridge (has internet for `apt install`),
-installs curl/ping/iproute2, then disconnects from Docker's network and gets wired
-into `tg-poc-br` via a veth pair. The container's default gateway points to the
-OpenWrt VM, so nodogsplash can intercept its HTTP traffic.
+Serial console provisioning remains the fallback if the SSH probe (start-poc
+Step 4b, up to 300s) fails. It now persists the network config as netplan
+too, so even a fallback-provisioned client survives reboots.
 
-### Route conflict handling
+### Pitfalls this design avoids (each was a real failure)
 
-Host 218's `enp5s0` has `192.168.1.0/24` from a previous physical setup. The
-`start-poc` script detects this conflict and moves the route to `tg-poc-br`.
+- `debian-12-nocloud` images ship **without cloud-init** ("no cloud
+  integration" is not the NoCloud datasource) — a seed attached to a nocloud
+  image is dead weight, and serial becomes the only channel.
+- The client's static IP must be **persisted as netplan**, overwriting the
+  image's match-all `90-default.yaml`: a higher-numbered sibling file loses
+  to the match-all (netplan emits equal prefixes; networkd takes the
+  lexicographically-first match).
+- Debian's netplan.io ships **no boot-time `netplan generate`**:
+  `/run/systemd/network` is tmpfs, so ens3 comes up unmanaged and
+  `systemd-networkd-wait-online` burns 120s before sshd. The seed installs an
+  **unconfined oneshot** (`netplan-generate-boot.service`) that regenerates
+  before networkd — an `ExecStartPre` drop-in inside networkd's own unit
+  crash-loops it (the unit is sandboxed: no `CAP_DAC_OVERRIDE`).
+- DNS during first-boot provisioning points at the **host** (10.99.99.2), not
+  the freshly provisioned OpenWrt — its dnsmasq is not dependable during
+  provisioning windows.
+- `ds=nocloud` (SMBIOS) skips cloud-init's multi-datasource probing, which
+  otherwise costs ~2 minutes per boot.
 
-### VM internet access
+### Ephemeral client mode
 
-The host MASQUERADEs traffic from `192.168.1.0/24` going out any interface except
-`tg-poc-br`. FORWARD rules allow traffic between the bridge and the internet-facing
-interface. The VM uses the host bridge IP (192.168.1.2) as its gateway.
+```bash
+python3 scripts/virtual-lab.py start-poc --host localhost --ephemeral-client
+```
+
+Runs the client with QEMU `-snapshot`: writes are discarded on stop-poc, so
+every cycle starts from the same pristine provisioned state (no client-state
+drift between test runs). Requires an already-provisioned overlay — in this
+mode provisioning cannot persist, so first-time provisioning must happen in
+the default (persistent) mode. Note `provision_debian` extras
+(playwright/chromium) also will not persist while ephemeral.
+
+## Mint health
+
+`run-local-tests.sh` starts the local CDK V2 FakeWallet mint and **probes the
+real quote→PAID path** before every suite: a wedged cdk-mintd answers
+`/v1/info` but never settles quotes, which hangs every payment test past the
+timeout. An unhealthy mint is restarted automatically. The pytest invocation
+uses `--timeout-method=signal` so a hung test dies with a stack dump instead
+of surviving as an unkilleable thread.
 
 ## What this validates
 
-- API tests via SSH + HTTP (all 31 `tests/api/` tests)
-- Linux captive portal detection and interaction
-- nodogsplash firewall behavior
-- TollGate session management
-- Token payment flow via curl
-- Router-to-router / multihop scenarios (future)
-- Virtualizable reseller-mode behavior when run with
-  `TOLLGATE_ENABLE_RESELLER_SCENARIOS=1` or
-  `scripts/virtual-lab.py run-reseller-scenarios`
+- API tests over SSH + HTTP (the `tests/api/` suite)
+- Payment flow: token mint → `pay_direct` through the Debian client → backend
+  swap → MAC authorization → gate open
+- Mint quote lifecycle against a real cdk-mintd FakeWallet
+- Serial-fallback provisioning (on fresh overlays) and cloud-init provisioning
+- Reseller-mode scenarios (`run-reseller-scenarios`)
 
 ## What still requires physical hardware
 
-- Android captive portal notification behavior
-- ADB UI automation
-- Mobile-data fallback behavior
-- Real WiFi association/deauth quirks (RSSI, signal strength, interference)
-- Device-specific OpenWrt target/kernel/package issues (mipsel, aarch64)
+Android/ADB phone tests, WiFi radio behavior, LuCI browser tests against real
+radios, and destructive sysupgrade flows.
 
-## What works in virtual environments
+## Deploying TollGate builds into the lab
 
-- **WiFi site scan** via `mac80211_hwsim` kernel module (`tests/api/test_mac80211_hwsim.py`)
-  - Virtual radios with `iw list`, `iw scan`, AP bringup
-  - x86_64 only (cloud lab, local QEMU)
-- API tests, captive portal via container client, payment flow, DNS
-- Router-to-router / multihop scenarios (two-router cloud)
-
-## Framework integration
-
-The virtual lab integrates with the existing pytest framework:
-
-- `Router` class now accepts `port` parameter for non-standard SSH ports
-- `deploy.py` SCP commands support `-P` port flag
-- `conftest.py` reads `sshPort`/`TOLLGATE_SSH_PORT` from inventory
-- Container client mode (`--client=container`) available for virtual lab tests
-- Virtual lab marker: `@pytest.mark.virtual_lab`
-
-## Target topology (full lab)
-
-```text
-Ubuntu host 218
-├── OpenWrt VM: seller
-│   ├── SSH: 127.0.0.1:2201
-│   ├── TollGate backend on 2121
-│   └── LAN bridge to reseller WAN
-├── OpenWrt VM: reseller
-│   ├── SSH: 127.0.0.1:2202
-│   ├── TollGate backend on 2121
-│   ├── nodogsplash on client-facing LAN
-│   └── WAN bridge to seller LAN
-└── Debian client container
-    ├── attached to reseller LAN
-    ├── curl/ping for connectivity checks
-    └── Chromium for captive portal browser flow
-```
-
-The reseller-mode tests are intentionally split into two groups:
-
-- `tests/scenarios/test_reseller_mode.py` uses only SSH/UCI/CLI/DNS-blocking
-  operations and is designed to run on physical routers, the on-prem QEMU lab,
-  and the GCP cloud lab.
-- **Virtual WiFi scanning** works via `mac80211_hwsim` — see
-  `tests/api/test_mac80211_hwsim.py`. The kernel module creates virtual radios
-  that support `iw list`, `iw scan`, and AP bringup. Available on x86_64 targets
-  (cloud lab, local QEMU). Real RSSI, association quirks, and emergency scan still
-  require physical radio hardware.
-
-GCP runs can opt into the virtualizable scenario tier with:
+`run-local-tests.sh` runs pytest with `--no-deploy`; deploy the build under
+test first:
 
 ```bash
-./scripts/cloud-lab.py submit --pr 122 --publish --reseller-scenarios \
-  --secondary-router-host <seller-ip-reachable-from-reseller>
+sshpass -p <password> scp -O <tollgate-wrt>.ipk root@10.99.99.1:/tmp/tg.ipk
+sshpass -p <password> ssh root@10.99.99.1 \
+  'opkg install --force-downgrade --force-overwrite /tmp/tg.ipk'
 ```
 
-`--reseller-scenarios` intentionally fails fast unless a secondary/seller router
-is configured. This prevents a green cloud/on-prem report that skipped the core
-router-to-router assertions.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `scripts/virtual-lab.py` | VM orchestration: doctor, install-deps, prepare-image, start-poc, stop-poc, status-poc, smoke-poc, poc |
-| `config/routers.virtual.example.json` | Inventory template for virtual seller/reseller |
-| `tests/api/test_virtual_lab_poc.py` | POC test: container reaches gateway |
-| `tests/api/test_virtual_lab_integration.py` | Integration tests: captive portal, curl, DNS |
-| `lib/clients/container.py` | Container client adapter for pytest |
-| `docs/virtual-lab.md` | This file |
-
-## Constants
-
-| Constant | Value |
-|---|---|
-| Bridge | `tg-poc-br` |
-| TAP | `tg-poc-tap` |
-| Container | `tg-poc-client` |
-| Gateway (VM) | `192.168.1.1` |
-| Host bridge IP | `192.168.1.2/24` |
-| Container IP | `192.168.1.100/24` |
-| VM password | `tollgate` |
-| Subnet | `192.168.1.0/24` |
+Cross-version reinstalls need those force flags (opkg treats a changed
+version prefix as a downgrade). Clear `/etc/tollgate/wallet.db` when
+switching mints.

@@ -19,6 +19,10 @@ spec.loader.exec_module(rd)
 TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "demo-player.html"
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P5")]
+
 class TestDockerTimestamps:
     def test_parses_rfc3339_nano(self):
         a = rd.parse_docker_line_ts("2026-09-19T16:20:01.123456789Z x")

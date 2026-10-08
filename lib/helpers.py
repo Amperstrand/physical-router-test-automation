@@ -299,7 +299,10 @@ def is_full_merchant(router) -> bool:
     body = router.api_body("/")
     try:
         data = json.loads(body)
-        if data.get("kind") != 10021:
+        # 10021 is the canonical nostr ad kind; the deployed build line
+        # self-reports 21023 with identical price tags — accept both
+        # (the run-local health probe already greps "10021|21023").
+        if data.get("kind") not in (10021, 21023):
             return False
         tags = data.get("tags", [])
         return any(
@@ -311,12 +314,23 @@ def is_full_merchant(router) -> bool:
 
 
 def is_degraded(router) -> bool:
+    # kind 21023 is the NORMAL advertisement kind — every healthy ad has
+    # it, so keying on kind made wait_for_degraded return instantly and
+    # every dependent assert raced the degraded transition (transient
+    # empty ad bodies surfaced as JSONDecodeError). Degraded is signaled
+    # by the level/code TAGS (level=warning, code=no-reachable-mints).
     body = router.api_body("/")
     try:
         data = json.loads(body)
-        return data.get("kind") == 21023
     except json.JSONDecodeError:
         return False
+    if data.get("kind") != 21023:
+        return False
+    return any(
+        "no-reachable" in str(t).lower() or "degraded" in str(t).lower()
+        for tag in data.get("tags", [])
+        for t in tag
+    )
 
 
 def wait_for_full_merchant(router, timeout=120, interval=5):
@@ -329,13 +343,14 @@ def wait_for_full_merchant(router, timeout=120, interval=5):
 
 
 def wait_for_degraded(router, timeout=120, interval=5):
-    import re
+    # The old log-regex fallback matched STALE degraded lines (boot-time
+    # "Merchant started in degraded mode" persists in the last-500-lines
+    # window across the state-reset restart) and returned instantly,
+    # racing every dependent assert. The tag-based ad check is the
+    # authoritative live signal now that is_degraded keys on markers.
     deadline = time.time() + timeout
     while time.time() < deadline:
         if is_degraded(router):
-            return True
-        logs = router.get_tollgate_logs(lines=500)
-        if re.search(r"(degraded|no reachable mints|all mints unreachable)", logs, re.IGNORECASE):
             return True
         time.sleep(interval)
     return False
@@ -384,22 +399,49 @@ def _mint_url_port(url: str) -> int:
     return 443 if parsed.scheme == "https" else 80
 
 
+# Set when block_mints installs rules; the api-conftest autouse sweep
+# reads it so a teardown killed by pytest-timeout cannot leak rules into
+# the NEXT test (the per-file runner sweep only guards file boundaries).
+_mint_blocks_installed = False
+
+
+def sweep_mint_blocks(router):
+    """Loop-delete every OUTPUT REJECT (iptables -I can leave duplicates;
+    a single -D removes one instance)."""
+    router.ssh(
+        "while iptables -L OUTPUT -n 2>/dev/null | grep -q REJECT; do"
+        " R=$(iptables -L OUTPUT -n --line-numbers | awk '/REJECT/{print $1; exit}');"
+        " iptables -D OUTPUT $R; done 2>/dev/null || true"
+    )
+
+
 def block_mints(router, mint_ip_map):
     """Block all mint IPs via iptables OUTPUT REJECT on the mint's real port.
     Returns list of (url, ip, port) rules."""
+    global _mint_blocks_installed
     rules = []
     for url, ip in mint_ip_map.items():
         port = _mint_url_port(url)
         router.ssh(f"iptables -I OUTPUT -d {ip} -p tcp --dport {port} -j REJECT")
         rules.append((url, ip, port))
+    _mint_blocks_installed = True
     return rules
 
 
 def unblock_mints(router, rules):
-    """Remove the OUTPUT REJECT rules created by block_mints()."""
+    """Remove the OUTPUT REJECT rules created by block_mints().
+
+    Loop-deletes the exact spec (duplicates on retry) and clears the
+    leak flag; the conftest sweep still guards against timeouts that
+    kill this teardown entirely."""
+    global _mint_blocks_installed
     for url, ip, port in rules:
-        router.ssh(f"iptables -D OUTPUT -d {ip} -p tcp --dport {port} -j REJECT"
-                   f" 2>/dev/null || true")
+        spec = f"-d {ip} -p tcp --dport {port} -j REJECT"
+        router.ssh(
+            f"while iptables -C OUTPUT {spec} 2>/dev/null; do"
+            f" iptables -D OUTPUT {spec}; done 2>/dev/null || true"
+        )
+    _mint_blocks_installed = False
 
 
 def skip_if_no_ssl_cli(router):

@@ -96,3 +96,56 @@ deterministically derived output means the backend re-exposed a
 derivation range — the brick class of #257/#266/#480 — unless the two
 sightings are provably two different legitimate outputs. Lanes assert
 `reused == []` for the `no-output-reuse` invariant.
+
+## Host-venue runner (v2) — Rust lane
+
+`run_matrix.py` executes every host-drivable scenario from
+`matrix.yaml` against one backend binary with a real cdk-mintd behind
+the **shared** `faultproxy.py` (driven via its control endpoint — no
+private rule schema), and emits `results/{results.json,results.md}`.
+
+Hardening after the PR #16 Codex round (the v1 runner could pass
+vacuously):
+
+- kill boundaries fire from the proxy's `notify_on: response` webhook
+  (deterministic, inside the ambiguity window);
+  `post-session-pre-gate` / `post-gate-pre-response` use named delay
+  approximations (400/900 ms after the held swap response — documented,
+  not proxy-observable on the host venue);
+- a restarted backend **reuses the crashed instance's config dir** —
+  restart scenarios observe reconciliation, not a fresh wallet;
+- unparseable observable state is a harness `error`, never a sentinel;
+- every declared invariant is accounted for: checked, or `pending` with
+  the reason — missing checks cannot hide inside a pass;
+- strict single-payment value accounting (proven-moved == wallet
+  balance at 0 mint fee);
+- duplicate scenarios actually submit the duplicate and assert
+  value-level retry safety (a 200 idempotent replay of the same grant
+  is correct, not a double grant);
+- CLI wire encoding follows the backend (JSON CLIMessage for Go, plain
+  text for Rust) per `tests/api/test_go_rust_basic_parity.py`;
+- readiness probes are functional (mint keysets answer; backend serves
+  its advertisement), not raw TCP connects;
+- classes the host venue cannot drive (`vm_control`, `mint_control`,
+  `drain`) report `pending-venue` with the reason.
+
+### Known pending adjudication: `no-output-reuse`
+
+The v2 runs observe every backend swap `B_` sighted exactly **twice**
+(digests stable across scenarios = fixed-seed deterministic
+derivation), while the backend log shows a single `create_swap`, one
+journal entry, and correct value state. Source unproven: proxy
+double-count vs legitimate CDK saga re-POST. Until
+`faultproxy.py` gains request-level logging, the runner **records** I3
+sightings with detail and reports the invariant `pending` — an unsound
+observer must not auto-fail a backend. Tracked issue: (see PRTA).
+
+### Usage
+
+```
+python3 tests/conformance/run_matrix.py --backend rust-basic \
+    --binary <tollgate-binary> --mint /opt/cdk-mintd/cdk-mintd \
+    --out tests/conformance/results/rust-basic
+python3 tests/conformance/run_matrix.py --backend go \
+    --binary <tollgate-go> --out tests/conformance/results/go
+```

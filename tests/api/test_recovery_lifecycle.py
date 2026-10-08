@@ -29,7 +29,7 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.recovery_lifecycle")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(600), pytest.mark.go_only, pytest.mark.complete]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(600), pytest.mark.go_only, pytest.mark.complete]
 
 HEALTH_POLL_INTERVAL = 5
 HEALTH_POLL_TIMEOUT = 180

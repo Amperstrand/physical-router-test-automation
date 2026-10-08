@@ -21,6 +21,10 @@ from lib.runlogs import (
 )
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P5")]
+
 def test_default_sources_env_driven():
     env = {
         "PHONE_SERIAL": "X",

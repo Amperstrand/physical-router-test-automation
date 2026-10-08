@@ -4,7 +4,7 @@ import re
 import pytest
 from lib.helpers import require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.story("M1"), pytest.mark.tip("TIP-02"),pytest.mark.api, pytest.mark.critical]
 
 
 @pytest.mark.critical

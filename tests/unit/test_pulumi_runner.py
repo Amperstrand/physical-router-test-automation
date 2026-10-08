@@ -18,6 +18,8 @@ import pytest
 
 # pulumi + pulumi.automation may not be importable in the test environment;
 # inject a stub so importing pulumi_runner doesn't fail at collection time.
+pytestmark = [pytest.mark.story("P11")]
+
 def _ensure_pulumi_stub():
     if "pulumi" not in sys.modules:
         stub = types.ModuleType("pulumi")

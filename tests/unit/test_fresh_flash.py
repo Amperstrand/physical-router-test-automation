@@ -21,6 +21,8 @@ SAMPLE_FILENAME = "openwrt-25.12.5-mediatek-filogic-glinet_gl-mt3000-squashfs-sy
 # ---------------------------------------------------------------------------
 
 
+pytestmark = [pytest.mark.story("P6")]
+
 def test_validate_image_filename_accepts_the_bench_image():
     assert ff.validate_image_filename(SAMPLE_FILENAME) == []
 

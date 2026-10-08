@@ -6,6 +6,10 @@ import re
 from lib.clients.wifi import WiFi
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 class FakeRouter:
     def __init__(self, responses: list[str]):
         self._responses = list(responses)

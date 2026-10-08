@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P3"),pytest.mark.api, pytest.mark.smoke]
 
 
 @pytest.mark.smoke

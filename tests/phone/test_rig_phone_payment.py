@@ -39,6 +39,7 @@ from lib.helpers import assert_internet, assert_session_active
 log = logging.getLogger("tollgate.test_rig_phone_payment")
 
 pytestmark = [
+    pytest.mark.story("G5"),
     pytest.mark.phone,
     pytest.mark.physical_hardware,
     pytest.mark.slow,
@@ -91,7 +92,9 @@ def preconnected(u2phone, wifi):
 
     Works behind a locked keyguard (no settings UI). When already
     associated, connected_wifi's fast-path skips its 1080p-assuming UI flow
-    entirely."""
+    entirely. Starts from a fresh-session client state (apps killed, radio
+    cycled) so every take models a user walking up cold."""
+    u2phone.fresh_session()
     u2phone.ensure_awake()
     if not wifi.is_connected():
         out = u2phone.wifi_connect(wifi.ssid, "open")
@@ -105,19 +108,35 @@ def preconnected(u2phone, wifi):
     return connected
 
 
-def _pay_through_portal(u2phone, token: str, timeout: int = 75) -> str:
+def _pay_through_portal(u2phone, wifi, token: str, timeout: int = 75) -> str:
     """Drive the portal to an authenticated state.
 
     TIP-03 prehydration should auto-pay; if the SPA stalls, tap the submit
-    button, and as a last resort type the token with u2 set_text."""
+    button, and as a last resort type the token with u2 set_text.
+
+    Re-asserts the wifi association every cycle: with several open bench
+    TollGate portals on air, the phone can roam mid-take (2026-09-29:
+    TollGate-charlie — a parallel lane's DUT — stole the client between
+    join and payment; symptom was 75s of silent stall ending in a
+    misleading 'payment did not reach the backend' verdict)."""
     start = time.time()
     tapped = typed = False
+    roams = 0
     state = ""
     while time.time() - start < timeout:
+        if not wifi.is_connected():
+            roams += 1
+            log.warning(
+                "association lost mid-take (loss #%d, %ds in) — rejoining %s",
+                roams, int(time.time() - start), wifi.ssid,
+            )
+            u2phone.wifi_connect(wifi.ssid, "open")
+            time.sleep(3)
+            continue
         state = u2phone.portal_state()
         if state in AUTHED_STATES:
-            log.info("Portal authenticated (state=%s) after %ds",
-                     state, int(time.time() - start))
+            log.info("Portal authenticated (state=%s) after %ds (%d roam rejoin(s))",
+                     state, int(time.time() - start), roams)
             return state
         if state in READY_STATES:
             elapsed = time.time() - start
@@ -131,8 +150,8 @@ def _pay_through_portal(u2phone, token: str, timeout: int = 75) -> str:
                 if typed:
                     u2phone.tap_button(*SUBMIT_TEXTS)
         time.sleep(3)
-    log.warning("Portal not authenticated within %ds (last state=%r)",
-                timeout, state)
+    log.warning("Portal not authenticated within %ds (last state=%r, %d roam rejoin(s))",
+                timeout, state, roams)
     return state
 
 
@@ -185,7 +204,7 @@ def test_rig_phone_payment_e2e(evidence, preconnected, u2phone, router, adb,
     screenshot_portal("rig-payment-portal-open.png")
 
     portal_url = (
-        f"http://{router.host}:{PORTAL_PORT}/splash.html?token={token}"
+        f"http://{router.portal_host}:{PORTAL_PORT}/splash.html?token={token}"
     )
     log.info("Opening portal with prehydrated token (%d char URL)",
              len(portal_url))
@@ -202,7 +221,7 @@ def test_rig_phone_payment_e2e(evidence, preconnected, u2phone, router, adb,
         "covering the page",
     )
 
-    state = _pay_through_portal(u2phone, token)
+    state = _pay_through_portal(u2phone, wifi, token)
     if state not in AUTHED_STATES:
         # Some portals complete payment before the SPA state reaches the
         # uiautomator tree (TIP-03 auto-pay + Chrome a11y staleness); the
@@ -238,7 +257,7 @@ def test_rig_phone_payment_e2e(evidence, preconnected, u2phone, router, adb,
         "/'sign in to network' icon) after the Cashu payment",
     )
 
-    u2phone.open_url("http://example.com/")
+    u2phone.open_url(f"http://example.com/?ts={int(time.time())}")
     time.sleep(4)
     evidence.shot(
         "05-internet-unlocked",

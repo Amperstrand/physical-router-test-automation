@@ -31,7 +31,8 @@ from typing import Any
 import pytest
 import requests
 
-pytestmark = [pytest.mark.parity, pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("R1"),pytest.mark.parity, pytest.mark.api, pytest.mark.extended]
 
 # ---------------------------------------------------------------------------
 # Configuration constants
@@ -68,7 +69,7 @@ PARITY_CONFIG: dict[str, Any] = {
             "min_payout_amount": 0,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
         }
     ],
     "profit_share": [{"factor": 1.0, "identity": "owner"}],
@@ -382,7 +383,7 @@ def _collect_cli_responses(
                         if not chunk:
                             break
                         chunks.append(chunk)
-                except socket.timeout:
+                except TimeoutError:
                     pass
                 result[cmd] = b"".join(chunks).decode(errors="replace").strip()
         except OSError as exc:
@@ -885,7 +886,7 @@ def test_parity_cli_status_format(go_responses, rust_responses):
     if go_keys is None:
         pytest.skip("Go CLI 'status' unavailable — cannot compare")
     rust_keys = _cli_status_keyset(rust_responses)
-    assert rust_keys is not None, f"Rust CLI 'status' response not usable"
+    assert rust_keys is not None, "Rust CLI 'status' response not usable"
     assert go_keys == rust_keys, (
         f"\nCLI 'status' JSON field set differs:\n  Go   = {sorted(go_keys)}\n  Rust = {sorted(rust_keys)}"
     )

@@ -9,6 +9,8 @@ import pytest
 import lib.cloud_lab.shc_submit as shc_submit
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def _script(legacy_killswitch: bool) -> str:
     return shc_submit._build_bootstrap_script(
         bootstrap_env="TOLLGATE_SERVICE_ID=123",

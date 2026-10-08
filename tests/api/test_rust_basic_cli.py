@@ -3,7 +3,7 @@ import socket
 
 import pytest
 
-pytestmark = [pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
 
 
 def _send_cli_command(socket_path, command, timeout=5):

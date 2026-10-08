@@ -7,7 +7,9 @@ import pytest
 
 from lib.helpers import parse_json_or_fail, skip_if_no_mint_health_tracker as _skip_if_no_degraded_support
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [
+    pytest.mark.story("P2"),
+    pytest.mark.tip("TIP-01"),pytest.mark.api, pytest.mark.extended]
 
 BAD_MINT_URL = "https://mint.example.com"
 
@@ -128,7 +130,7 @@ def test_bad_mint_handled_gracefully(router, config):
         "min_payout_amount": 999999999,
         "price_per_step": 1,
         "price_unit": "sat",
-        "purchase_min_steps": 0,
+        "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
     }
 
     modified = json.loads(original_cfg)

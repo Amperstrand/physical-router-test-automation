@@ -13,6 +13,10 @@ from lib.cloud_lab.worker.runner import (
 )
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def _base_config(**overrides) -> WorkerConfig:
     defaults = dict(
         run_id="test-run",

@@ -9,7 +9,7 @@ Verifies that the portal frontend includes:
 import json
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended]
+pytestmark = [pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended]
 
 
 def _skip_if_no_portal(router):

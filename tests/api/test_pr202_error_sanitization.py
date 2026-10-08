@@ -37,7 +37,7 @@ import pytest
 from lib.constants import BACKEND_PORT
 from lib.helpers import gate_bug_fix
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("M5"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 
 # Internal Go error markers that must NEVER appear in a client-facing response.

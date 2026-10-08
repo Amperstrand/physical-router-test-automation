@@ -2,7 +2,7 @@ import json
 import pytest
 from lib.helpers import is_session_event, is_mac_lookup_failure, require_client_identity
 
-pytestmark = [pytest.mark.api, pytest.mark.critical]
+pytestmark = [pytest.mark.story("R3"),pytest.mark.api, pytest.mark.critical]
 
 
 @pytest.mark.critical

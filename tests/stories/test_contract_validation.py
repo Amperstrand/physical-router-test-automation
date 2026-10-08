@@ -24,6 +24,8 @@ log = logging.getLogger("tollgate.story.contract")
 ROUTER_HOST = os.environ.get("TOLLGATE_SSH_HOST", "")
 
 
+pytestmark = [pytest.mark.story("P7")]
+
 def _ssh(cmd: str) -> str:
     return subprocess.run(
         ["ssh", "-o", "ConnectTimeout=5",

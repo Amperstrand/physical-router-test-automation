@@ -7,6 +7,10 @@ from unittest.mock import patch
 from lib.cloud_lab.worker.config import WorkerConfig, load_config_from_metadata
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def test_load_config_from_metadata_parses_flags():
     values = {
         "tollgate-run-id": "20260101T120000Z-abc1234",

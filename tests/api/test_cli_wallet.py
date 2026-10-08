@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke, pytest.mark.go_only]
+pytestmark = [pytest.mark.story("G8"),pytest.mark.api, pytest.mark.smoke, pytest.mark.go_only]
 
 
 def _skip_if_no_wallet_cli(router):

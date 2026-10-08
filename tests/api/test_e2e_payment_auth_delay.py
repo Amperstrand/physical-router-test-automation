@@ -27,7 +27,8 @@ from lib.helpers import is_session_event, assert_session_active
 
 log = __import__("logging").getLogger("tollgate.e2e_payment_auth_delay")
 
-pytestmark = [pytest.mark.api, pytest.mark.virtual_lab]
+pytestmark = [
+    pytest.mark.story("G2"),pytest.mark.api, pytest.mark.virtual_lab]
 
 CAPTIVE_PORTAL_DIR = "/etc/tollgate/tollgate-captive-portal-site"
 CONFIG_BACKUP = "/tmp/tollgate-main-test/config.json.auth-delay-backup"

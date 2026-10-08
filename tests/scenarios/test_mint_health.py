@@ -28,7 +28,7 @@ from lib.helpers import skip_if_no_mint_health_tracker as _skip_if_no_degraded_s
 
 log = logging.getLogger("tollgate.scenarios.mint_health")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(600), pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O2"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(600), pytest.mark.virtual_lab]
 
 RECOVERY_POLL_TIMEOUT = 960   # 16 minutes (matches Makefile)
 RECOVERY_POLL_INTERVAL = 15
@@ -467,7 +467,7 @@ def test_first_boot_offline(router):
                 "min_payout_amount": 0,
                 "price_per_step": 1,
                 "price_unit": "sat",
-                "purchase_min_steps": 0,
+                "purchase_min_steps": 1,  # 0 is not representable post-parse: tbmg #104 normalizes 0/absent -> 1
             }
         ]
         tmp = "/tmp/scenario-firstboot-config.json"

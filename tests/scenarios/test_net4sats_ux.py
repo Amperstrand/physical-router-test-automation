@@ -28,7 +28,7 @@ import pytest
 
 log = logging.getLogger("tollgate.ux")
 
-pytestmark = [pytest.mark.phone, pytest.mark.critical]
+pytestmark = [pytest.mark.story("G3"),pytest.mark.phone, pytest.mark.critical]
 
 # Constants
 ROUTER_IP = os.environ.get("ROUTER_IP", "192.168.1.1")

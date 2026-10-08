@@ -42,7 +42,7 @@ import pytest
 
 from lib.helpers import gate_bug_fix
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O5"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 SETUP_FLAG = "/etc/tollgate-setup-done"
 SETUP_SCRIPT = "/etc/uci-defaults/99-tollgate-setup"

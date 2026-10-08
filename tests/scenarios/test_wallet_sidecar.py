@@ -27,7 +27,7 @@ import time
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.story("O3"),pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(300)]
 
 DAEMON_BIN = os.environ.get("WALLET_DAEMON_BIN", "")
 CLIENT_BIN = os.environ.get("WALLET_CLIENT_BIN", "")

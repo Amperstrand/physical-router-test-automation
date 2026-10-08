@@ -32,7 +32,7 @@ import pytest
 
 log = logging.getLogger("tollgate.scenarios.router_identity")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("R6"),pytest.mark.api, pytest.mark.extended, pytest.mark.virtual_lab]
 
 VM_HOST = os.environ.get("SHC_VM_HOST", "66.92.204.237")
 VM_USER = os.environ.get("SHC_VM_USER", "debian")

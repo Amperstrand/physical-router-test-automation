@@ -1453,6 +1453,63 @@ The cloud lab uses a Debian QEMU VM (`10.99.99.100`) as the test client. Visual 
 
 Phone tests, physical-router LuCI Playwright, destructive sysupgrade — use `test-pr.sh` on lab hardware.
 
+## M5 Atom Hardware Cashu Mint (PRTA fixture)
+
+The M5 Atom (`~/src/m5-cashu-mint`, separate repo) runs a fake-wallet Cashu
+mint on ESP32: NUT-01/02/04/06/07 + swap on WiFi `:3338`, fake-wallet quotes
+born `state=PAID`, serial CLI (115200: `ssid <name> | psk <pass|-> | join |
+status | reset` — `reset` is FACTORY (wipes creds + seed), `join` is
+reboot-to-connect). Firmware v0.2.0 (flashed to the Atom 2026-10-01):
+persistent NVS-seeded keyset, parametrized GET routes fixed, `[http]`
+request logging.
+
+**Device identity (hard-won): a USB by-id name identifies the serial
+ADAPTER dongle, never the chip wired behind it — adapters get moved.**
+Ground truth = eFuse MAC via `esptool read-mac` + boot output. Run
+`python3 ~/src/m5-cashu-mint/tools/identify_esp.py` to map every port →
+adapter → MAC → lab name (registry: `tools/devices.yaml`). Known devices:
+atom-mint `d8:a0:1d:5e:70:7c` (the PRTA mint), mint-stick
+`4c:75:25:cb:92:9c` (retired; ran all 2026-09-30 tests). Adapter
+flash-capability also lives in the registry (Hades2001: no DTR→IO0, NOT
+flash-capable; M5STACK converter: flash-capable).
+
+PRTA integration (verified live 2026-09-30 on router 326D, rust v0.6.0-alpha4):
+
+- `lib/m5.py` — `M5Mint`: USB-serial discovery (`Hades2001`/`M5STACK` by-id,
+  override with `TOLLGATE_M5_PORT`), status parsing, health probe, and
+  `M5Minter(HttpMinter)` which trusts a born-PAID quote-create and only polls
+  the quote GET when the create response is not PAID (works on all fw versions).
+- `m5_mint` fixture (session) — skips tests when no Atom is attached.
+- `tests/api/test_m5_hardware_mint.py` — pins the M5 into `accepted_mints`
+  (config+wallet.db backed up, restored), mints from hardware, pays → `kind=1022`,
+  double-spends → `kind=21023`. Marker: `api critical hardware`.
+
+Operational notes:
+
+- **Payment attribution**: the rust backend grants the session to the paying
+  client's MAC (source IP → DHCP leases). The pytest host itself works as the
+  paying client when it sits on the router's LAN.
+- **Startup window**: after `restart_backend`, `:2121` answers immediately but
+  returns a `"This TollGate is starting up… retry_after: 5"` body while the
+  wallet + mint health load — readiness = the `kind=10021` ad, not a 200
+  (`_wait_backend_ready` in the test handles this).
+- **Firmware <0.2 quirks** (fixed in m5-cashu-mint v0.2.0): parametrized GET
+  routes 404 (quote/keys by id) — served via `onNotFound` prefix matching in
+  0.2; keyset regenerated every boot — 0.2 seeds a deterministic DRBG from an
+  NVS seed, so keyset (and unspent tokens) survive reboots.
+- **Power**: the bench unit is FT232-powered and brownout-reboots under load
+  (`WIFI_POWER_2dBm` mitigates). A mid-test reboot invalidates pre-0.2 keysets;
+  after 0.2 it only blips the mint offline briefly. Proper USB power removes it.
+- **Flashing**: impossible through the bench FT232 (`/dev/ttyUSB0`, Hades2001
+  adapter) — it wires RTS→EN and TX/RX but **not DTR→IO0**, so no software can
+  enter download mode (proven 2026-10-01: esptool default-reset at 115200/460800,
+  full DTR/RTS latch matrix, two-port cross-wire via the second FT232 — all no
+  sync). Flash via the Atom's **own USB-C** (`/dev/ttyACM*`, native USB serial,
+  auto-reset works — same path tollgate-demo used) or bridge IO0→GND during a
+  serial reset pulse. Post-flash verification runbook: m5-cashu-mint README.
+- Keep scenarios written against `Bench`-style abstractions: the M5 is a mint
+  fixture, not a router — do not point router-only tests at it.
+
 ## AI Agent Rules
 
 - **Bug reports filed by AI agents must go to the Amperstrand fork only** ([Amperstrand/tollgate-module-basic-go](https://github.com/Amperstrand/tollgate-module-basic-go)), NOT the upstream OpenTollGate repo. This avoids noise for upstream maintainers. Filing on OpenTollGate is acceptable only when a human explicitly requests it.
@@ -2205,3 +2262,140 @@ plugin lane, 2026-09-28). Facts that made that handoff work:
   `gate-daemon.sh` racing the current one). `lab-net-up.sh` re-asserts
   everything — never assume the host side is still up. Documented in the
   vm-testbed RUNBOOK (their repo) and enforced here by handoff convention.
+
+## Lab hardware: one single source of truth (2026-09-28)
+
+All lab hardware — routers, ESP32/STM32 fixtures, switches, power, serial —
+is declared in the **private repo `Amperstrand/conwrt-lab`** (`lab.yaml`:
+devices, MACs, IPs, topology, VLANs, labgrid places). This project does NOT
+own hardware state.
+
+Rules for code and agents in this repo:
+
+1. **Never hardcode device IPs, MACs, or serial-port paths.** Resolve from the
+   registry: `CONWRT_LAB=<conwrt-lab checkout>` +
+   `python3 $CONWRT_BENCH/scripts/lab_registry.py …`, or from a labgrid place.
+2. **Access hardware through labgrid places** (coordinator `ai-legion:20408`):
+   `labgrid-client -p <place> ssh|console|power`. Acquire/release for
+   exclusivity during tests.
+3. **Flashing/adoption goes through conwrt tooling** (`Amperstrand/conwrt-bench`):
+   `scripts/dut_recover.py --from-lab <device-id>` for recovery flashes,
+   `scripts/bench_net.py` for bay/VLAN changes. These update the registry.
+4. **State changes end with a registry commit** in conwrt-lab — if you changed
+   a device (flashed, moved, adopted), lab.yaml must reflect it before you
+   walk away.
+5. **When surprised, reconcile first**:
+   `python3 $CONWRT_BENCH/scripts/lab_registry.py reconcile` detects dead
+   devices, switch reboots, and place drift in one command.
+
+Env: `CONWRT_LAB` (this registry checkout) and `CONWRT_BENCH` (conwrt-bench
+checkout) are the two paths every hardware-touching tool understands.
+
+## Lessons Learned — live-commission read-only violation (2026-10-01)
+
+Full postmortem + fix queue + labgrid plan:
+`docs/live-commission-incident-2026-10-01.md`. Short version:
+
+- **`deploy_session` (autouse) mutates live state on EVERY run that lacks
+  `--no-deploy`** — even with zero deploy flags. At `tests/conftest.py:539-556`
+  it runs `enable_debug_portal()` + `ensure_test_mint()` + `replace_mints()`,
+  which **replaced a live router's 8-mint accepted_mints with
+  testnut.cashu.exchange and restarted the backend twice** during a
+  "read-only" commissioned run against the MT3000 (tollgate-326D).
+  `--no-deploy` is named after deployment but is the ONLY suppressor of state
+  prep. Live commissions must pass `--no-deploy` today; a `--read-only`
+  fail-closed flag is queued (F1).
+- **`replace_mints()` has a destructive default** (`mint_urls=None` →
+  `[TEST_MINT_URL]`) — calling it bare nukes the operator's mint list
+  (`lib/router.py:834`). Queued fix F3: require explicit list, refuse
+  >1→1 shrinks without `force`.
+- **Detection was luck** (pytest live-log printed "Replaced accepted mints…"),
+  **recovery was luck** (`logread` boot lines enumerated the pre-run mints +
+  the m5 lane's config backup existed + mutating methods are
+  read-modify-write so only accepted_mints drifted). Snapshot/diff/restore
+  tooling is queued (F4: `scripts/live-snapshot.py`); commissioned runs get
+  template v2 (invariants + state audit + `--json-report`).
+- **Skip forests hide dead coverage**: the same commission ran 8 passed /
+  18 skipped — 15 of the skips assert the pre-PRTA-#103 net4sats portal
+  layout and can never pass on current packaging, meaning **the :2051 SPA
+  portal has zero passing pytest coverage** while the dashboard reads
+  "0 failed". Rewrite queued (F7) behind a `_portal_layout()` detection.
+- **Unpinned contracts found**: `:2051` bare `/` answers 403 (intended?);
+  `session-state?mac=X` returns `{"status":1,"mac":"","state":"none"}`;
+  `/usage` sentinel `-1/-1`. Queue: pin all in `config/behavior-contract.json`
+  (F8).
+- **Running-state vs on-disk config drift observed**: backend pid probed a
+  mint (`8333.space`) absent from on-disk config — either a config edit
+  without restart or wallet.db registration outliving config removal.
+  Unresolved; rig experiment queued.
+- Labgrid coordinators need reconciliation: AGENTS.md said
+  `192.168.13.208:20408` (ai-legion), the rig-adoption doc says
+  `192.168.13.221:20408` (ai-legion-small). Confirm which owns
+  physical-router places before adding the MT3000 exporter-on-laptop place
+  (F9, which also replaces hand-relayed runbooks with acquire/release +
+  snapshot-audit commissions).
+
+## Lessons Learned — 2026-10-06 bench night (latest-master prep)
+
+### `nmcli -g psk` without `--show-secrets` prints the literal mask `<hidden>`
+
+8 printable chars — it hashes, it length-checks, and it is NOT the
+password. Two failures traced to it in one night: a WPA2 auth loop on a
+freshly flashed stick ("provisioned with the right PSK" — actually
+`<hidden>`), and a router uplink UCI key committed with the mask (its
+STA can never associate). Always extract with
+`nmcli -g 802-11-wireless-security.psk --show-secrets connection show X`
+and pipe it straight into the consumer — never commit it, never trust a
+masked read. Same class as "USB by-id names adapters, not chips":
+verify what a tool actually prints before treating it as ground truth.
+
+### Building latest tollgate master locally (CI is dead since Aug 27)
+
+Upstream "Build and Publish" froze with the org billing hold — artifacts
+stop Aug 27 while main is far ahead. The repo's own
+`packaging/local-build-ipk.sh` replicates CI per-arch:
+
+```bash
+git clone https://github.com/OpenTollGate/tollgate-module-basic-go
+cd tollgate-module-basic-go
+PATH=/path/to/node-v22.17.0/bin:$PATH make portal-build   # pin! (v26 fails)
+ARCH=x86_64 GOTOOLCHAIN=go1.26.8 PKG_VERSION=vX-local bash packaging/local-build-ipk.sh
+```
+
+`make portal-build` is mandatory first — a clean checkout ships an ipk
+whose portal renders nothing (#335). Node pin per
+packaging/build-inputs.json (v22.17.0; a /tmp tarball works, no system
+change). Go pin via GOTOOLCHAIN (auto-fetches 1.26.8; system 1.27
+trips the guard). Deploy: `scp -O` to the router, `opkg install
+--force-overwrite`, `rm -f /etc/tollgate/wallet.db` (mint-cache lesson),
+restart, require the kind:10021 ad (`Router.wait_for_backend_ad`).
+
+### Labgrid bench map (ai-legion coordinator; 2026-10-06 cleanup)
+
+Places: `m5stick` (both stick adapters; the mint-stick lives here —
+restored to mint v0.2.x 2026-10-06, see m5-cashu-mint registry),
+`cyd-tollgate` (TollGate terminal CYD — terminal-project board,
+read-only for us), `tollgate-s3-hil` (our S3 HIL), `x1860-1`/`x1860-2`
+(PRTA ALPHA/BRAVO COVR-X1860; DUT-bay VLANs 104/105.x are NOT routed
+from the house LAN — bench access goes through conwrt-bench),
+`ws3915i-79b1` (PRTA CHARLIE), `nr7101-router` (place match broken —
+points at a vanished ap-lan7 NetworkService; fix before relying on it),
+`android-test` (phone exporter on ai-legion-small). Stale acquisition
+hygiene: 8-day-old holds on ALPHA/BRAVO from the dead ai-legion-small
+coordinator era were released; check `labgrid-client who` before
+blaming hardware. Known gaps: `labgrid-client console` cannot drive
+generic `SerialPort` resources (drive raw tty over SSH while holding
+the place, or convert exports to NetworkSerialPort), and a root ser2net
+(telnet :7171) squats the FT232R outside labgrid's exclusivity — one
+access pattern per device, consolidate before it bites.
+
+### The virtual-lab VMs are shared — check for live lanes before driving them
+
+Both poc QEMUs died mid-deploy while another lane's automation was
+actively provisioning the same VM (omarchy dnsmasq up, socat serial
+bridge, console typing). Two provisioners over one lab = the exact
+resource fight labgrid exists to prevent. Before start-poc/deploy on
+the ai-legion lab: check for foreign processes (dnsmasq omarchy-tb,
+socat :7301/:7171, live provisioning in serial.log) and yield if
+present. (The 2026-09-28 omarchy handoff etiquette generalizes: the
+lab fabric is multi-lane.)

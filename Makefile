@@ -1442,3 +1442,14 @@ pytest-story-expiry:
 
 pytest-story-degraded:
 	pytest tests/stories/test_degraded_mode.py --no-deploy --timeout-method=signal -v
+
+# Story/TIP coverage: regenerate the machine-generated mapping
+# (docs/user-stories.generated.md) from the pytest.mark.story/tip marks.
+# Selection: pytest --story <ID> | pytest --tip <TIP-xx> (both combine).
+story-report:
+	python3 scripts/story-coverage.py
+	@echo "--- summary ---"
+	@head -n 12 docs/user-stories.generated.md
+
+extensive-test: ## One-command extensive-test sweep (see docs/extensive-test.md)
+	@bash scripts/extensive-test.sh

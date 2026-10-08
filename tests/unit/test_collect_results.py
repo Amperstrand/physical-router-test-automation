@@ -125,6 +125,8 @@ PLAYWRIGHT_JSON = {
 }
 
 
+pytestmark = [pytest.mark.story("P5")]
+
 @pytest.fixture
 def junit_file(tmp_path):
     p = tmp_path / "junit.xml"

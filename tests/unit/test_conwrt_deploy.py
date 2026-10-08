@@ -7,6 +7,10 @@ from unittest.mock import patch
 from lib.cloud_lab.worker.conwrt_deploy import _execute_host_commands
 
 
+import pytest
+
+pytestmark = [pytest.mark.story("P11")]
+
 def test_host_commands_pipe_via_stdin_not_and_join():
     with patch("lib.cloud_lab.worker.conwrt_deploy._run") as mock_run:
         _execute_host_commands(["scp one", "scp two"], timeout=5)

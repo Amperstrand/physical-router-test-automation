@@ -27,6 +27,8 @@ from lib.cashu import _encode_c
 # --------------------------------------------------------------------------- #
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 class FakeMarker:
     def __init__(self, args):
         self.args = args

@@ -15,6 +15,8 @@ import pytest
 from lib import deploy
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 def _run(created: str | None = None) -> dict:
     out = {"databaseId": 1, "status": "completed", "conclusion": "success",
            "headBranch": "main", "headSha": "a" * 40}

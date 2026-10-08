@@ -5,6 +5,7 @@ import re
 from lib.constants import ANDROID_CAPTIVE_PORTAL, ANDROID_CAPTIVE_PORTAL_ACTIVITY
 
 pytestmark = [
+    pytest.mark.story("G5"),
     pytest.mark.phone,
     pytest.mark.slow,
     pytest.mark.timeout(120),

@@ -1,7 +1,8 @@
 import subprocess
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
+pytestmark = [
+    pytest.mark.story("O8"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
 
 
 def _skip_if_no_admin_spa(router):

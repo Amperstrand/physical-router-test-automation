@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("P7"),pytest.mark.api, pytest.mark.smoke]
 
 # scripts/record-portal-highlight.mjs, resolved from this test file
 # (tests/api/test_mock_api_advertisement_format.py -> repo root).

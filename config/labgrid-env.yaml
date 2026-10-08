@@ -42,6 +42,25 @@ targets:
         keyfile: "~/.ssh/id_ed25519"
         stderr_merge: true
 
+  # ─── Virtual venue via the ai-legion coordinator (Phase-1) ──
+  # Same resources as the standalone targets above, but leased through the
+  # coordinator so virtual and physical places compose uniformly (micronuts#79).
+  # Lifecycle: scripts/virtual-lab.py start-poc on ai-legion boots the VM;
+  # these targets only resolve while the venue is up.
+  venue-openwrt-serial:
+    resources:
+      RemotePlace:
+        name: "venue-poc-openwrt-serial"
+    drivers:
+      NetworkSerialDriver: {}
+
+  venue-openwrt-api:
+    resources:
+      RemotePlace:
+        name: "venue-poc-openwrt-api"
+    drivers:
+      DummyDriver: {}
+
   # ─── Debian client VM ─────────────────────────────────
   debian-client:
     resources:
@@ -82,6 +101,19 @@ targets:
         prompt: "> "
         login_prompt: ""
         username: ""
+
+  # ─── CYD (ESP32-2432S028) — TollGate terminal project ─
+  # Physically attached to ai-legion (the bench coordinator host since
+  # 2026-09-28 — ai-legion-small no longer coordinates) and exported there
+  # as place `cyd-tollgate-01`; reachable from any pytest host via the
+  # coordinator with RemotePlace. Serial carries esptool flashing and the
+  # runtime console. Project: "micronuts on tollgate on the cyd".
+  cyd-terminal:
+    resources:
+      RemotePlace:
+        name: "cyd-tollgate-01"
+    drivers:
+      SerialDriver: {}
 
   # ─── NR7101 physical router ────────────────────────────
   nr7101:

@@ -14,7 +14,7 @@ import requests
 
 from lib.constants import BACKEND_PORT
 
-pytestmark = [pytest.mark.api, pytest.mark.critical, pytest.mark.timeout(120), pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("G2"),pytest.mark.api, pytest.mark.critical, pytest.mark.timeout(120), pytest.mark.virtual_lab]
 
 
 def _skip_if_no_ln_invoice(router):

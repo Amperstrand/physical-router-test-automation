@@ -143,6 +143,24 @@ class Router:
         return self.phone_mac, self.phone_ip
 
     @property
+    def portal_host(self) -> str:
+        """The DUT's captive-portal (br-lan) address for CLIENT-side URLs.
+
+        NOT self.host: on split-plane DUTs (owner topology 2026-09-28,
+        x1860 alpha/bravo) the SSH/mgmt plane is OOB-only and must stay out
+        of the experiment; portal clients live on br-lan. Env override
+        TOLLGATE_PORTAL_HOST wins; uci network.lan.ipaddr next; falls back
+        to self.host for single-bridge DUTs (NR7101-era shape).
+        """
+        env = os.environ.get("TOLLGATE_PORTAL_HOST")
+        if env:
+            return env
+        lan = self.uci_get("network.lan.ipaddr")
+        if lan:
+            return lan
+        return self.host
+
+    @property
     def gateway_ip(self) -> str:
         if self.domain:
             return self.domain
@@ -736,14 +754,35 @@ class Router:
         self.restart_backend()
         self._wait_for_backend()
 
-    def _wait_for_backend(self, timeout: int = 15):
-        start = time.time()
-        while time.time() - start < timeout:
-            code = self.api_status("/")
-            if code == 200:
-                return
-            time.sleep(1)
-        log.warning(f"Backend not healthy after {timeout}s")
+    def wait_for_backend_ad(self, timeout: float = 45.0, interval: float = 2.0) -> None:
+        """Block until the backend serves its kind=10021 pricing ad.
+
+        The payment API answers HTTP during startup with a retry-hint body
+        ("This TollGate is starting up… retry_after: 5") while the wallet
+        and mint health still load — an HTTP answer is NOT readiness
+        (readiness ≠ liveness). Raises TimeoutError if the ad is not
+        served within `timeout` seconds.
+        """
+        deadline = time.monotonic() + timeout
+        url = self.backend_url("/")
+        while time.monotonic() < deadline:
+            try:
+                # Any single probe failing (SSH blip, empty/garbage body,
+                # non-JSON "starting" body) just means not-ready-yet; poll
+                # until the deadline.
+                body = self.ssh(f"curl -s -m 5 '{url}'", timeout=10)
+                if json.loads(body).get("kind") == 10021:
+                    return
+            except Exception:
+                pass
+            time.sleep(interval)
+        raise TimeoutError(f"backend ad (kind=10021) not served within {timeout:.0f}s")
+
+    def _wait_for_backend(self, timeout: int = 45):
+        try:
+            self.wait_for_backend_ad(timeout=timeout)
+        except TimeoutError as exc:
+            log.warning(f"Backend not healthy after {timeout}s: {exc}")
 
     def wait_for_cli_socket(self, timeout: int = 30, interval: int = 1) -> bool:
         """Poll for CLI socket readiness after backend restart.
@@ -761,6 +800,65 @@ class Router:
                 pass
             time.sleep(interval)
         return False
+
+    # --- on-device testnut mint (cdk-mintd, fakewallet, /tmp state) ---
+    # Binary + settings template live in the lab kit (see
+    # docs/bench-environments.md env 2 and the device-mint staging dir).
+    # All state under /tmp on the router: RAM-backed, zero flash writes,
+    # fresh mint every boot — a feature for tests.
+    DEVICE_MINT_PORT = 8487
+    DEVICE_MINT_URL = f"http://127.0.0.1:{DEVICE_MINT_PORT}"
+    DEVICE_MINT_WORKDIR = "/tmp/mintd-work"
+    DEVICE_MINT_MNEMONIC_ENV = "TOLLGATE_DEVICE_MINT_MNEMONIC"
+
+    def start_device_mint(self, local_binary: str, local_settings: str) -> bool:
+        """Sideload and start the on-device fakewallet mint.
+
+        Requires TOLLGATE_DEVICE_MINT_MNEMONIC in the environment (the
+        mint refuses to start without one; pin per-bench). Returns True if
+        /v1/info answers on loopback after startup.
+        """
+        mnemonic = os.environ.get(self.DEVICE_MINT_MNEMONIC_ENV, "")
+        if not mnemonic:
+            log.warning(
+                "device mint not started: %s unset", self.DEVICE_MINT_MNEMONIC_ENV
+            )
+            return False
+        self.ssh(f"mkdir -p {self.DEVICE_MINT_WORKDIR}")
+        self.scp_to(local_binary, "/tmp/cdk-mintd")
+        self.ssh("chmod +x /tmp/cdk-mintd")
+        self.scp_to(local_settings, "/tmp/mint-settings.toml")
+        # One-time init when the workdir has never served a mint (fresh /tmp).
+        self.ssh(
+            "cd /tmp && [ -f mintd-work/cdk-mintd.db ] || "
+            f"CDK_MINTD_MNEMONIC={shlex.quote(mnemonic)} /tmp/cdk-mintd "
+            f"-w {self.DEVICE_MINT_WORKDIR} config init --new-mint "
+            "--file /tmp/mint-settings.toml",
+            timeout=30,
+        )
+        self.ssh(
+            "cd /tmp && killall cdk-mintd 2>/dev/null; sleep 1; "
+            f"CDK_MINTD_MNEMONIC={shlex.quote(mnemonic)} setsid /tmp/cdk-mintd "
+            f"-w {self.DEVICE_MINT_WORKDIR} > /tmp/cdk-mintd.log 2>&1 < /dev/null &",
+            timeout=10,
+        )
+        for _ in range(10):
+            if (
+                self.ssh(
+                    f"curl -s -m 2 -o /dev/null -w '%{{http_code}}' "
+                    f"http://127.0.0.1:{self.DEVICE_MINT_PORT}/v1/info",
+                    timeout=5,
+                ).strip()
+                == "200"
+            ):
+                log.info("device mint up at %s", self.DEVICE_MINT_URL)
+                return True
+            time.sleep(1)
+        log.warning("device mint did not answer /v1/info; see /tmp/cdk-mintd.log")
+        return False
+
+    def stop_device_mint(self) -> None:
+        self.ssh("killall cdk-mintd 2>/dev/null; true")
 
     def restart_backend(self, timeout: int = 30):
         """Restart the backend service and wait for readiness."""
@@ -821,7 +919,7 @@ class Router:
             "min_payout_amount": 0,
             "price_per_step": 1,
             "price_unit": "sat",
-            "purchase_min_steps": 0,
+            "purchase_min_steps": 1,
         })
         tmp = "/tmp/config-testmint.json"
         with open(tmp, "w") as f:
@@ -831,14 +929,29 @@ class Router:
         self.restart_backend()
         log.info(f"Added {TEST_MINT_URL} to accepted mints, restarted backend")
 
-    def replace_mints(self, mint_urls: list[str] | None = None):
+    def replace_mints(self, mint_urls: list[str] | None = None, force: bool = False):
         """Replace all accepted mints with only the specified URLs.
-        
+
+        Destructive by design — discards every currently accepted mint.
+        Two guards against the 2026-10-01 incident class, where a bare
+        call on a commissioned router silently rewrote an 8-mint
+        accepted_mints to [TEST_MINT_URL]:
+
+        * mint_urls is required; None raises instead of defaulting to
+          [TEST_MINT_URL].
+        * Shrinking more than one accepted mint down to exactly one
+          requires force=True.
+
         Args:
-            mint_urls: List of mint URLs to use. Defaults to [TEST_MINT_URL].
+            mint_urls: List of mint URLs to use (required).
+            force: Allow the >1 -> 1 shrink.
         """
         if mint_urls is None:
-            mint_urls = [TEST_MINT_URL]
+            raise ValueError(
+                "replace_mints requires an explicit mint_urls list — a bare call "
+                "silently rewrites accepted_mints to [TEST_MINT_URL] "
+                "(incident 2026-10-01)"
+            )
 
         # Read current config
         cfg_raw = self.ssh("cat /etc/tollgate/config.json")
@@ -850,6 +963,15 @@ class Router:
         except json.JSONDecodeError:
             log.warning("Config not valid JSON, skipping mint replacement: %s", cfg_raw[:100])
             return
+
+        current_mints = cfg.get("accepted_mints", [])
+        if len(current_mints) > 1 and len(mint_urls) == 1 and not force:
+            current = ", ".join(sorted(m.get("url", "") for m in current_mints))
+            raise ValueError(
+                f"refusing to shrink {len(current_mints)} accepted mints to 1 "
+                f"({mint_urls[0]}) — current: [{current}]; pass force=True if "
+                "this deliberate reset is intended"
+            )
         
         # Build new accepted_mints list
         new_mints = []
@@ -862,7 +984,7 @@ class Router:
                 "min_payout_amount": 0,
                 "price_per_step": 1,
                 "price_unit": "sat",
-                "purchase_min_steps": 0,
+                "purchase_min_steps": 1,
             })
         
         cfg["accepted_mints"] = new_mints

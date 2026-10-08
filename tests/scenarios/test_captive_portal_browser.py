@@ -28,7 +28,7 @@ from lib.constants import NDS_PORTAL_PORT
 
 log = logging.getLogger("tollgate.captive_portal_browser")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(60), pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("G1"),pytest.mark.api, pytest.mark.extended, pytest.mark.timeout(60), pytest.mark.virtual_lab]
 
 PORTAL_URL = f"http://localhost:{NDS_PORTAL_PORT}/splash.html"
 

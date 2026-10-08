@@ -28,7 +28,8 @@ from lib.helpers import (
 
 log = logging.getLogger("tollgate.cli_degraded")
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
+pytestmark = [
+    pytest.mark.story("O1"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only]
 
 
 @pytest.fixture(scope="module")

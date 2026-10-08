@@ -10,6 +10,8 @@ import pytest
 from lib.router_lock import RouterLock
 
 
+pytestmark = [pytest.mark.story("P11")]
+
 @pytest.fixture
 def lock_file(tmp_path):
     """Provide a temp lock file path that is cleaned up after each test."""

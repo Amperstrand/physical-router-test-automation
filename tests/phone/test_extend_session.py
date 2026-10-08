@@ -11,7 +11,7 @@ import pytest
 from lib.helpers import pay_and_wait, assert_internet, is_session_event
 from lib.constants import TOKEN_LONG
 
-pytestmark = [pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
+pytestmark = [pytest.mark.story("G4"),pytest.mark.phone, pytest.mark.slow, pytest.mark.timeout(120), pytest.mark.extended, pytest.mark.requires_wifi]
 
 
 @pytest.mark.xfail(reason="Backend replaces allotment instead of extending (pre-existing, not PR #120)")

@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-pytestmark = [pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
+pytestmark = [pytest.mark.story("R1"),pytest.mark.rust_basic_only, pytest.mark.api, pytest.mark.smoke]
 
 
 def test_discovery_returns_kind_10021(rust_basic_server):

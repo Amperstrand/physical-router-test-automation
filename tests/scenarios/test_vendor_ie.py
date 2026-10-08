@@ -34,7 +34,7 @@ import pytest
 
 from lib.router import Router
 
-pytestmark = [pytest.mark.api, pytest.mark.extended, pytest.mark.go_only, pytest.mark.virtual_lab]
+pytestmark = [pytest.mark.story("O6"),pytest.mark.api, pytest.mark.extended, pytest.mark.go_only, pytest.mark.virtual_lab]
 
 TOLLGATE_OUI = "212121"
 TOLLGATE_ELEM_TYPE = "01"

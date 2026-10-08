@@ -73,7 +73,7 @@ class TestParseAdvertisementMinSteps:
     """
 
     @staticmethod
-    def _parse(tags: list) -> "Offer":
+    def _parse(tags: list):
         import importlib.util
         spec = importlib.util.spec_from_file_location("tollgate_clientd", SCRIPT)
         mod = importlib.util.module_from_spec(spec)

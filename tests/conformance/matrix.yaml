@@ -1,191 +1,489 @@
-# Conformance Matrix — the fault-injection invariant set (R12, tmbr #15)
+# Shared conformance / fault-injection matrix for the TollGate backends.
 #
-# Machine-readable spec: every scenario × backend executes under identical
-# conditions (fault proxy in front of the mint), and the runner asserts the
-# seven invariants per scenario. The differential report is generated from
-# these results — parity is measured, not asserted.
+# This file is the single source of truth for the Go-vs-Rust conformance
+# matrix. It is co-owned by:
 #
-# Invariants (asserted per scenario, numbered for report keys):
-#   I1 no_funds_disappear      mint ledger Δ == wallet Δ + paid-out value
-#   I2 no_double_count         one payment ⇒ at most one session/grant
-#   I3 no_output_reuse         mint observes each blinded-message set once
-#   I4 service_or_refund       session granted OR refund/credit recorded durably
-#   I5 operator_spendable      no proofs stuck Reserved beyond bounded time
-#   I6 retries_preserve_state  duplicate/concurrent retry never corrupt wallet
-#   I7 restart_converges       bounded reconciliation to a valid state
+#   - OpenTollGate/tollgate-module-basic-go#503  (Go twin)
+#   - Amperstrand/tollgate-module-basic-rust#15 (Rust twin, R12)
 #
-# Status values a backend scenario may carry:
-#   pass | fail | invariant-violated:<n> | skipped:<reason> | pending-venue
+# Rule: do NOT fork this matrix into either backend repo. Lanes consume it
+# from here (or a pinned copy with a checksum, never a divergent edit).
+# Every change to invariants or scenarios must reference both twin issues.
 #
-# venue: host = the v1 runner (binary + cdk-mintd on the host, fault proxy
-# in front); qemu = full-VM lane (PRTA virtual lab); the spec carries both;
-# the runner executes what its venue supports and marks the rest
-# pending-venue rather than lying.
-
+# Scenario IDs are stable identifiers used in verdict tables and
+# differential reports: add new scenarios, never rename or recycle IDs.
 version: 1
+
+meta:
+  owners:
+    - repo: OpenTollGate/tollgate-module-basic-go
+      issue: 503
+    - repo: Amperstrand/tollgate-module-basic-rust
+      issue: 15
+  subset_rule: >-
+    Lanes marked `fast` form the PR-lane subset (duplicate, timeout-retry,
+    restart-mid-payment, alias spellings). `full` adds everything else and is
+    intended for nightly runs. See tests/conformance/README.md.
+  backend_agnostic_rule: >-
+    Scenarios may only rely on HTTP, the mint, and process/VM control. No
+    backend-internal instrumentation may be required to drive a scenario;
+    backend-specific log markers may only be used opportunistically as
+    boundary-detection hints.
+
+# Invariants asserted per scenario. Identical wording for both backends;
+# the lane maps each invariant to the assertions it can make on observable
+# state today and records the rest as `pending` with the blocking issue.
 invariants:
-  - key: no_funds_disappear
-    id: I1
-    assertion: "mint-side ledger delta == wallet-side balance delta + value provably paid out"
-  - key: no_double_count
-    id: I2
-    assertion: "one payment event produces at most one session/grant across retries, replays, and restarts"
-  - key: no_output_reuse
-    id: I3
-    assertion: "the mint observes each deterministic blinded-message set at most once (no derivation replay)"
-  - key: service_or_refund
-    id: I4
-    assertion: "customer value moved ⇒ session granted OR refund token / durable credit recorded"
-  - key: operator_spendable
-    id: I5
-    assertion: "no proofs remain Reserved/stuck beyond the documented recovery bound"
-  - key: retries_preserve_state
-    id: I6
-    assertion: "sequential + concurrent duplicate submissions leave wallet state valid"
-  - key: restart_converges
-    id: I7
-    assertion: "after restart, reconciliation reaches a valid state within the documented bound"
+  - id: no-fund-loss
+    statement: >-
+      No funds disappear: mint ledger, wallet balance, and payment records
+      reconcile after the scenario settles.
+  - id: no-double-count
+    statement: >-
+      No value is counted twice: one payment never yields two sessions or
+      two grants.
+  - id: no-output-reuse
+    statement: >-
+      No deterministic output reuse: the mint observes each blinded message
+      set at most once (proxy observation).
+  - id: service-or-refund
+    statement: >-
+      The customer receives service or recoverable value: a session is
+      granted, or a refund token / durable credit is recorded.
+  - id: operator-spendable
+    statement: >-
+      The operator wallet remains spendable: no stuck-reserved proofs
+      beyond bounded time.
+  - id: retry-safe
+    statement: Retries do not corrupt wallet or session state.
+  - id: restart-converges
+    statement: >-
+      After a restart, the backend converges to a valid state within
+      bounded reconciliation time.
 
+# Fault proxy rule schema (consumed by faultproxy.py, driven at runtime via
+# its control endpoint — see README.md):
+#   match_path:   substring matched against the request path
+#   match_method: optional HTTP method filter
+#   action:       drop | drop_response | delay | status | reset | pass | notify
+#   status_code:  for action=status (e.g. 429, 500)
+#   delay_ms:     for action=delay
+#   notify_url:   for action=notify (blocking webhook; lanes use it for
+#                 deterministic kill-at-boundary triggers)
+#   notify_on:    request | response (default request) — when the notify
+#                 webhook fires: before the request is forwarded, or after
+#                 the upstream processed it but before the response reaches
+#                 the client (the ambiguity window)
+#   remaining:    apply to the next N matching requests only (default: all)
+#   probability:  0.0..1.0 (default 1.0)
+#
+# drop = request-side black-hole (the mint never sees the request; clean
+# timeout). drop_response = the request reaches the mint and is processed,
+# but the response never returns (ambiguous outcome).
 scenarios:
-
-  # ── payment crash windows ────────────────────────────────────────────
+  # ---- payment -> kill at transaction boundary -> restart -----------------
+  # One scenario per boundary. The lane kills the backend process (SIGKILL)
+  # at the boundary, restarts it, then drives the same payment again and
+  # lets the system settle before asserting.
   - id: pay-kill-pre-receive
-    desc: "POST / → kill the backend after the intent record but before receive reaches the mint → restart"
-    fault: none
-    kill_at: pre_receive
-    invariants: [I1, I2, I4, I7]
-    venue: {host: yes, qemu: yes}
+    class: kill-boundary
+    subset: full
+    description: >-
+      Backend is killed after the payment POST arrives but before the wallet
+      Receive call exposes any derivation range to the mint.
+    fault:
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: pre-receive
+        boundary_hint: >-
+          Kill as soon as the payment request is observed (proxy sees no
+          mint traffic for this payment yet, or backend log shows request
+          accepted). Venue adapters may approximate with a fixed short delay.
+    driver:
+      - POST one valid token to the payment endpoint.
+      - Kill the backend at the boundary; restart it.
+      - Re-POST the same token (customer retry).
+      - Let the system settle.
+    asserts: [no-fund-loss, no-double-count, no-output-reuse, service-or-refund, restart-converges]
+
   - id: pay-kill-post-receive-pre-session
-    desc: "kill after receive Ok, before the session is durable → restart"
-    fault: none
-    kill_at: post_receive
-    invariants: [I1, I4, I7]
-    venue: {host: yes, qemu: yes}
+    class: kill-boundary
+    subset: fast
+    description: >-
+      Backend is killed after the wallet Receive succeeds (mint has seen the
+      inputs) but before a session is granted. This is the fast-subset
+      representative of the kill class ("restart-mid-payment"): it is the
+      #403 window and the one boundary a venue can drive deterministically
+      today, via a proxy notify trigger on the swap response.
+    fault:
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: post-receive-pre-session
+        boundary_hint: >-
+          Proxy observes the swap/melt request completing, no session state
+          written yet. This is the #403 window.
+    driver:
+      - POST one valid token to the payment endpoint.
+      - Kill the backend at the boundary; restart it.
+      - Re-POST the same token.
+      - Let the system settle; inspect payment records if available.
+    asserts: [no-fund-loss, no-double-count, no-output-reuse, service-or-refund, restart-converges]
+
   - id: pay-kill-post-session-pre-gate
-    desc: "kill after save_now(session), before grant_access → restart"
-    fault: none
-    kill_at: post_session
-    invariants: [I2, I4, I5, I7]
-    venue: {host: yes, qemu: yes}
+    class: kill-boundary
+    subset: full
+    description: >-
+      Backend is killed after the session is granted (durable state written)
+      but before the gate (NDS) is opened.
+    fault:
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: post-session-pre-gate
+        boundary_hint: >-
+          Sessions store shows the session; gate client shows no auth for
+          the client MAC yet.
+    driver:
+      - POST one valid token to the payment endpoint.
+      - Kill the backend at the boundary; restart it.
+      - Observe whether the gate opens (late grant) or value is returned
+        (refund path) after restart.
+      - Let the system settle.
+    asserts: [no-fund-loss, no-double-count, service-or-refund, restart-converges]
+
   - id: pay-kill-post-gate-pre-response
-    desc: "kill after the gate opens, before the HTTP response → customer retries"
-    fault: none
-    kill_at: post_gate
-    invariants: [I2, I6, I7]
-    venue: {host: yes, qemu: yes}
+    class: kill-boundary
+    subset: full
+    description: >-
+      Backend is killed after the gate is opened for the client MAC but
+      before the HTTP payment response is delivered.
+    fault:
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: post-gate-pre-response
+        boundary_hint: >-
+          Gate client shows the client authenticated; the paying client
+          still holds no HTTP response.
+    driver:
+      - POST one valid token to the payment endpoint.
+      - Kill the backend at the boundary; restart it.
+      - Re-POST the same token; observe the response (idempotent success
+        vs double-charge refusal).
+      - Let the system settle.
+    asserts: [no-fund-loss, no-double-count, service-or-refund, restart-converges]
 
-  # ── swap ambiguity ───────────────────────────────────────────────────
-  - id: swap-timeout-drop-response
-    desc: "mint accepts the swap; proxy drops the response; backend times out → client retry behavior"
-    fault: {route: "/v1/swap", mode: drop_response_after_forward, delay_before_drop: 2}
-    invariants: [I1, I3, I4, I6, I7]
-    venue: {host: yes, qemu: yes}
-  - id: swap-timeout-then-restart
-    desc: "swap accepted, response dropped → kill backend → restart with a healthy mint"
-    fault: {route: "/v1/swap", mode: drop_response_after_forward, delay_before_drop: 2}
-    kill_at: post_timeout
-    invariants: [I1, I3, I4, I5, I7]
-    venue: {host: yes, qemu: yes}
+  # ---- swap timeout -> retry ----------------------------------------------
+  - id: swap-timeout-retry
+    class: fault-proxy
+    subset: fast
+    description: >-
+      The proxy forwards the backend's first swap (or melt) call to the
+      mint — the mint processes it — but drops the response, making the
+      outcome ambiguous to the backend. The backend must reconcile (check
+      state / regenerate from a fresh counter), never blind-retry the same
+      derivation range.
+    fault:
+      proxy:
+        - match_path: /v1/swap
+          action: drop_response
+          remaining: 1
+    driver:
+      - POST one valid token to the payment endpoint.
+      - The proxy drops the first swap response.
+      - Wait past the backend's mint-timeout; let the backend reconcile.
+      - Let the system settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, restart-converges]
 
-  # ── duplicates ───────────────────────────────────────────────────────
+  # ---- duplicate submissions ------------------------------------------------
   - id: duplicate-post-sequential
-    desc: "same token POSTed twice sequentially after success"
-    fault: none
-    invariants: [I2, I6]
-    venue: {host: yes, qemu: yes}
+    class: duplicate
+    subset: fast
+    description: >-
+      The same token is POSTed twice, sequentially (customer retry after a
+      lost response).
+    fault: {}
+    driver:
+      - POST one valid token; capture the response.
+      - POST the same token again.
+      - Compare responses and final state.
+    asserts: [no-fund-loss, no-double-count, no-output-reuse, service-or-refund]
+
   - id: duplicate-post-concurrent
-    desc: "same token POSTed twice concurrently"
-    fault: none
-    invariants: [I2, I3, I6]
-    venue: {host: yes, qemu: yes}
+    class: duplicate
+    subset: fast
+    description: >-
+      The same token is POSTed twice concurrently (double-submit race).
+    fault: {}
+    driver:
+      - POST the same token twice in parallel.
+      - Capture both responses; let the system settle.
+    asserts: [no-fund-loss, no-double-count, no-output-reuse, service-or-refund]
 
-  # ── mint identity variation ──────────────────────────────────────────
-  - id: mint-url-trailing-slash
-    desc: "config mint URL carries a trailing slash; token does not (and vice versa)"
-    fault: none
-    config_variation: trailing_slash
-    invariants: [I1, I6]
-    venue: {host: yes, qemu: yes}
-  - id: mint-url-host-case
-    desc: "config mint host uppercase; token host lowercase"
-    fault: none
-    config_variation: host_case
-    invariants: [I1, I6]
-    venue: {host: yes, qemu: yes}
+  # ---- mint identity aliases -------------------------------------------------
+  - id: mint-alias-spellings
+    class: alias
+    subset: fast
+    description: >-
+      The config's mint URL and the token's embedded mint URL differ only by
+      spelling (trailing slash, host letter case, default port). The backend
+      must treat them as one mint: one keyset/counter/balance copy.
+    fault: {}
+    driver:
+      - Configure the backend with mint URL spelling A (e.g. trailing slash).
+      - Mint a token whose embedded URL uses spelling B (e.g. upper-case
+        host, no slash).
+      - POST the token; let the system settle.
+      - Inspect wallet state for duplicated mint entries / balances.
+    asserts: [no-fund-loss, restart-converges]
+    notes: >-
+      Regression class of #375/#480: two spellings of one mint used to
+      create two keyset/counter/balance copies. That duplication is fund
+      loss by definition (value becomes unreachable or double-keyed).
 
-  # ── mint fault bursts ────────────────────────────────────────────────
-  - id: mint-429-burst
-    desc: "mint answers 429 to checkstate/swap for a burst, then recovers"
-    fault: {route: "any", mode: status, status: 429, count: 5}
-    invariants: [I1, I4, I6]
-    venue: {host: yes, qemu: yes}
-  - id: mint-500-burst
-    desc: "mint answers 500 for a burst, then recovers"
-    fault: {route: "any", mode: status, status: 500, count: 3}
-    invariants: [I1, I4, I6]
-    venue: {host: yes, qemu: yes}
-  - id: mint-dns-failure
-    desc: "mint hostname unresolvable for a window, then recovers"
-    fault: {mode: dns_blackhole, duration: 10}
-    invariants: [I4, I6]
-    venue: {host: partial, qemu: yes}
-  - id: mint-delayed-30s
-    desc: "mint responses delayed beyond the backend's op timeout"
-    fault: {route: "/v1/swap", mode: delay, delay: 45}
-    invariants: [I1, I4, I5, I7]
-    venue: {host: yes, qemu: yes}
+  # ---- keyset rotation ---------------------------------------------------------
+  - id: keyset-rotation-mid-session
+    class: keyset-rotation
+    subset: full
+    description: >-
+      The mint rotates to a new keyset (no final_expiry) while a client
+      session is active; a subsequent payment must use the new keyset.
+    fault:
+      mint_control:
+        action: rotate-keyset
+    driver:
+      - Open a session with a payment on keyset 1.
+      - Rotate the mint to keyset 2.
+      - Pay again; let the system settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund]
 
-  # ── mint lifecycle ───────────────────────────────────────────────────
-  - id: mint-restart-between-quote-and-mint
-    desc: "/ln-invoice quote created; mint restarts before mint_tokens"
-    fault: {mode: mint_restart, at: after_quote}
-    invariants: [I1, I4, I7]
-    venue: {host: yes, qemu: yes}
-  - id: keyset-rotation-held-balance
-    desc: "wallet holds balance; mint rotates keyset; payment + payout afterwards"
-    fault: {mode: keyset_rotation}
-    invariants: [I1, I5, I6]
-    venue: {host: pending-venue, qemu: pending-venue}
-    note: "requires a rotating mint (cdk-mintd fakewallet has no rotation knob) — the tmbr #13 cloud-lab lane"
-  - id: keyset-rotation-with-expiry
-    desc: "as above but the retired keyset carries final_expiry"
-    fault: {mode: keyset_rotation, final_expiry: true}
-    invariants: [I1, I5, I6]
-    venue: {host: pending-venue, qemu: pending-venue}
-    note: "same venue dependency as keyset-rotation-held-balance"
+  - id: keyset-rotation-final-expiry-held-balance
+    class: keyset-rotation
+    subset: full
+    description: >-
+      The mint rotates with final_expiry on the old keyset while the
+      operator wallet still holds proofs on it; the backend must swap off
+      the dying keyset or surface the risk (#417).
+    fault:
+      mint_control:
+        action: rotate-keyset
+        final_expiry: true
+    driver:
+      - Open a session with a payment on keyset 1.
+      - Rotate the mint with final_expiry set on keyset 1.
+      - Observe wallet behavior across the expiry.
+    asserts: [no-fund-loss, operator-spendable]
 
-  # ── full-router / payout ─────────────────────────────────────────────
-  - id: router-reboot-pending-payment
-    desc: "payment in flight; full router (VM) reboots"
-    fault: none
-    kill_at: vm_reboot
-    invariants: [I1, I4, I7]
-    venue: {host: no, qemu: yes}
+  # ---- HTTP-level mint faults ---------------------------------------------------
+  - id: http-429-burst
+    class: http-fault
+    subset: full
+    description: >-
+      The mint rate-limits: every response is 429 for a burst window.
+    fault:
+      proxy:
+        - match_path: /v1/
+          action: status
+          status_code: 429
+          remaining: 20
+    driver:
+      - POST a valid token while the 429 burst is armed.
+      - Let the burst exhaust; let the backend retry; settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, retry-safe]
+
+  - id: http-500-burst
+    class: http-fault
+    subset: full
+    description: >-
+      The mint errors: every response is 500 for a burst window.
+    fault:
+      proxy:
+        - match_path: /v1/
+          action: status
+          status_code: 500
+          remaining: 20
+    driver:
+      - POST a valid token while the 500 burst is armed.
+      - Let the burst exhaust; let the backend retry; settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, retry-safe]
+
+  - id: dns-failure
+    class: http-fault
+    subset: full
+    description: >-
+      The mint hostname stops resolving mid-payment (proxy refuses
+      connections / upstream unreachable).
+    fault:
+      proxy:
+        - match_path: /v1/
+          action: reset
+          remaining: 5
+    driver:
+      - POST a valid token while the reset rule is armed.
+      - Let the rule exhaust; let the backend retry; settle.
+    asserts: [no-fund-loss, service-or-refund, retry-safe]
+
+  - id: delayed-response-30s
+    class: http-fault
+    subset: full
+    description: >-
+      The mint stalls: responses are delayed by 30 seconds.
+    fault:
+      proxy:
+        - match_path: /v1/
+          action: delay
+          delay_ms: 30000
+          remaining: 3
+    driver:
+      - POST a valid token while the delay rule is armed.
+      - Observe backend timeout handling vs the delayed success racing in.
+      - Settle; assert on final state, not intermediate responses.
+    asserts: [no-fund-loss, no-double-count, no-output-reuse, service-or-refund]
+
+  # ---- mint lifecycle ----------------------------------------------------------
+  - id: mint-restart-quote-to-mint
+    class: mint-restart
+    subset: full
+    description: >-
+      The mint process restarts between the backend fetching a quote and
+      spending/minting against it.
+    fault:
+      process_control:
+        target: mint
+        signal: KILL
+        boundary: post-quote-pre-spend
+        boundary_hint: >-
+          Proxy observes the quote request complete and no subsequent
+          request yet; restart the mint in that window.
+    driver:
+      - POST a valid token; kill+restart the mint inside the window.
+      - Let the backend handle the dead quote; settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, retry-safe]
+
+  # ---- full-system restart -----------------------------------------------------
+  - id: vm-reboot-pending-payment
+    class: vm-restart
+    subset: full
+    description: >-
+      The whole router VM reboots while a payment is pending (between
+      Receive and response).
+    fault:
+      vm_control:
+        action: reboot
+        boundary: mid-payment
+    driver:
+      - POST a valid token; reboot the VM mid-payment.
+      - After boot, re-POST the token; settle.
+    asserts: [no-fund-loss, no-double-count, service-or-refund, restart-converges]
+
+  # ---- drain / payout ----------------------------------------------------------
   - id: partial-drain-two-mints
-    desc: "drain across 2 mints; the second fails mid-drain"
-    fault: {route: "/v1/swap", mode: status, status: 500, count: 1, when: "second_mint"}
-    invariants: [I1, I4]
-    venue: {host: yes, qemu: yes}
-  - id: payout-failure-after-owner-paid
-    desc: "owner melt succeeds; maintainer melt fails"
-    fault: {mode: lnurl_unreachable, when: "maintainer"}
-    invariants: [I1, I4]
-    venue: {host: partial, qemu: yes}
-  - id: hard-power-loss
-    desc: "QEMU quit without shutdown while a payment is in flight"
-    fault: none
-    kill_at: qemu_quit
-    invariants: [I1, I4, I5, I7]
-    venue: {host: no, qemu: yes}
+    class: drain
+    subset: full
+    description: >-
+      Wallet drains across two mints; the second mint fails mid-drain.
+      Produced tokens from the first mint must survive the failure (#375).
+    fault:
+      proxy:
+        - match_path: /v1/
+          action: status
+          status_code: 500
+          remaining: 10
+      notes: apply the 500 rule only to the second mint's route
+    driver:
+      - Fund the wallet on two mints; trigger a drain/payout.
+      - The second mint's calls fail; settle and inspect balances.
+    asserts: [no-fund-loss, operator-spendable]
 
-# Backend declarations — the differential axis.
-backends:
-  - key: rust-basic
-    repo: Amperstrand/tollgate-module-basic-rust
-    host_runner: supported
-  - key: go
-    repo: OpenTollGate/tollgate-module-basic-go
-    host_runner: supported
-  - key: rust
-    repo: Amperstrand/tollgate-rs-ai-research-and-experiments
-    host_runner: pending
+  - id: payout-failure-after-owner-paid
+    class: drain
+    subset: full
+    description: >-
+      A payout pays the owner but fails before paying the maintainer; what
+      was paid must be recorded, not silently dropped.
+    fault:
+      proxy:
+        - match_path: /v1/melt
+          action: drop
+          remaining: 1
+      notes: drop the maintainer melt only, after the owner melt succeeded
+    driver:
+      - Trigger a payout where owner melt succeeds and maintainer melt
+        is dropped; settle and inspect payout records.
+    asserts: [no-fund-loss, operator-spendable]
+
+  # ---- power loss ----------------------------------------------------------------
+  - id: hard-power-loss
+    class: power-loss
+    subset: full
+    description: >-
+      Hard power-loss simulation (QEMU quit without shutdown, or container
+      kill -9 + storage wipe of volatile layers) where practical.
+    fault:
+      vm_control:
+        action: power-loss
+        boundary: mid-payment
+    driver:
+      - POST a valid token; cut power mid-payment.
+      - Power on; let the system boot and settle; re-POST.
+    asserts: [no-fund-loss, no-double-count, service-or-refund, restart-converges]
+
+  # ---- additions from the Rust host-runner lane (tmbr #15, PRTA #16) ----
+  # Added under the ownership rule (add, never rename): the swap-timeout
+  # restart variant and the two single-axis alias spellings. The original
+  # mint-alias-spellings scenario above remains the umbrella case.
+  - id: swap-timeout-then-restart
+    class: fault-proxy
+    subset: full
+    description: >-
+      The proxy drops the first swap response (ambiguous outcome); before
+      the backend can reconcile in-session, it is killed and restarted —
+      recovery must then happen at boot via the durable saga, never by
+      re-exposing the same derivation range.
+    fault:
+      proxy:
+        - match_path: /v1/swap
+          action: drop_response
+          remaining: 1
+      process_control:
+        target: backend
+        signal: KILL
+        boundary: post-timeout-pre-reconciliation
+        boundary_hint: >-
+          Kill shortly after the backend's mint-timeout fires (response
+          dropped), before in-session saga recovery completes.
+    driver:
+      - POST one valid token; the proxy drops the swap response.
+      - Kill the backend after its timeout, restart it on the same state.
+      - Re-POST the same token; settle.
+    asserts: [no-fund-loss, no-output-reuse, service-or-refund, restart-converges]
+
+  - id: mint-url-trailing-slash
+    class: alias
+    subset: fast
+    description: >-
+      Config mint URL carries a trailing slash; the token's embedded URL
+      does not (single-axis variant of mint-alias-spellings).
+    fault: {}
+    config_variation: trailing_slash
+    driver:
+      - Start the backend with the trailing-slash config spelling.
+      - Mint a token whose embedded URL has no slash; POST it; settle.
+      - Assert one wallet/balance copy (no second DB for the same mint).
+    asserts: [no-fund-loss, restart-converges]
+
+  - id: mint-url-host-case
+    class: alias
+    subset: fast
+    description: >-
+      Config mint host is uppercase; the token's embedded host is
+      lowercase (single-axis variant of mint-alias-spellings).
+    fault: {}
+    config_variation: host_case
+    driver:
+      - Start the backend with the uppercase-host config spelling.
+      - Mint a token whose embedded URL is lowercase; POST it; settle.
+      - Assert one wallet/balance copy (no second DB for the same mint).
+    asserts: [no-fund-loss, restart-converges]

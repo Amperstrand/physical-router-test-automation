@@ -96,55 +96,56 @@ deterministically derived output means the backend re-exposed a
 derivation range — the brick class of #257/#266/#480 — unless the two
 sightings are provably two different legitimate outputs. Lanes assert
 `reused == []` for the `no-output-reuse` invariant.
-# Conformance Matrix (R12) — the Go-vs-Rust fault-injection invariant set
 
-Shared spec + runner + fault proxy: executes identical fault scenarios
-against both backends with a real cdk-mintd behind a controllable proxy,
-asserting seven fund-safety invariants per scenario, and emits a
-differential verdict table — parity measured, not asserted.
+## Host-venue runner (v2) — Rust lane
 
-## Files
-- `matrix.yaml` — the spec: 21 scenarios × 7 invariants, venue flags per
-  scenario (host runner vs QEMU/full-VM), backend declarations.
-- `fault_proxy.py` — mint fault proxy (delay / drop-response-after-forward /
-  status-code bursts / connection reset / passthrough, controlled via
-  `/tmp/faultproxy.json`).
-- `run_matrix.py` — the host-venue runner (v1): fresh backend + mint per
-  scenario, real NUT-04 client-side-blinded tokens, kill -9 windows,
-  restart convergence, invariant assertions from observable state (wallet
-  balance, payment journal, sessions, CLI), results.json + results.md.
+`run_matrix.py` executes every host-drivable scenario from
+`matrix.yaml` against one backend binary with a real cdk-mintd behind
+the **shared** `faultproxy.py` (driven via its control endpoint — no
+private rule schema), and emits `results/{results.json,results.md}`.
 
-## Usage
+Hardening after the PR #16 Codex round (the v1 runner could pass
+vacuously):
+
+- kill boundaries fire from the proxy's `notify_on: response` webhook
+  (deterministic, inside the ambiguity window);
+  `post-session-pre-gate` / `post-gate-pre-response` use named delay
+  approximations (400/900 ms after the held swap response — documented,
+  not proxy-observable on the host venue);
+- a restarted backend **reuses the crashed instance's config dir** —
+  restart scenarios observe reconciliation, not a fresh wallet;
+- unparseable observable state is a harness `error`, never a sentinel;
+- every declared invariant is accounted for: checked, or `pending` with
+  the reason — missing checks cannot hide inside a pass;
+- strict single-payment value accounting (proven-moved == wallet
+  balance at 0 mint fee);
+- duplicate scenarios actually submit the duplicate and assert
+  value-level retry safety (a 200 idempotent replay of the same grant
+  is correct, not a double grant);
+- CLI wire encoding follows the backend (JSON CLIMessage for Go, plain
+  text for Rust) per `tests/api/test_go_rust_basic_parity.py`;
+- readiness probes are functional (mint keysets answer; backend serves
+  its advertisement), not raw TCP connects;
+- classes the host venue cannot drive (`vm_control`, `mint_control`,
+  `drain`) report `pending-venue` with the reason.
+
+### Known pending adjudication: `no-output-reuse`
+
+The v2 runs observe every backend swap `B_` sighted exactly **twice**
+(digests stable across scenarios = fixed-seed deterministic
+derivation), while the backend log shows a single `create_swap`, one
+journal entry, and correct value state. Source unproven: proxy
+double-count vs legitimate CDK saga re-POST. Until
+`faultproxy.py` gains request-level logging, the runner **records** I3
+sightings with detail and reports the invariant `pending` — an unsound
+observer must not auto-fail a backend. Tracked issue: (see PRTA).
+
+### Usage
+
 ```
 python3 tests/conformance/run_matrix.py --backend rust-basic \
-    --binary ~/.cargo-target/release/tollgate-module-basic-rust \
-    --mint /opt/cdk-mintd/cdk-mintd --out results/rust-basic
+    --binary <tollgate-binary> --mint /opt/cdk-mintd/cdk-mintd \
+    --out tests/conformance/results/rust-basic
 python3 tests/conformance/run_matrix.py --backend go \
-    --binary /path/to/tollgate-go --out results/go
+    --binary <tollgate-go> --out tests/conformance/results/go
 ```
-
-## First differential run (2026-10-05, host venue)
-
-| backend | pass | pending-venue | fail | invariant-violated |
-|---|---|---|---|---|
-| rust-basic (`5568298` main) | 17 | 4 | 0 | 0 |
-| go (main, host build) | 17 | 4 | 0 | 0 |
-
-Differences: **none** — both backends pass every host-executable scenario.
-
-Pending-venue (identical on both, honestly not guessed):
-`keyset-rotation-held-balance`, `keyset-rotation-with-expiry` (need a
-rotating mint — the fakewallet config exposes no rotation knob; the
-tmbr #13 cloud-lab lane), `router-reboot-pending-payment`,
-`hard-power-loss` (need the QEMU/full-VM lane).
-
-## Honest scope notes
-- The host venue approximates the kill windows (kill-after-answer rather
-  than mid-byte); the QEMU lane narrows them to the true transaction
-  boundaries. The invariants asserted are the host-observable subset of
-  each (documented inline in run_matrix.py).
-- The CLI queries wait out the wallet-mutex recovery window (120s class)
-  deliberately — they observe the CONVERGED state, which is what I7
-  asserts.
-- mint-dns-failure runs as a host partial (proxy reset instead of true
-  DNS blackout) — marked in the spec; the QEMU lane can do real DNS.

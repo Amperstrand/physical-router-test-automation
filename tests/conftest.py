@@ -622,7 +622,8 @@ def adb(request, router):
 @pytest.fixture(scope="session")
 def cashu():
     if IS_MOCK_MODE:
-        pytest.skip("cashu fixture not available in mock mode (no real mint)")
+        from lib.cashu import MockCashuMinter
+        return MockCashuMinter()
     mint_url = os.environ.get("TOLLGATE_TEST_MINT_URL", "https://testnut.cashu.exchange")
     minter = create_minter(mint_url)
     for attempt in range(5):

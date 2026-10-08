@@ -268,6 +268,74 @@ class CashuMint:
         return "cashuA" + base64.b64encode(json.dumps(payload).encode()).decode()
 
 
+class MockCashuMinter:
+    """Token fabricator for TOLLGATE_MOCK=1 runs (no mint, no router).
+
+    Produces structurally valid V3 tokens (V1 keyset ids — ``00``-prefix,
+    16 hex chars) that the mock backend in lib/mock_router.py accepts: the
+    mock's payment handler validates shape, mint URL against its accepted
+    mints, and double-spends, so the payment-tier api tests exercise their
+    full assert paths mock-side. Tokens carry no real value — they only
+    round-trip against the mock backend, never a real one.
+    """
+
+    def __init__(self, mint_url: str = "https://testnut.cashu.exchange"):
+        self.mint_url = mint_url
+        # One deterministic V1-shaped keyset id per mint URL, published via
+        # keyset_ids() — mock-mode keyset tests validate minted proofs
+        # against exactly this set (parity with a real mint's /v1/keys).
+        self.keyset_id = "00" + hashlib.sha256(mint_url.encode()).hexdigest()[:14]
+
+    def keyset_ids(self) -> set[str]:
+        return {self.keyset_id}
+
+    def keyset_keys(self) -> dict[str, str]:
+        """NUT-02 amount→pubkey map for the deterministic keyset (standard
+        power-of-2 amounts, hex pubkeys — the shape keyset tests assert)."""
+        return {
+            str(1 << i): "02" + hashlib.sha256(f"{self.mint_url}:{1 << i}".encode()).hexdigest()
+            for i in range(11)  # 1 .. 1024
+        }
+
+    def is_available(self) -> bool:
+        return True
+
+    def ensure_mint_available(self, timeout: int = 15):
+        return None
+
+    def warmup(self, timeout: int = 60) -> None:
+        return None
+
+    def _fabricate(self, amount: int, mint_url: str) -> str:
+        payload = {
+            "token": [{
+                "mint": mint_url,
+                "proofs": [{
+                    "amount": amount,
+                    "id": self.keyset_id,
+                    "secret": _secrets_mod.token_hex(16),
+                    "C": "02" + _secrets_mod.token_hex(32),
+                }],
+            }],
+            "unit": "sat",
+            "memo": None,
+        }
+        return "cashuA" + base64.b64encode(json.dumps(payload).encode()).decode()
+
+    def mint(self, amount: int = 4, legacy: bool = True, timeout: int = 120,
+             retries: int = 2) -> str:
+        return self._fabricate(amount, self.mint_url)
+
+    def mint_from_wrong_mint(self, amount: int = 4, timeout: int = 90) -> str:
+        return self.synthetic_wrong_mint_token()
+
+    @staticmethod
+    def synthetic_wrong_mint_token() -> str:
+        payload = [{"mint": "https://wrong-mint.example.com",
+                     "proofs": [{"amount": 4, "secret": "fake", "C": "fake"}]}]
+        return "cashuA" + base64.b64encode(json.dumps(payload).encode()).decode()
+
+
 _CDK_CLI_PATHS = [
     "/opt/cdk-mintd/cdk-cli",
     "/usr/local/bin/cdk-cli",

@@ -35,7 +35,13 @@ log = logging.getLogger("tollgate.mock")
 # Canned mock data — realistic responses for a healthy tollgate backend
 # ---------------------------------------------------------------------------
 
-# A realistic Nostr kind:10021 advertisement event (what GET / returns)
+# A realistic Nostr kind:10021 advertisement event (what GET / returns).
+# The price_per_step tag carries the full 6-element form emitted by
+# merchant.go:CreateAdvertisement():
+#   [price_per_step, bearer_asset_type, price, unit, mint_url, min_purchase_steps]
+# — the same schema tests/api/test_mock_api_advertisement_format.py pins on
+# the recording mock; min_steps is always >= 1 (tmbg #104 normalizes 0/absent
+# to 1 config-side, and a purchase of <1 step is meaningless).
 MOCK_ADVERTISEMENT = {
     "kind": 10021,
     "pubkey": "a" * 64,
@@ -43,7 +49,7 @@ MOCK_ADVERTISEMENT = {
     "tags": [
         ["metric", "milliseconds"],
         ["step_size", "5000"],
-        ["price_per_step", "cashu", "1", "sat", "https://testnut.cashu.exchange"],
+        ["price_per_step", "cashu", "1", "sat", "https://testnut.cashu.exchange", "1"],
         ["tips", "Pay with Cashu tokens for internet access"],
     ],
 }
@@ -61,7 +67,9 @@ MOCK_USAGE = "10000000/20000000"
 # A realistic whoami response
 MOCK_WHOAMI = "mac=00:11:22:33:44:55"
 
-# A realistic session event for a successful payment (kind 1022)
+# A realistic session event for a successful payment (kind 1022). Real
+# session events carry the metric tag alongside allotment/remaining
+# (test_pay_response_structure pins its presence).
 MOCK_PAYMENT_SUCCESS = {
     "kind": 1022,
     "pubkey": "a" * 64,
@@ -69,6 +77,7 @@ MOCK_PAYMENT_SUCCESS = {
     "tags": [
         ["allotment", "20000000"],
         ["remaining", "20000000"],
+        ["metric", "milliseconds"],
         ["mac", "00:11:22:33:44:55"],
     ],
 }
@@ -83,6 +92,45 @@ MOCK_PAYMENT_INVALID = {
         ["level", "error"],
     ],
 }
+
+# Sequential resubmit of an already-consumed note (kind 21023) — mirrors
+# the real backend's payment-error-token-spent notice.
+MOCK_PAYMENT_SPENT = {
+    "kind": 21023,
+    "pubkey": "a" * 64,
+    "content": "Token has already been spent",
+    "tags": [
+        ["code", "payment-error-token-spent"],
+        ["level", "error"],
+    ],
+}
+
+
+def _mock_accepted_mints() -> set[str]:
+    """Mint URLs the mock backend accepts payments from (MOCK_CONFIG's
+    accepted_mints, trailing-slash-normalized)."""
+    return {
+        str(m.get("url", "")).rstrip("/")
+        for m in MOCK_CONFIG.get("accepted_mints", [])
+        if m.get("url")
+    }
+
+
+def _token_mint_url(token: str) -> str | None:
+    """Best-effort extract the mint URL from a V3 (cashuA JSON) token."""
+    if not token.startswith("cashuA"):
+        return None
+    import base64 as _b64
+    payload = token[len("cashuA"):]
+    try:
+        decoded = json.loads(_b64.b64decode(payload + "=" * (-len(payload) % 4)))
+    except Exception:
+        return None
+    entries = decoded.get("token", []) if isinstance(decoded, dict) else decoded
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("mint"):
+            return str(entry["mint"]).rstrip("/")
+    return None
 
 # Mock config.json content
 MOCK_CONFIG = {
@@ -202,6 +250,147 @@ MOCK_NDS_CLIENTS = "\n".join([
 # ---------------------------------------------------------------------------
 
 
+# Tokens already consumed by this mock backend instance (double-spend
+# tracking for POST /). Bounded: a long mock session mints a bounded number
+# of tokens, and the set only exists to make sequential resubmits fail the
+# way the real backend fails them.
+_spent_tokens: set[str] = set()
+
+# The real backend caps the payment body at 1MB (main.go: io.ReadAll on a
+# MaxBytesReader) and answers larger bodies with 4xx — the s10 body-size
+# regression pins that behavior, so the mock must enforce the same cap.
+MAX_PAYMENT_BODY = 1 << 20
+
+# Which backend flavor the mock backend should emulate ("go" | "rust") —
+# set by MockRouter from BackendConfig; the shapes that differ between the
+# backends (GET /usage) branch on it.
+_mock_backend_flavor = "go"
+
+
+def _set_mock_backend_flavor(flavor: str) -> None:
+    global _mock_backend_flavor
+    _mock_backend_flavor = flavor
+
+
+def _validate_mock_payment(token: str) -> tuple[dict, int]:
+    """Shared payment verdict for the body POST and the NUT-24 X-Cashu
+    header GET: (event, http_status)."""
+    if not MockBackendHandler._is_valid_mock_token(token):
+        return MOCK_PAYMENT_INVALID, 200
+    if token in _spent_tokens:
+        return MOCK_PAYMENT_SPENT, 200
+    mint = _token_mint_url(token)
+    if mint is not None and mint not in _mock_accepted_mints():
+        return {
+            "kind": 21023,
+            "pubkey": "a" * 64,
+            "content": f"Token for mint {mint} is not accepted",
+            "tags": [["code", "payment-error-wrong-mint"], ["level", "error"]],
+        }, 200
+    _spent_tokens.add(token)
+    return MOCK_PAYMENT_SUCCESS, 200
+
+
+# --- /identity + /identity/reveal-seed (PR #193 lineage, PRTA #102) -------
+#
+# The reveal-seed oracle contract: 12-word BIP39 body in, full derived
+# identity out (deterministic per mnemonic); invalid body -> 400 "invalid
+# mnemonic"; GET -> 405; non-loopback -> 403 with no mnemonic leakage. The
+# mock derives deterministically (PBKDF2 seed -> sha256 limbs) and asserts
+# FORMAT parity, not tmbg's exact NIP-06 derivation — the api tests pin
+# well-formedness, determinism, and mnemonic-sensitivity, which is exactly
+# what a mock can and should guarantee.
+
+# Marks requests that arrived through the router's own loopback transport
+# (the mock's ssh-curl stand-in for `curl http://[::1]:2121/...`): the
+# reveal-seed oracle is loopback-only on the real backend.
+MOCK_LOOPBACK_HEADER = "X-TollGate-Loopback"
+
+# 64 lowercase words for the v2 six-word password format — a mock-local
+# list (BIP39's 2048 words are not needed for format parity).
+_MOCK_PW_WORDS = (
+    "able acid agent agree amber apple arbor atlas audit awake bacon bamboo "
+    "beacon basil berry brave bread brick cabin candle carbon cedar cherry "
+    "clean cliff cloud coral crane crystal daisy dawn delta denim diamond "
+    "ember equal fable feather field flame forest fossil galaxy garnet ginger "
+    "granite harbor hazel index ivory jade kernel lagoon lilac maple marble "
+    "meadow nectar nickel ocean onyx pebble pepper pine plasma quartz"
+).split()
+
+
+def _bech32_polymod(values):
+    GEN = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+    chk = 1
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1FFFFFF) << 5 ^ value
+        for i in range(5):
+            chk ^= GEN[i] if ((top >> i) & 1) else 0
+    return chk
+
+
+def _bech32_hrp_expand(hrp):
+    return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+
+
+def _bech32_encode(hrp: str, data40: bytes) -> str:
+    """Minimal bech32 encoder (enough for npub-style identifiers)."""
+    charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+    # convert 8-bit to 5-bit
+    acc = 0
+    bits = 0
+    ret5 = []
+    for byte in data40:
+        acc = (acc << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            ret5.append((acc >> bits) & 31)
+    if bits:
+        ret5.append((acc << (5 - bits)) & 31)
+    values = _bech32_hrp_expand(hrp) + ret5
+    polymod = _bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ 1
+    checksum = [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+    return hrp + "1" + "".join(charset[d] for d in ret5 + checksum)
+
+
+def _mock_derive_identity(mnemonic: str) -> dict:
+    import hashlib
+    seed = hashlib.pbkdf2_hmac("sha512", mnemonic.encode(), b"mnemonic", 2048, dklen=64)
+    priv = hashlib.sha256(seed).hexdigest()
+    npub = _bech32_encode("npub", hashlib.sha256(b"pub" + seed).digest())
+    ipv4 = f"100.{64 + seed[0] % 64}.{seed[1] % 254 + 1}.1"
+    macs = {
+        "wlan0": ":".join(f"{seed[i]:02x}" for i in (2, 3, 4, 5, 6, 7)),
+        "wlan1": ":".join(f"{seed[i]:02x}" for i in (8, 9, 10, 11, 12, 13)),
+    }
+
+    def _six_words(offset: int) -> str:
+        picks = [_MOCK_PW_WORDS[seed[offset + i] % len(_MOCK_PW_WORDS)] for i in range(6)]
+        return "-".join(picks)
+
+    return {
+        "npub": npub,
+        "ipv4": ipv4,
+        "macs": macs,
+        "mnemonic": mnemonic,
+        "privatekey": priv,
+        "root_password": _six_words(14),
+        "wifi_password": _six_words(22),
+    }
+
+
+def _mock_public_identity() -> dict:
+    """GET /identity: public attributes of MOCK_IDENTITIES' merchant key."""
+    ident = _mock_derive_identity("mock router identity do not use anywhere else")
+    return {"npub": ident["npub"], "ipv4": ident["ipv4"], "macs": ident["macs"]}
+
+
+def _is_valid_mock_mnemonic(body: str) -> bool:
+    words = body.strip().split()
+    return len(words) == 12 and all(w.isalpha() and w.islower() for w in words)
+
+
 class MockBackendHandler(BaseHTTPRequestHandler):
     """HTTP request handler that mimics the TollGate backend API."""
 
@@ -226,12 +415,27 @@ class MockBackendHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
+        # GET always serves content, never pays: rust v1 (the current
+        # backend generation) ignores the NUT-24 X-Cashu header on GET —
+        # tests/api/test_nut18_payment.py's header-payment probe passes on
+        # the AD's 200, and the payment cycle's step 1 reads the ad through
+        # the same route.
         if path == "/" or path == "/pay":
             self._send_json(MOCK_ADVERTISEMENT)
         elif path == "/balance":
             self._send_json(MOCK_BALANCE)
         elif path == "/usage":
-            self._send_text(MOCK_USAGE)
+            if _mock_backend_flavor == "rust":
+                # rust v1 answers JSON keys (test_rust_usage pins the
+                # shape); Go answers the bare X/Y pair.
+                self._send_json({"usage": MOCK_USAGE, "allotment": MOCK_BALANCE["allotment"]})
+            else:
+                self._send_text(MOCK_USAGE)
+        elif path == "/identity":
+            self._send_json(_mock_public_identity())
+        elif path == "/identity/reveal-seed":
+            # The oracle is POST-only on the real backend.
+            self._send_json({"error": "method not allowed"}, status=405)
         elif path == "/whoami":
             self._send_text(MOCK_WHOAMI)
         elif path == "/health":
@@ -246,14 +450,25 @@ class MockBackendHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
         content_length = int(self.headers.get("Content-Length", 0))
+        if path in ("/", "/pay") and content_length > MAX_PAYMENT_BODY:
+            # Mirror main.go's 1MB MaxBytesReader: reject before reading.
+            self._send_json({"error": "request body too large"}, status=413)
+            return
         body = self.rfile.read(content_length).decode("utf-8", errors="replace") if content_length else ""
 
         if path == "/" or path == "/pay":
             token = self._extract_token(body)
-            if self._is_valid_mock_token(token):
-                self._send_json(MOCK_PAYMENT_SUCCESS)
-            else:
-                self._send_json(MOCK_PAYMENT_INVALID)
+            event, status = _validate_mock_payment(token)
+            self._send_json(event, status=status)
+        elif path == "/identity/reveal-seed":
+            # Loopback-only derivation oracle (see MOCK_LOOPBACK_HEADER).
+            if self.headers.get(MOCK_LOOPBACK_HEADER, "").strip() != "1":
+                self._send_json({"error": "forbidden: loopback only"}, status=403)
+                return
+            if not _is_valid_mock_mnemonic(body):
+                self._send_json({"error": "invalid mnemonic"}, status=400)
+                return
+            self._send_json(_mock_derive_identity(body.strip()))
         elif path == "/ln-invoice":
             self._send_json({"error": "ln-invoice not supported in mock mode"}, status=400)
         elif path == "/connect":
@@ -429,6 +644,7 @@ class MockRouter(Router):
         self.port = None
         from lib.backend import BackendConfig
         self.backend = backend or BackendConfig()
+        _set_mock_backend_flavor("rust" if self.backend.is_rust_family else "go")
         self._ssh_pw = None
         self._control_dir = "/tmp/tollgate-mock-ssh"
         self._control_path = "/tmp/tollgate-mock-ssh/control"
@@ -737,23 +953,40 @@ class MockRouter(Router):
             )
 
             is_post = ("--post-data" in cmd or "-d " in cmd or "-d@" in cmd
-                       or "--post-file" in cmd or "wget -O- --post" in cmd)
+                       or "--post-file" in cmd or "--data-binary" in cmd
+                       or "wget -O- --post" in cmd)
             post_data = None
             post_match = re.search(r"--post-data='([^']*)'", cmd)
             if not post_match:
                 post_match = re.search(r'-d\s+["\']?([^\'"\s]+)', cmd)
+            if not post_match:
+                post_match = re.search(r"--data-binary\s*=?\s*'([^']*)'", cmd)
             if post_match:
                 post_data = post_match.group(1)
 
             wants_headers = "-D -" in cmd or "-i" in cmd
             wants_status_only = "-o /dev/null" in cmd and "-w" in cmd
+            # `-w '\n%{http_code}'` without -o: the caller wants the status
+            # code appended to the body (the NUT-18/24 tests parse it).
+            wants_status_line = "%{http_code}" in cmd and not wants_status_only
+            # Forward request headers (-H/--header) verbatim — the mock
+            # backend branches on X-Cashu (NUT-24 payment).
+            headers = re.findall(r"(?:-H|--header)\s+'([^']+)'", cmd)
 
             args = ["curl", "-s", "--max-time", "5"]
+            for header in headers:
+                args.extend(["-H", header])
+            # Mark loopback-origin: requests through this transport are the
+            # mock's stand-in for the router's own `curl http://[::1]:2121`
+            # (loopback-only endpoints like reveal-seed require it).
+            args.extend(["-H", f"{MOCK_LOOPBACK_HEADER}: 1"])
             if wants_headers:
                 args.append("-D")
                 args.append("-")
             if wants_status_only:
                 args.extend(["-o", "/dev/null", "-w", "%{http_code}"])
+            elif wants_status_line:
+                args.extend(["-w", "\n%{http_code}"])
             args.append(mock_url)
             if is_post:
                 args.extend(["-X", "POST"])
@@ -862,10 +1095,31 @@ class MockRouter(Router):
         pass
 
     def _wait_for_backend(self, timeout: int = 15):
-        pass
+        # #18 parity: warn-not-raise — the mock ad is always served, but the
+        # semantics must mirror Router's so callers cannot tell them apart.
+        try:
+            self.wait_for_backend_ad(timeout=timeout)
+        except TimeoutError as exc:
+            log.warning(f"Mock backend not healthy after {timeout}s: {exc}")
 
     def wait_for_backend_ad(self, timeout: float = 45.0, interval: float = 2.0) -> None:
-        pass
+        """#18 parity of Router.wait_for_backend_ad: require the kind=10021
+        advertisement (readiness, not liveness) and raise TimeoutError when
+        it is not served within `timeout` — instead of the previous silent
+        no-op, which let mock-mode runs pass even if the mock's own ad
+        drifted away from the discovery contract."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                body = self.api_body("/")
+                if json.loads(body).get("kind") == 10021:
+                    return
+            except Exception:
+                pass
+            time.sleep(min(interval, max(0.05, deadline - time.monotonic())))
+        raise TimeoutError(
+            f"mock backend did not serve its kind=10021 advertisement within {timeout}s"
+        )
 
     def wait_for_cli_socket(self, timeout: int = 30, interval: int = 1) -> bool:
         return True

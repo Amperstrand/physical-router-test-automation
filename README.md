@@ -1,5 +1,12 @@
 # physical-router-test-automation
 
+> **⚠️ DEPRECATED — archived 2026-10-08.** This fork has been fully merged
+> upstream via [OpenTollGate/physical-router-test-automation#198](https://github.com/OpenTollGate/physical-router-test-automation/pull/198)
+> (all 68 commits, July–Oct 2026). The canonical repository is
+> **[OpenTollGate/physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)** —
+> open issues and PRs there. This repo is kept read-only for history; its
+> `main` is byte-identical to upstream `main` at `fe742b4`.
+
 Multi-tier test framework for TollGate backends running against physical OpenWrt routers, local QEMU VMs, or cloud labs. Supports the Go backend ([tollgate-module-basic-go](https://github.com/OpenTollGate/tollgate-module-basic-go)), the Rust 1:1 clone ([tollgate-module-basic-rust](https://github.com/felixfelix-bot/tollgate-module-basic-rust)), and the experimental Rust backend ([tollgate-rs](https://github.com/Amperstrand/tollgate-rs-ai-research-and-experiments)).
 
 ## Testing Venues
